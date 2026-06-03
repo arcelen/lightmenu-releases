@@ -694,6 +694,156 @@ const INIT = E + '@';
 
 const qrcode = require('./qrcode.js');
 
+// ─── MULTI-LANGUAGE ENCODING ──────────────────────────────────────────────────
+// Thermal printers use ESC/POS, which is byte-based. JS strings are Unicode.
+// Buffer.from(s, 'binary') = Latin-1 — safe for ASCII/ESC commands, but silently
+// mangles any character above U+00FF (Cyrillic, Arabic, CJK). This block detects
+// the dominant script in the ticket text and encodes accordingly.
+
+/** Scan strings to detect dominant non-Latin script. */
+function detectScript(...texts) {
+  let cyr = 0, arb = 0, cjk = 0;
+  for (const t of texts) {
+    if (!t) continue;
+    for (const ch of String(t)) {
+      const cp = ch.codePointAt(0);
+      if (cp >= 0x0400 && cp <= 0x04FF) cyr++;
+      else if (cp >= 0x0600 && cp <= 0x06FF) arb++;
+      else if (cp >= 0x3000 && cp <= 0x9FFF) cjk++;
+    }
+  }
+  const m = Math.max(cyr, arb, cjk);
+  if (m === 0) return 'latin';
+  if (arb === m) return 'arabic';
+  if (cyr === m) return 'cyrillic';
+  return 'cjk';
+}
+
+/** Collect all renderable text from a ticket for script detection. */
+function ticketScript(t) {
+  const items = t.items || [];
+  const s = t.settings || {};
+  return detectScript(
+    t.restaurant_name, t.waiter_name, t.cancelled_by,
+    t.restaurant_address, s.kitchen_footer_text, s.check_footer_text,
+    ...items.map(i => i.name),
+    ...items.map(i => i.special_requests || ''),
+    ...items.flatMap(i => (i.selected_addons || []).map(a => a.name)),
+    ...items.flatMap(i => (i.addons || []).map(a => a.name))
+  );
+}
+
+/** ESC/POS code page select — emitted after INIT, before any text. */
+function codePageHeader(script) {
+  if (script === 'cyrillic') return '\x1B\x74\x11'; // ESC t 17 — CP866 Cyrillic
+  return ''; // arabic/cjk/latin: rely on printer's default UTF-8 / Latin-1 mode
+}
+
+/** Unicode codepoint → CP866 byte. Returns 0x3F ('?') for unmapped chars. */
+function cp866(cp) {
+  if (cp < 0x80)                    return cp;
+  if (cp >= 0x0410 && cp <= 0x042F) return cp - 0x0410 + 0x80; // А–Я  → 0x80–0x9F
+  if (cp >= 0x0430 && cp <= 0x043F) return cp - 0x0430 + 0xA0; // а–п  → 0xA0–0xAF
+  if (cp >= 0x0440 && cp <= 0x044F) return cp - 0x0440 + 0xE0; // р–я  → 0xE0–0xEF
+  if (cp === 0x0401)                 return 0xF0;               // Ё
+  if (cp === 0x0451)                 return 0xF1;               // ё
+  if (cp === 0x2116)                 return 0xFC;               // №
+  return 0x3F;
+}
+
+// Arabic letter forms lookup: codepoint → [isolated, final, initial, medial]
+const AR_FORMS = {
+  0x0621:[0xFE80,0xFE80,0xFE80,0xFE80], 0x0622:[0xFE81,0xFE82,0xFE81,0xFE82],
+  0x0623:[0xFE83,0xFE84,0xFE83,0xFE84], 0x0624:[0xFE85,0xFE86,0xFE85,0xFE86],
+  0x0625:[0xFE87,0xFE88,0xFE87,0xFE88], 0x0626:[0xFE89,0xFE8A,0xFE8B,0xFE8C],
+  0x0627:[0xFE8D,0xFE8E,0xFE8D,0xFE8E], 0x0628:[0xFE8F,0xFE90,0xFE91,0xFE92],
+  0x0629:[0xFE93,0xFE94,0xFE93,0xFE94], 0x062A:[0xFE95,0xFE96,0xFE97,0xFE98],
+  0x062B:[0xFE99,0xFE9A,0xFE9B,0xFE9C], 0x062C:[0xFE9D,0xFE9E,0xFE9F,0xFEA0],
+  0x062D:[0xFEA1,0xFEA2,0xFEA3,0xFEA4], 0x062E:[0xFEA5,0xFEA6,0xFEA7,0xFEA8],
+  0x062F:[0xFEA9,0xFEAA,0xFEA9,0xFEAA], 0x0630:[0xFEAB,0xFEAC,0xFEAB,0xFEAC],
+  0x0631:[0xFEAD,0xFEAE,0xFEAD,0xFEAE], 0x0632:[0xFEAF,0xFEB0,0xFEAF,0xFEB0],
+  0x0633:[0xFEB1,0xFEB2,0xFEB3,0xFEB4], 0x0634:[0xFEB5,0xFEB6,0xFEB7,0xFEB8],
+  0x0635:[0xFEB9,0xFEBA,0xFEBB,0xFEBC], 0x0636:[0xFEBD,0xFEBE,0xFEBF,0xFEC0],
+  0x0637:[0xFEC1,0xFEC2,0xFEC3,0xFEC4], 0x0638:[0xFEC5,0xFEC6,0xFEC7,0xFEC8],
+  0x0639:[0xFEC9,0xFECA,0xFECB,0xFECC], 0x063A:[0xFECD,0xFECE,0xFECF,0xFED0],
+  0x0641:[0xFED1,0xFED2,0xFED3,0xFED4], 0x0642:[0xFED5,0xFED6,0xFED7,0xFED8],
+  0x0643:[0xFED9,0xFEDA,0xFEDB,0xFEDC], 0x0644:[0xFEDD,0xFEDE,0xFEDF,0xFEE0],
+  0x0645:[0xFEE1,0xFEE2,0xFEE3,0xFEE4], 0x0646:[0xFEE5,0xFEE6,0xFEE7,0xFEE8],
+  0x0647:[0xFEE9,0xFEEA,0xFEEB,0xFEEC], 0x0648:[0xFEED,0xFEEE,0xFEED,0xFEEE],
+  0x0649:[0xFEEF,0xFEF0,0xFEEF,0xFEF0], 0x064A:[0xFEF1,0xFEF2,0xFEF3,0xFEF4],
+};
+// Letters that don't connect on their left side (right-joining only)
+const AR_RJ = new Set([0x0621,0x0622,0x0623,0x0624,0x0625,0x0627,0x0629,
+                        0x062F,0x0630,0x0631,0x0632,0x0648,0x0649]);
+
+/** Reshape Arabic text: choose the correct letter form based on context. */
+function reshapeArabic(text) {
+  const cps = [...text].map(c => c.codePointAt(0));
+  return cps.map((cp, i) => {
+    const f = AR_FORMS[cp];
+    if (!f) return String.fromCodePoint(cp);
+    let prev = false, next = false;
+    for (let j = i - 1; j >= 0; j--) {
+      const p = cps[j];
+      if (p >= 0x064B && p <= 0x065F) continue; // skip diacritics
+      prev = AR_FORMS[p] !== undefined && !AR_RJ.has(p); break;
+    }
+    for (let j = i + 1; j < cps.length; j++) {
+      const n = cps[j];
+      if (n >= 0x064B && n <= 0x065F) continue;
+      next = AR_FORMS[n] !== undefined; break;
+    }
+    const idx = prev && next ? 3 : prev ? 1 : next ? 2 : 0;
+    return String.fromCodePoint(f[idx]);
+  }).join('');
+}
+
+/**
+ * Reverse a single line's Arabic content for RTL display. Any leading non-Arabic
+ * characters (whitespace, "2x ", "[INVIT] ") stay at the left margin so layout
+ * alignment is preserved.
+ */
+function rtlLine(line) {
+  if (!/[؀-ۿ]/.test(line)) return line;
+  const m = line.match(/^([^؀-ۿ]*)([\s\S]*?)([^؀-ۿ]*)$/);
+  if (!m) return line;
+  const [, head, mid, tail] = m;
+  return head + [...reshapeArabic(mid)].reverse().join('') + tail;
+}
+
+/**
+ * Convert a ticket string to a printable Buffer with script-aware encoding.
+ *
+ * - ESC/POS control bytes (codepoint ≤ 0xFF) always pass through as raw bytes.
+ * - latin    → Buffer.from(b, 'binary')  (unchanged from v6.0.2 behaviour)
+ * - cyrillic → CP866 byte per character (printer is in CP866 mode via ESC t 17)
+ * - arabic   → reshape + RTL-reverse per line, then UTF-8
+ * - cjk      → UTF-8 (works on printers with built-in CJK font)
+ */
+function toBuffer(b, script) {
+  if (script === 'latin') return Buffer.from(b, 'binary');
+
+  if (script === 'arabic') {
+    b = b.split('\n').map(rtlLine).join('\n');
+  }
+
+  const bytes = [];
+  for (const ch of b) {
+    const cp = ch.codePointAt(0);
+    if (cp <= 0xFF) {
+      bytes.push(cp); // ASCII + ESC/POS command bytes pass through unchanged
+    } else if (script === 'cyrillic') {
+      bytes.push(cp866(cp));
+    } else {
+      // arabic (Presentation Forms FE70–FEFF) and cjk: encode as UTF-8
+      const utf = Buffer.from(ch, 'utf8');
+      for (const byte of utf) bytes.push(byte);
+    }
+  }
+  return Buffer.from(bytes);
+}
+// ─────────────────────────────────────────────────────────────────────────────
+
 function qrToRaster(text) {
   if (!text || typeof text !== 'string') return null;
   let qr;
@@ -821,7 +971,8 @@ function buildKitchenTicket(t) {
   const currency = t.currency;
   const sep = sepLine(s.separator_style);
   const logo = logoBytes(s);
-  let b = INIT;
+  const script = ticketScript(t);
+  let b = INIT + codePageHeader(script);
   if (s.show_restaurant_header !== false && t.restaurant_name) {
     b += zonePrefix({size:s.order_header_font_size, bold:s.order_header_font_bold, align:s.order_header_align, bg:s.order_header_bg}, {size:'M', bold:'bold', align:'center'});
     b += t.restaurant_name.toUpperCase() + '\n';
@@ -868,7 +1019,7 @@ function buildKitchenTicket(t) {
     b += zoneSuffix();
   }
   b += CUT;
-  const textBuf = Buffer.from(b, 'binary');
+  const textBuf = toBuffer(b, script);
   return logo ? Buffer.concat([Buffer.from(INIT, 'binary'), logo, textBuf]) : textBuf;
 }
 
@@ -880,7 +1031,8 @@ function buildCancelTicket(t) {
   var timeStr = fmtTime(d, s.time_format);
   var dateStr = fmtDate(d, s.date_format);
   var logo = logoBytes(s);
-  var b = INIT + ALIGN_CENTER + FONT_LARGE_B + lbl(s,'cancelled','!! CANCELLED !!') + '\n' + FONT_NORMAL;
+  var script = ticketScript(t);
+  var b = INIT + codePageHeader(script) + ALIGN_CENTER + FONT_LARGE_B + lbl(s,'cancelled','!! CANCELLED !!') + '\n' + FONT_NORMAL;
   b += ALIGN_LEFT + '\n';
   b += FONT_BOLD + dateStr + '   ' + timeStr + '\n' + FONT_NORMAL;
   b += FONT_TITLE + lbl(s,'table','Table') + ' : ' + (t.table_number || '?') + '\n' + FONT_NORMAL;
@@ -891,7 +1043,7 @@ function buildCancelTicket(t) {
     b += FONT_LARGE_B + (item.qty || 1) + 'x ' + (item.name || '').toUpperCase() + '\n' + FONT_NORMAL;
   }
   b += CUT;
-  var textBuf = Buffer.from(b, 'binary');
+  var textBuf = toBuffer(b, script);
   return logo ? Buffer.concat([Buffer.from(INIT, 'binary'), logo, textBuf]) : textBuf;
 }
 
@@ -905,7 +1057,8 @@ function buildTransferTicket(t) {
   var to = t.to_table || t.table_number || '?';
   var logo = logoBytes(s);
   var tableLbl = lbl(s,'table','Table');
-  var b = INIT + ALIGN_CENTER + FONT_LARGE_B + lbl(s,'transfer','** TRANSFER **') + '\n' + FONT_NORMAL;
+  var script = ticketScript(t);
+  var b = INIT + codePageHeader(script) + ALIGN_CENTER + FONT_LARGE_B + lbl(s,'transfer','** TRANSFER **') + '\n' + FONT_NORMAL;
   b += ALIGN_LEFT + '\n';
   b += FONT_BOLD + dateStr + '   ' + timeStr + '\n' + FONT_NORMAL;
   b += FONT_TITLE + lbl(s,'from','FROM') + '  : ' + tableLbl + ' ' + from + '\n' + FONT_NORMAL;
@@ -917,7 +1070,7 @@ function buildTransferTicket(t) {
     b += FONT_LARGE_B + (it.qty || 1) + 'x ' + (it.name || '').toUpperCase() + '\n' + FONT_NORMAL;
   }
   b += CUT;
-  var textBuf = Buffer.from(b, 'binary');
+  var textBuf = toBuffer(b, script);
   return logo ? Buffer.concat([Buffer.from(INIT, 'binary'), logo, textBuf]) : textBuf;
 }
 
@@ -927,9 +1080,10 @@ function buildCheckTicket(t) {
   const d = new Date(t.time || Date.now());
   const sep = sepLine(s.separator_style);
   const logo = logoBytes(s);
+  const script = ticketScript(t);
   const WL = 24;
   function centerL(text) { text = String(text || '').slice(0, WL); const p = Math.floor((WL - text.length) / 2); return ' '.repeat(Math.max(0, p)) + text; }
-  let b = INIT;
+  let b = INIT + codePageHeader(script);
   // When a logo is printed first, skip the leading blank line so there is no
   // gap between the logo image and the restaurant name below it.
   b += (logo ? '' : '\n') + ALIGN_CENTER + FONT_LARGE_B;
@@ -1025,7 +1179,7 @@ function buildCheckTicket(t) {
   const qrBuf = qrToRaster(qrUrl);
   if (qrBuf) {
     b += '\n' + ALIGN_CENTER + FONT_NORMAL + lbl(s,'scan_to_save','Scan to save this bill:') + '\n';
-    const textBefore = Buffer.from(b, 'binary');
+    const textBefore = toBuffer(b, script);
     const after = Buffer.from(CUT, 'binary');
     const checkBuf = Buffer.concat([textBefore, Buffer.from(ALIGN_CENTER, 'binary'), qrBuf, after]);
     // Prepend logo without an extra INIT (which adds a blank line on most printers).
@@ -1033,7 +1187,7 @@ function buildCheckTicket(t) {
     return logo ? Buffer.concat([Buffer.from(ALIGN_CENTER, 'binary'), logo, checkBuf]) : checkBuf;
   }
   b += CUT;
-  const textBuf = Buffer.from(b, 'binary');
+  const textBuf = toBuffer(b, script);
   return logo ? Buffer.concat([Buffer.from(ALIGN_CENTER, 'binary'), logo, textBuf]) : textBuf;
 }
 
