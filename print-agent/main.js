@@ -852,7 +852,7 @@ function buildKitchenTicket(t) {
     if (showPrice) b += fillLine(nameLine, priceStr) + '\n';
     else           b += nameLine + '\n';
     b += FONT_NORMAL;
-    for (const addon of getAddons(item)) b += FONT_LARGE + tr('   + ' + addon.name, W) + '\n' + FONT_NORMAL;
+    for (const addon of getAddons(item)) b += FONT_LARGE + tr('   ' + (item.qty || 1) + 'x + ' + addon.name, W) + '\n' + FONT_NORMAL;
     if (item.special_requests) b += FONT_LARGE + tr('  * ' + item.special_requests, W) + '\n' + FONT_NORMAL;
   }
   b += sep + '\n';
@@ -963,12 +963,13 @@ function buildCheckTicket(t) {
     b += zoneSuffix();
     for (const addon of getAddons(item)) {
       const aprice = Number(addon.price || 0);
+      const addonLabel = '   ' + qty + 'x + ' + addon.name;
       if (aprice > 0) {
         subtotal += aprice * qty;
         const aps = fmtPrice(aprice * qty, currency);
-        b += FONT_BOLD + fillLine(tr('   + ' + addon.name, W - aps.length - 1), aps) + '\n' + FONT_NORMAL;
+        b += FONT_BOLD + fillLine(tr(addonLabel, W - aps.length - 1), aps) + '\n' + FONT_NORMAL;
       } else {
-        b += FONT_NORMAL + tr('   + ' + addon.name, W) + '\n';
+        b += FONT_NORMAL + tr(addonLabel, W) + '\n';
       }
     }
     // special_requests intentionally hidden on check ticket (kitchen only)
