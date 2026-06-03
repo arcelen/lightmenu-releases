@@ -22,8 +22,14 @@ const AGENT_VERSION = (() => {
 // â”€â”€â”€ PRE-CONFIGURED PER RESTAURANT â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 // These placeholders are replaced automatically when you download the
 // Print Agent from your LightMenu Printer Setup page.
-const RESTAURANT_ID = '__RESTAURANT_ID__';
-const API_TOKEN     = '__API_TOKEN__';
+// Credentials live in config.json — never overwritten by auto-updates.
+// Falls back to legacy hardcoded values for agents installed before this change.
+const _cfg = (() => {
+    try { return JSON.parse(fs.readFileSync(path.join(__dirname, 'config.json'), 'utf8')); }
+    catch { return {}; }
+})();
+const RESTAURANT_ID = _cfg.restaurant_id || '__RESTAURANT_ID__';
+const API_TOKEN     = _cfg.api_token     || '__API_TOKEN__';
 
 // LightMenu Supabase endpoint â€” do not change
 const SUPABASE_URL     = 'https://xakaknyanjzabxqmcipz.supabase.co';
