@@ -398,6 +398,43 @@ let _scanTimer = null;
 let _scanCount = 0;
 let _notifiedNotFound = false;
 
+// ─── HEARTBEAT ────────────────────────────────────────────────────────────────
+// The dashboard's "Print Agent: Active/Inactive" pill reads this timestamp from
+// the agent's "scan" printer_configs row. We write it every 20s. The dashboard
+// shows Active when it's within the last 60s, Inactive otherwise.
+//
+// Why DB-based instead of an HTTP /status ping from the browser:
+//   - With shared tunnel mode (print.lightmenu.app) the browser can't tell which
+//     restaurant's agent it's reaching — all agents share the same domain.
+//   - Browsers block direct LAN HTTP calls from HTTPS pages (mixed content).
+//   - This works identically for LAN + tunnel + behind-NAT setups.
+async function sendHeartbeat() {
+  if (!RESTAURANT_ID || RESTAURANT_ID === '__RESTAURANT_ID__') return;
+  try {
+    const existing = await supabaseGet('printer_configs', { restaurant_id: RESTAURANT_ID, printer_type: 'scan' });
+    const now = new Date().toISOString();
+    if (Array.isArray(existing) && existing.length > 0) {
+      // Merge into existing settings so we don't wipe discovered_ips/scanned_at
+      const prevSettings = existing[0].settings || {};
+      await supabasePatch('printer_configs', existing[0].id, {
+        settings: { ...prevSettings, last_heartbeat: now, agent_version: AGENT_VERSION },
+      });
+    } else {
+      await supabasePost('printer_configs', {
+        restaurant_id: RESTAURANT_ID,
+        name: '__scan__',
+        printer_type: 'scan',
+        is_active: false,
+        settings: { last_heartbeat: now, agent_version: AGENT_VERSION },
+      });
+    }
+  } catch (e) {
+    log('Heartbeat failed: ' + e.message);
+  }
+}
+setTimeout(sendHeartbeat, 1500);   // first ping right after boot
+setInterval(sendHeartbeat, 20000); // then every 20s
+
 function showWindowsNotification(title, msg) {
   psRun([
     `Add-Type -AssemblyName System.Windows.Forms`,
