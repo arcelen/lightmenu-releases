@@ -580,12 +580,23 @@ async function pollAndPrint() {
           continue;
         }
 
-        let data;
-        switch (ticketType) {
-          case 'check':    data = buildCheckTicket(ticket);    break;
-          case 'cancel':   data = buildCancelTicket(ticket);   break;
-          case 'transfer': data = buildTransferTicket(ticket); break;
-          default:         data = buildKitchenTicket(ticket);  break;
+        // Raster path FIRST: if the web app sent a pre-rendered bitmap (used
+        // for Arabic/CJK/Hebrew/Thai where this printer has no font ROM),
+        // print the pixels directly and skip the text builder entirely. If
+        // the bitmap is malformed, buildRasterTicket returns null and we
+        // fall through to the text path — never a silent failure.
+        let data = null;
+        if (job.bitmap_b64) {
+          data = buildRasterTicket(job.bitmap_b64, job.bitmap_width_dots, job.bitmap_height);
+          if (data) log('Raster mode: ' + job.bitmap_width_dots + 'x' + job.bitmap_height + ' dots');
+        }
+        if (!data) {
+          switch (ticketType) {
+            case 'check':    data = buildCheckTicket(ticket);    break;
+            case 'cancel':   data = buildCancelTicket(ticket);   break;
+            case 'transfer': data = buildTransferTicket(ticket); break;
+            default:         data = buildKitchenTicket(ticket);  break;
+          }
         }
 
         const copies = (ticketType === 'check' ? settings.check_copies : settings.order_copies) || 1;
@@ -885,6 +896,53 @@ function toBuffer(b, script) {
   return Buffer.from(bytes);
 }
 // ─────────────────────────────────────────────────────────────────────────────
+
+/**
+ * Build an ESC/POS raster ticket from a pre-rendered 1-bit bitmap.
+ *
+ * The web app rasterises tickets containing non-Latin/Cyrillic text (Arabic,
+ * CJK, Hebrew, Thai) on a <canvas> because the printer firmware has no font
+ * ROM for those scripts. We get the resulting bitmap as base64-encoded
+ * packed bytes (MSB-first, row-major) plus its dimensions, and emit the
+ * exact byte stream the printer's `GS v 0` raster command expects.
+ *
+ * Wrapped with INIT + line feeds + CUT so it prints as a complete ticket,
+ * not a hanging image. Returns null if anything looks malformed — callers
+ * fall back to the text path.
+ *
+ * @param {string} b64        base64 of the packed bitmap bytes
+ * @param {number} widthDots  width in pixels (must be multiple of 8)
+ * @param {number} height     height in pixels
+ */
+function buildRasterTicket(b64, widthDots, height) {
+  if (!b64 || !widthDots || !height) return null;
+  let buf;
+  try { buf = Buffer.from(b64, 'base64'); }
+  catch (e) { log('Raster decode failed: ' + e.message); return null; }
+
+  const bytesPerRow = widthDots >> 3;
+  const expected = bytesPerRow * height;
+  if (buf.length !== expected) {
+    log('Raster size mismatch — expected ' + expected + ' bytes, got ' + buf.length + '. Falling back to text path.');
+    return null;
+  }
+
+  // GS v 0 m xL xH yL yH d1...dk
+  //   m   = 0 (normal — no horizontal/vertical doubling)
+  //   xL/xH = width in BYTES, little-endian
+  //   yL/yH = height in DOTS, little-endian
+  const xL = bytesPerRow & 0xFF, xH = (bytesPerRow >> 8) & 0xFF;
+  const yL = height & 0xFF,      yH = (height >> 8) & 0xFF;
+  const rasterCmd = Buffer.from([0x1D, 0x76, 0x30, 0x00, xL, xH, yL, yH]);
+
+  // Wrap with init + a few line feeds + cut so it prints as a finished ticket.
+  // INIT and CUT are pure ASCII control bytes; safe to emit as latin1 bytes.
+  const init   = Buffer.from(INIT,    'binary');
+  const center = Buffer.from(ALIGN_CENTER, 'binary');
+  const feed   = Buffer.from(FEED(4), 'binary');
+  const cut    = Buffer.from(CUT,     'binary');
+  return Buffer.concat([init, center, rasterCmd, buf, feed, cut]);
+}
 
 function qrToRaster(text) {
   if (!text || typeof text !== 'string') return null;
@@ -1285,10 +1343,17 @@ http.createServer((req, res) => {
     req.on('end', async () => {
       try {
         const ticket = JSON.parse(body);
-        let data;
-        switch (ticket.type) {
-          case 'check':    data = buildCheckTicket(ticket);   log('CHECK: Mesa ' + ticket.table_number); break;
-          default:         data = buildKitchenTicket(ticket); log('KITCHEN: Mesa ' + ticket.table_number);
+        // Raster path: prefer pre-rendered bitmap when present (Arabic/CJK/etc.)
+        let data = null;
+        if (ticket.bitmap_b64) {
+          data = buildRasterTicket(ticket.bitmap_b64, ticket.bitmap_width_dots, ticket.bitmap_height);
+          if (data) log('RASTER: ' + ticket.bitmap_width_dots + 'x' + ticket.bitmap_height);
+        }
+        if (!data) {
+          switch (ticket.type) {
+            case 'check':    data = buildCheckTicket(ticket);   log('CHECK: Mesa ' + ticket.table_number); break;
+            default:         data = buildKitchenTicket(ticket); log('KITCHEN: Mesa ' + ticket.table_number);
+          }
         }
         const copies = (ticket.type === 'check' ? ticket.settings?.check_copies : ticket.settings?.order_copies) || 1;
         for (let i = 0; i < Math.min(copies, 3); i++) await sendToPrinter(data);
