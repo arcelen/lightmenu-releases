@@ -723,9 +723,14 @@ function detectScript(...texts) {
 function ticketScript(t) {
   const items = t.items || [];
   const s = t.settings || {};
+  // s.labels holds the user-translated UI strings ("Стол", "Mesa", etc.).
+  // Scan ALL its values, not just the few hand-picked fields — otherwise a
+  // ticket with Latin item names but Cyrillic labels falls back to 'latin'
+  // and the labels get truncated to ASCII garbage.
   return detectScript(
     t.restaurant_name, t.waiter_name, t.cancelled_by,
     t.restaurant_address, s.kitchen_footer_text, s.check_footer_text,
+    ...Object.values(s.labels || {}),
     ...items.map(i => i.name),
     ...items.map(i => i.special_requests || ''),
     ...items.flatMap(i => (i.selected_addons || []).map(a => a.name)),
