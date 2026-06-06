@@ -937,9 +937,14 @@ function buildRasterTicket(b64, widthDots, height) {
 
   // Wrap with init + a few line feeds + cut so it prints as a finished ticket.
   // INIT and CUT are pure ASCII control bytes; safe to emit as latin1 bytes.
+  // FEED(1) here is INTENTIONALLY shorter than the kitchen/text builders'
+  // FEED(4): the rasterised bitmap already includes its own bottom padding
+  // sized in the web app, so emitting extra paper here would leave a visible
+  // white gap below the QR before the cut. This is the RASTER path only —
+  // text-mode Spanish/English/French bills still use their original FEED.
   const init   = Buffer.from(INIT,    'binary');
   const center = Buffer.from(ALIGN_CENTER, 'binary');
-  const feed   = Buffer.from(FEED(4), 'binary');
+  const feed   = Buffer.from(FEED(1), 'binary');
   const cut    = Buffer.from(CUT,     'binary');
   return Buffer.concat([init, center, rasterCmd, buf, feed, cut]);
 }
