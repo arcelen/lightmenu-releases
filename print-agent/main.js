@@ -1271,22 +1271,30 @@ function buildCheckTicket(t) {
     if (pl) b += '\n' + ALIGN_CENTER + FONT_TITLE + center(pl) + '\n' + FONT_NORMAL + ALIGN_LEFT + '\n';
   }
   b += sep + '\n\n';
-  const footerText = s.check_footer_text || (lbl(s,'thank_you','Thank you for your visit!') + '\nPowered by LightMenu\nlightmenu.app');
+  // Footer: just the user's "thank you" text. The LightMenu branding used
+  // to be appended as a default fallback here, but that meant any custom
+  // check_footer_text wiped it out. We now print branding ALWAYS, after the
+  // QR — see brandingText below.
+  const footerText = s.check_footer_text || lbl(s,'thank_you','Thank you for your visit!');
   b += ALIGN_CENTER + FONT_BOLD;
   for (const line of footerText.split(/\\n|\n/)) if (line.trim()) b += line.trim() + '\n';
   b += FONT_NORMAL + ALIGN_LEFT + '\n';
   const qrUrl = t.bill_url || t.qr_url || (t.order_id ? 'https://lightmenu.app/bill/' + t.order_id : 'https://lightmenu.app');
   const qrBuf = qrToRaster(qrUrl);
+  // Branding line printed AFTER the QR on every bill, every language.
+  // Latin ASCII, safe to encode via toBuffer regardless of script.
+  const brandingText = '\n' + ALIGN_CENTER + FONT_NORMAL + 'Powered by LightMenu\nlightmenu.app\n' + ALIGN_LEFT;
   if (qrBuf) {
     b += '\n' + ALIGN_CENTER + FONT_NORMAL + lbl(s,'scan_to_save','Scan to save this bill:') + '\n';
     const textBefore = toBuffer(b, script);
+    const branding = toBuffer(brandingText, script);
     const after = Buffer.from(CUT, 'binary');
-    const checkBuf = Buffer.concat([textBefore, Buffer.from(ALIGN_CENTER, 'binary'), qrBuf, after]);
-    // Prepend logo without an extra INIT (which adds a blank line on most printers).
-    // ALIGN_CENTER centres the logo image; the ticket body already has its own INIT.
+    // Order: text → QR image → branding → cut
+    const checkBuf = Buffer.concat([textBefore, Buffer.from(ALIGN_CENTER, 'binary'), qrBuf, branding, after]);
     return logo ? Buffer.concat([Buffer.from(ALIGN_CENTER, 'binary'), logo, checkBuf]) : checkBuf;
   }
-  b += CUT;
+  // No QR fallback path — branding still goes last.
+  b += brandingText + CUT;
   const textBuf = toBuffer(b, script);
   return logo ? Buffer.concat([Buffer.from(ALIGN_CENTER, 'binary'), logo, textBuf]) : textBuf;
 }
