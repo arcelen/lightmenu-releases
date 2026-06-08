@@ -637,18 +637,33 @@ function sendViaNetwork(data, ip, port) {
 }
 
 function sendToPrinter(data, ip, port) {
-  // Strategy 1: direct write (no driver needed)
-  if (usbDirectPort) {
-    return sendViaDirectUsb(data, usbDirectPort).catch(e => {
-      log('USB direct write failed (' + e.message + ') â€” retrying via spooler or network');
-      usbDirectPort = null;
-      return sendToPrinter(data, ip, port); // retry with next available method
+  // PRIORITY: if the dashboard has an explicit network printer configured for
+  // this restaurant, ALWAYS use the network. Leftover "LightMenu USB" spooler
+  // entries from a previous USB session would otherwise silently swallow the
+  // job into a Windows print queue that points at an unplugged USB port.
+  // The owner's deliberate choice (a network IP in PrinterConfig) wins over
+  // whatever USB plumbing the agent happened to discover at boot.
+  if (ip) {
+    return sendViaNetwork(data, ip, port).catch(e => {
+      // If the network printer is genuinely unreachable, fall back to USB
+      // before reporting failure — better to print on a stale USB than not at all.
+      log('Network send to ' + ip + ':' + port + ' failed (' + e.message + ')');
+      if (usbDirectPort) return sendViaDirectUsb(data, usbDirectPort);
+      if (usbWinPrinter) return sendViaSpooler(data, usbWinPrinter);
+      throw e;
     });
   }
-  // Strategy 2: Windows spooler (Generic/Text-Only driver)
+  // No network IP configured — fall back to USB-first behaviour.
+  if (usbDirectPort) {
+    return sendViaDirectUsb(data, usbDirectPort).catch(e => {
+      log('USB direct write failed (' + e.message + ') — retrying via spooler or network');
+      usbDirectPort = null;
+      return sendToPrinter(data, ip, port);
+    });
+  }
   if (usbWinPrinter) {
     return sendViaSpooler(data, usbWinPrinter).catch(e => {
-      log('USB spooler failed (' + e.message + ') â€” switching to network');
+      log('USB spooler failed (' + e.message + ') — switching to network');
       usbWinPrinter = null;
       return sendViaNetwork(data, ip, port);
     });
