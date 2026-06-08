@@ -630,10 +630,30 @@ function sendViaNetwork(data, ip, port) {
   port = port || PRINTER_PORT;
   return new Promise((resolve, reject) => {
     const s = new net.Socket();
-    const t = setTimeout(() => { s.destroy(); reject(new Error('Printer timeout')); }, 8000);
-    s.connect(port, ip, () => { s.write(data, () => s.end()); });
-    s.on('close', () => { clearTimeout(t); resolve(); });
-    s.on('error', e => { clearTimeout(t); reject(e); });
+    let settled = false;
+    const finish = (err) => {
+      if (settled) return;
+      settled = true;
+      if (err) reject(err); else resolve();
+    };
+
+    // Two separate budgets. The connect timeout must NOT cover the data
+    // transfer — cheap thermal printers have ~4 KB TCP buffers and apply
+    // hard backpressure while they print, so a logo + text ticket easily
+    // takes 15–30 s to drain even though the bytes are correct. The old
+    // single 8 s timer was destroying the socket mid-transmission, so the
+    // printer fired the logo bitmap and then nothing else.
+    const connectTimer = setTimeout(() => { s.destroy(); finish(new Error('Connect timeout')); }, 5000);
+    // Overall ceiling so a totally hung printer doesn't wedge the queue
+    // forever. 60 s is comfortably above any real-world print time.
+    const overallTimer = setTimeout(() => { s.destroy(); finish(new Error('Print timeout (60s)')); }, 60000);
+
+    s.connect(port, ip, () => {
+      clearTimeout(connectTimer);
+      s.write(data, () => s.end());
+    });
+    s.on('close', () => { clearTimeout(connectTimer); clearTimeout(overallTimer); finish(); });
+    s.on('error', e => { clearTimeout(connectTimer); clearTimeout(overallTimer); finish(e); });
   });
 }
 
