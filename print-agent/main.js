@@ -1,4 +1,4 @@
-﻿const net   = require('net');
+const net   = require('net');
 const http  = require('http');
 const https = require('https');
 const fs    = require('fs');
@@ -22,8 +22,14 @@ const AGENT_VERSION = (() => {
 // â”€â”€â”€ PRE-CONFIGURED PER RESTAURANT â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 // These placeholders are replaced automatically when you download the
 // Print Agent from your LightMenu Printer Setup page.
-const RESTAURANT_ID   = _cfg.restaurant_id   || '__RESTAURANT_ID__';
-const API_TOKEN       = _cfg.api_token       || '__API_TOKEN__';
+// Credentials live in config.json — never overwritten by auto-updates.
+// Falls back to legacy hardcoded values for agents installed before this change.
+const _cfg = (() => {
+    try { return JSON.parse(fs.readFileSync(path.join(__dirname, 'config.json'), 'utf8')); }
+    catch { return {}; }
+})();
+const RESTAURANT_ID = _cfg.restaurant_id || '__RESTAURANT_ID__';
+const API_TOKEN     = _cfg.api_token     || '__API_TOKEN__';
 
 // LightMenu Supabase endpoint â€” do not change
 const SUPABASE_URL     = 'https://xakaknyanjzabxqmcipz.supabase.co';
@@ -392,6 +398,43 @@ let _scanTimer = null;
 let _scanCount = 0;
 let _notifiedNotFound = false;
 
+// ─── HEARTBEAT ────────────────────────────────────────────────────────────────
+// The dashboard's "Print Agent: Active/Inactive" pill reads this timestamp from
+// the agent's "scan" printer_configs row. We write it every 20s. The dashboard
+// shows Active when it's within the last 60s, Inactive otherwise.
+//
+// Why DB-based instead of an HTTP /status ping from the browser:
+//   - With shared tunnel mode (print.lightmenu.app) the browser can't tell which
+//     restaurant's agent it's reaching — all agents share the same domain.
+//   - Browsers block direct LAN HTTP calls from HTTPS pages (mixed content).
+//   - This works identically for LAN + tunnel + behind-NAT setups.
+async function sendHeartbeat() {
+  if (!RESTAURANT_ID || RESTAURANT_ID === '__RESTAURANT_ID__') return;
+  try {
+    const existing = await supabaseGet('printer_configs', { restaurant_id: RESTAURANT_ID, printer_type: 'scan' });
+    const now = new Date().toISOString();
+    if (Array.isArray(existing) && existing.length > 0) {
+      // Merge into existing settings so we don't wipe discovered_ips/scanned_at
+      const prevSettings = existing[0].settings || {};
+      await supabasePatch('printer_configs', existing[0].id, {
+        settings: { ...prevSettings, last_heartbeat: now, agent_version: AGENT_VERSION },
+      });
+    } else {
+      await supabasePost('printer_configs', {
+        restaurant_id: RESTAURANT_ID,
+        name: '__scan__',
+        printer_type: 'scan',
+        is_active: false,
+        settings: { last_heartbeat: now, agent_version: AGENT_VERSION },
+      });
+    }
+  } catch (e) {
+    log('Heartbeat failed: ' + e.message);
+  }
+}
+setTimeout(sendHeartbeat, 1500);   // first ping right after boot
+setInterval(sendHeartbeat, 20000); // then every 20s
+
 function showWindowsNotification(title, msg) {
   psRun([
     `Add-Type -AssemblyName System.Windows.Forms`,
@@ -537,12 +580,23 @@ async function pollAndPrint() {
           continue;
         }
 
-        let data;
-        switch (ticketType) {
-          case 'check':    data = buildCheckTicket(ticket);    break;
-          case 'cancel':   data = buildCancelTicket(ticket);   break;
-          case 'transfer': data = buildTransferTicket(ticket); break;
-          default:         data = buildKitchenTicket(ticket);  break;
+        // Raster path FIRST: if the web app sent a pre-rendered bitmap (used
+        // for Arabic/CJK/Hebrew/Thai where this printer has no font ROM),
+        // print the pixels directly and skip the text builder entirely. If
+        // the bitmap is malformed, buildRasterTicket returns null and we
+        // fall through to the text path — never a silent failure.
+        let data = null;
+        if (job.bitmap_b64) {
+          data = buildRasterTicket(job.bitmap_b64, job.bitmap_width_dots, job.bitmap_height);
+          if (data) log('Raster mode: ' + job.bitmap_width_dots + 'x' + job.bitmap_height + ' dots');
+        }
+        if (!data) {
+          switch (ticketType) {
+            case 'check':    data = buildCheckTicket(ticket);    break;
+            case 'cancel':   data = buildCancelTicket(ticket);   break;
+            case 'transfer': data = buildTransferTicket(ticket); break;
+            default:         data = buildKitchenTicket(ticket);  break;
+          }
         }
 
         const copies = (ticketType === 'check' ? settings.check_copies : settings.order_copies) || 1;
@@ -688,6 +742,213 @@ const INIT = E + '@';
 
 const qrcode = require('./qrcode.js');
 
+// ─── MULTI-LANGUAGE ENCODING ──────────────────────────────────────────────────
+// Thermal printers use ESC/POS, which is byte-based. JS strings are Unicode.
+// Buffer.from(s, 'binary') = Latin-1 — safe for ASCII/ESC commands, but silently
+// mangles any character above U+00FF (Cyrillic, Arabic, CJK). This block detects
+// the dominant script in the ticket text and encodes accordingly.
+
+/** Scan strings to detect dominant non-Latin script. */
+function detectScript(...texts) {
+  let cyr = 0, arb = 0, cjk = 0;
+  for (const t of texts) {
+    if (!t) continue;
+    for (const ch of String(t)) {
+      const cp = ch.codePointAt(0);
+      if (cp >= 0x0400 && cp <= 0x04FF) cyr++;
+      else if (cp >= 0x0600 && cp <= 0x06FF) arb++;
+      else if (cp >= 0x3000 && cp <= 0x9FFF) cjk++;
+    }
+  }
+  const m = Math.max(cyr, arb, cjk);
+  if (m === 0) return 'latin';
+  if (arb === m) return 'arabic';
+  if (cyr === m) return 'cyrillic';
+  return 'cjk';
+}
+
+/** Collect all renderable text from a ticket for script detection. */
+function ticketScript(t) {
+  const items = t.items || [];
+  const s = t.settings || {};
+  // s.labels holds the user-translated UI strings ("Стол", "Mesa", etc.).
+  // Scan ALL its values, not just the few hand-picked fields — otherwise a
+  // ticket with Latin item names but Cyrillic labels falls back to 'latin'
+  // and the labels get truncated to ASCII garbage.
+  return detectScript(
+    t.restaurant_name, t.waiter_name, t.cancelled_by,
+    t.restaurant_address, s.kitchen_footer_text, s.check_footer_text,
+    ...Object.values(s.labels || {}),
+    ...items.map(i => i.name),
+    ...items.map(i => i.special_requests || ''),
+    ...items.flatMap(i => (i.selected_addons || []).map(a => a.name)),
+    ...items.flatMap(i => (i.addons || []).map(a => a.name))
+  );
+}
+
+/** ESC/POS code page select — emitted after INIT, before any text. */
+function codePageHeader(script) {
+  if (script === 'cyrillic') return '\x1B\x74\x11'; // ESC t 17 — CP866 Cyrillic
+  return ''; // arabic/cjk/latin: rely on printer's default UTF-8 / Latin-1 mode
+}
+
+/** Unicode codepoint → CP866 byte. Returns 0x3F ('?') for unmapped chars. */
+function cp866(cp) {
+  if (cp < 0x80)                    return cp;
+  if (cp >= 0x0410 && cp <= 0x042F) return cp - 0x0410 + 0x80; // А–Я  → 0x80–0x9F
+  if (cp >= 0x0430 && cp <= 0x043F) return cp - 0x0430 + 0xA0; // а–п  → 0xA0–0xAF
+  if (cp >= 0x0440 && cp <= 0x044F) return cp - 0x0440 + 0xE0; // р–я  → 0xE0–0xEF
+  if (cp === 0x0401)                 return 0xF0;               // Ё
+  if (cp === 0x0451)                 return 0xF1;               // ё
+  if (cp === 0x2116)                 return 0xFC;               // №
+  return 0x3F;
+}
+
+// Arabic letter forms lookup: codepoint → [isolated, final, initial, medial]
+const AR_FORMS = {
+  0x0621:[0xFE80,0xFE80,0xFE80,0xFE80], 0x0622:[0xFE81,0xFE82,0xFE81,0xFE82],
+  0x0623:[0xFE83,0xFE84,0xFE83,0xFE84], 0x0624:[0xFE85,0xFE86,0xFE85,0xFE86],
+  0x0625:[0xFE87,0xFE88,0xFE87,0xFE88], 0x0626:[0xFE89,0xFE8A,0xFE8B,0xFE8C],
+  0x0627:[0xFE8D,0xFE8E,0xFE8D,0xFE8E], 0x0628:[0xFE8F,0xFE90,0xFE91,0xFE92],
+  0x0629:[0xFE93,0xFE94,0xFE93,0xFE94], 0x062A:[0xFE95,0xFE96,0xFE97,0xFE98],
+  0x062B:[0xFE99,0xFE9A,0xFE9B,0xFE9C], 0x062C:[0xFE9D,0xFE9E,0xFE9F,0xFEA0],
+  0x062D:[0xFEA1,0xFEA2,0xFEA3,0xFEA4], 0x062E:[0xFEA5,0xFEA6,0xFEA7,0xFEA8],
+  0x062F:[0xFEA9,0xFEAA,0xFEA9,0xFEAA], 0x0630:[0xFEAB,0xFEAC,0xFEAB,0xFEAC],
+  0x0631:[0xFEAD,0xFEAE,0xFEAD,0xFEAE], 0x0632:[0xFEAF,0xFEB0,0xFEAF,0xFEB0],
+  0x0633:[0xFEB1,0xFEB2,0xFEB3,0xFEB4], 0x0634:[0xFEB5,0xFEB6,0xFEB7,0xFEB8],
+  0x0635:[0xFEB9,0xFEBA,0xFEBB,0xFEBC], 0x0636:[0xFEBD,0xFEBE,0xFEBF,0xFEC0],
+  0x0637:[0xFEC1,0xFEC2,0xFEC3,0xFEC4], 0x0638:[0xFEC5,0xFEC6,0xFEC7,0xFEC8],
+  0x0639:[0xFEC9,0xFECA,0xFECB,0xFECC], 0x063A:[0xFECD,0xFECE,0xFECF,0xFED0],
+  0x0641:[0xFED1,0xFED2,0xFED3,0xFED4], 0x0642:[0xFED5,0xFED6,0xFED7,0xFED8],
+  0x0643:[0xFED9,0xFEDA,0xFEDB,0xFEDC], 0x0644:[0xFEDD,0xFEDE,0xFEDF,0xFEE0],
+  0x0645:[0xFEE1,0xFEE2,0xFEE3,0xFEE4], 0x0646:[0xFEE5,0xFEE6,0xFEE7,0xFEE8],
+  0x0647:[0xFEE9,0xFEEA,0xFEEB,0xFEEC], 0x0648:[0xFEED,0xFEEE,0xFEED,0xFEEE],
+  0x0649:[0xFEEF,0xFEF0,0xFEEF,0xFEF0], 0x064A:[0xFEF1,0xFEF2,0xFEF3,0xFEF4],
+};
+// Letters that don't connect on their left side (right-joining only)
+const AR_RJ = new Set([0x0621,0x0622,0x0623,0x0624,0x0625,0x0627,0x0629,
+                        0x062F,0x0630,0x0631,0x0632,0x0648,0x0649]);
+
+/** Reshape Arabic text: choose the correct letter form based on context. */
+function reshapeArabic(text) {
+  const cps = [...text].map(c => c.codePointAt(0));
+  return cps.map((cp, i) => {
+    const f = AR_FORMS[cp];
+    if (!f) return String.fromCodePoint(cp);
+    let prev = false, next = false;
+    for (let j = i - 1; j >= 0; j--) {
+      const p = cps[j];
+      if (p >= 0x064B && p <= 0x065F) continue; // skip diacritics
+      prev = AR_FORMS[p] !== undefined && !AR_RJ.has(p); break;
+    }
+    for (let j = i + 1; j < cps.length; j++) {
+      const n = cps[j];
+      if (n >= 0x064B && n <= 0x065F) continue;
+      next = AR_FORMS[n] !== undefined; break;
+    }
+    const idx = prev && next ? 3 : prev ? 1 : next ? 2 : 0;
+    return String.fromCodePoint(f[idx]);
+  }).join('');
+}
+
+/**
+ * Reverse a single line's Arabic content for RTL display. Any leading non-Arabic
+ * characters (whitespace, "2x ", "[INVIT] ") stay at the left margin so layout
+ * alignment is preserved.
+ */
+function rtlLine(line) {
+  if (!/[؀-ۿ]/.test(line)) return line;
+  const m = line.match(/^([^؀-ۿ]*)([\s\S]*?)([^؀-ۿ]*)$/);
+  if (!m) return line;
+  const [, head, mid, tail] = m;
+  return head + [...reshapeArabic(mid)].reverse().join('') + tail;
+}
+
+/**
+ * Convert a ticket string to a printable Buffer with script-aware encoding.
+ *
+ * - ESC/POS control bytes (codepoint ≤ 0xFF) always pass through as raw bytes.
+ * - latin    → Buffer.from(b, 'binary')  (unchanged from v6.0.2 behaviour)
+ * - cyrillic → CP866 byte per character (printer is in CP866 mode via ESC t 17)
+ * - arabic   → reshape + RTL-reverse per line, then UTF-8
+ * - cjk      → UTF-8 (works on printers with built-in CJK font)
+ */
+function toBuffer(b, script) {
+  if (script === 'latin') return Buffer.from(b, 'binary');
+
+  if (script === 'arabic') {
+    b = b.split('\n').map(rtlLine).join('\n');
+  }
+
+  const bytes = [];
+  for (const ch of b) {
+    const cp = ch.codePointAt(0);
+    if (cp <= 0xFF) {
+      bytes.push(cp); // ASCII + ESC/POS command bytes pass through unchanged
+    } else if (script === 'cyrillic') {
+      bytes.push(cp866(cp));
+    } else {
+      // arabic (Presentation Forms FE70–FEFF) and cjk: encode as UTF-8
+      const utf = Buffer.from(ch, 'utf8');
+      for (const byte of utf) bytes.push(byte);
+    }
+  }
+  return Buffer.from(bytes);
+}
+// ─────────────────────────────────────────────────────────────────────────────
+
+/**
+ * Build an ESC/POS raster ticket from a pre-rendered 1-bit bitmap.
+ *
+ * The web app rasterises tickets containing non-Latin/Cyrillic text (Arabic,
+ * CJK, Hebrew, Thai) on a <canvas> because the printer firmware has no font
+ * ROM for those scripts. We get the resulting bitmap as base64-encoded
+ * packed bytes (MSB-first, row-major) plus its dimensions, and emit the
+ * exact byte stream the printer's `GS v 0` raster command expects.
+ *
+ * Wrapped with INIT + line feeds + CUT so it prints as a complete ticket,
+ * not a hanging image. Returns null if anything looks malformed — callers
+ * fall back to the text path.
+ *
+ * @param {string} b64        base64 of the packed bitmap bytes
+ * @param {number} widthDots  width in pixels (must be multiple of 8)
+ * @param {number} height     height in pixels
+ */
+function buildRasterTicket(b64, widthDots, height) {
+  if (!b64 || !widthDots || !height) return null;
+  let buf;
+  try { buf = Buffer.from(b64, 'base64'); }
+  catch (e) { log('Raster decode failed: ' + e.message); return null; }
+
+  const bytesPerRow = widthDots >> 3;
+  const expected = bytesPerRow * height;
+  if (buf.length !== expected) {
+    log('Raster size mismatch — expected ' + expected + ' bytes, got ' + buf.length + '. Falling back to text path.');
+    return null;
+  }
+
+  // GS v 0 m xL xH yL yH d1...dk
+  //   m   = 0 (normal — no horizontal/vertical doubling)
+  //   xL/xH = width in BYTES, little-endian
+  //   yL/yH = height in DOTS, little-endian
+  const xL = bytesPerRow & 0xFF, xH = (bytesPerRow >> 8) & 0xFF;
+  const yL = height & 0xFF,      yH = (height >> 8) & 0xFF;
+  const rasterCmd = Buffer.from([0x1D, 0x76, 0x30, 0x00, xL, xH, yL, yH]);
+
+  // Wrap with init + a few line feeds + cut so it prints as a finished ticket.
+  // INIT and CUT are pure ASCII control bytes; safe to emit as latin1 bytes.
+  // FEED(1) here is INTENTIONALLY shorter than the kitchen/text builders'
+  // FEED(4): the rasterised bitmap already includes its own bottom padding
+  // sized in the web app, so emitting extra paper here would leave a visible
+  // white gap below the QR before the cut. This is the RASTER path only —
+  // text-mode Spanish/English/French bills still use their original FEED.
+  const init   = Buffer.from(INIT,    'binary');
+  const center = Buffer.from(ALIGN_CENTER, 'binary');
+  const feed   = Buffer.from(FEED(1), 'binary');
+  const cut    = Buffer.from(CUT,     'binary');
+  return Buffer.concat([init, center, rasterCmd, buf, feed, cut]);
+}
+
 function qrToRaster(text) {
   if (!text || typeof text !== 'string') return null;
   let qr;
@@ -815,7 +1076,8 @@ function buildKitchenTicket(t) {
   const currency = t.currency;
   const sep = sepLine(s.separator_style);
   const logo = logoBytes(s);
-  let b = INIT;
+  const script = ticketScript(t);
+  let b = INIT + codePageHeader(script);
   if (s.show_restaurant_header !== false && t.restaurant_name) {
     b += zonePrefix({size:s.order_header_font_size, bold:s.order_header_font_bold, align:s.order_header_align, bg:s.order_header_bg}, {size:'M', bold:'bold', align:'center'});
     b += t.restaurant_name.toUpperCase() + '\n';
@@ -852,7 +1114,7 @@ function buildKitchenTicket(t) {
     if (showPrice) b += fillLine(nameLine, priceStr) + '\n';
     else           b += nameLine + '\n';
     b += FONT_NORMAL;
-    for (const addon of getAddons(item)) b += FONT_LARGE + tr('   + ' + addon.name, W) + '\n' + FONT_NORMAL;
+    for (const addon of getAddons(item)) b += FONT_LARGE + tr('   ' + (item.qty || 1) + 'x + ' + addon.name, W) + '\n' + FONT_NORMAL;
     if (item.special_requests) b += FONT_LARGE + tr('  * ' + item.special_requests, W) + '\n' + FONT_NORMAL;
   }
   b += sep + '\n';
@@ -862,7 +1124,7 @@ function buildKitchenTicket(t) {
     b += zoneSuffix();
   }
   b += CUT;
-  const textBuf = Buffer.from(b, 'binary');
+  const textBuf = toBuffer(b, script);
   return logo ? Buffer.concat([Buffer.from(INIT, 'binary'), logo, textBuf]) : textBuf;
 }
 
@@ -874,7 +1136,8 @@ function buildCancelTicket(t) {
   var timeStr = fmtTime(d, s.time_format);
   var dateStr = fmtDate(d, s.date_format);
   var logo = logoBytes(s);
-  var b = INIT + ALIGN_CENTER + FONT_LARGE_B + lbl(s,'cancelled','!! CANCELLED !!') + '\n' + FONT_NORMAL;
+  var script = ticketScript(t);
+  var b = INIT + codePageHeader(script) + ALIGN_CENTER + FONT_LARGE_B + lbl(s,'cancelled','!! CANCELLED !!') + '\n' + FONT_NORMAL;
   b += ALIGN_LEFT + '\n';
   b += FONT_BOLD + dateStr + '   ' + timeStr + '\n' + FONT_NORMAL;
   b += FONT_TITLE + lbl(s,'table','Table') + ' : ' + (t.table_number || '?') + '\n' + FONT_NORMAL;
@@ -885,7 +1148,7 @@ function buildCancelTicket(t) {
     b += FONT_LARGE_B + (item.qty || 1) + 'x ' + (item.name || '').toUpperCase() + '\n' + FONT_NORMAL;
   }
   b += CUT;
-  var textBuf = Buffer.from(b, 'binary');
+  var textBuf = toBuffer(b, script);
   return logo ? Buffer.concat([Buffer.from(INIT, 'binary'), logo, textBuf]) : textBuf;
 }
 
@@ -899,7 +1162,8 @@ function buildTransferTicket(t) {
   var to = t.to_table || t.table_number || '?';
   var logo = logoBytes(s);
   var tableLbl = lbl(s,'table','Table');
-  var b = INIT + ALIGN_CENTER + FONT_LARGE_B + lbl(s,'transfer','** TRANSFER **') + '\n' + FONT_NORMAL;
+  var script = ticketScript(t);
+  var b = INIT + codePageHeader(script) + ALIGN_CENTER + FONT_LARGE_B + lbl(s,'transfer','** TRANSFER **') + '\n' + FONT_NORMAL;
   b += ALIGN_LEFT + '\n';
   b += FONT_BOLD + dateStr + '   ' + timeStr + '\n' + FONT_NORMAL;
   b += FONT_TITLE + lbl(s,'from','FROM') + '  : ' + tableLbl + ' ' + from + '\n' + FONT_NORMAL;
@@ -911,7 +1175,7 @@ function buildTransferTicket(t) {
     b += FONT_LARGE_B + (it.qty || 1) + 'x ' + (it.name || '').toUpperCase() + '\n' + FONT_NORMAL;
   }
   b += CUT;
-  var textBuf = Buffer.from(b, 'binary');
+  var textBuf = toBuffer(b, script);
   return logo ? Buffer.concat([Buffer.from(INIT, 'binary'), logo, textBuf]) : textBuf;
 }
 
@@ -921,9 +1185,10 @@ function buildCheckTicket(t) {
   const d = new Date(t.time || Date.now());
   const sep = sepLine(s.separator_style);
   const logo = logoBytes(s);
+  const script = ticketScript(t);
   const WL = 24;
   function centerL(text) { text = String(text || '').slice(0, WL); const p = Math.floor((WL - text.length) / 2); return ' '.repeat(Math.max(0, p)) + text; }
-  let b = INIT;
+  let b = INIT + codePageHeader(script);
   // When a logo is printed first, skip the leading blank line so there is no
   // gap between the logo image and the restaurant name below it.
   b += (logo ? '' : '\n') + ALIGN_CENTER + FONT_LARGE_B;
@@ -963,12 +1228,13 @@ function buildCheckTicket(t) {
     b += zoneSuffix();
     for (const addon of getAddons(item)) {
       const aprice = Number(addon.price || 0);
+      const addonLabel = '   ' + qty + 'x + ' + addon.name;
       if (aprice > 0) {
         subtotal += aprice * qty;
         const aps = fmtPrice(aprice * qty, currency);
-        b += FONT_BOLD + fillLine(tr('   + ' + addon.name, W - aps.length - 1), aps) + '\n' + FONT_NORMAL;
+        b += FONT_BOLD + fillLine(tr(addonLabel, W - aps.length - 1), aps) + '\n' + FONT_NORMAL;
       } else {
-        b += FONT_NORMAL + tr('   + ' + addon.name, W) + '\n';
+        b += FONT_NORMAL + tr(addonLabel, W) + '\n';
       }
     }
     // special_requests intentionally hidden on check ticket (kitchen only)
@@ -1010,23 +1276,31 @@ function buildCheckTicket(t) {
     if (pl) b += '\n' + ALIGN_CENTER + FONT_TITLE + center(pl) + '\n' + FONT_NORMAL + ALIGN_LEFT + '\n';
   }
   b += sep + '\n\n';
-  const footerText = s.check_footer_text || (lbl(s,'thank_you','Thank you for your visit!') + '\nPowered by LightMenu\nlightmenu.app');
+  // Footer: just the user's "thank you" text. The LightMenu branding used
+  // to be appended as a default fallback here, but that meant any custom
+  // check_footer_text wiped it out. We now print branding ALWAYS, after the
+  // QR — see brandingText below.
+  const footerText = s.check_footer_text || lbl(s,'thank_you','Thank you for your visit!');
   b += ALIGN_CENTER + FONT_BOLD;
   for (const line of footerText.split(/\\n|\n/)) if (line.trim()) b += line.trim() + '\n';
   b += FONT_NORMAL + ALIGN_LEFT + '\n';
   const qrUrl = t.bill_url || t.qr_url || (t.order_id ? 'https://lightmenu.app/bill/' + t.order_id : 'https://lightmenu.app');
   const qrBuf = qrToRaster(qrUrl);
+  // Branding line printed AFTER the QR on every bill, every language.
+  // Latin ASCII, safe to encode via toBuffer regardless of script.
+  const brandingText = '\n' + ALIGN_CENTER + FONT_NORMAL + 'Powered by LightMenu\nlightmenu.app\n' + ALIGN_LEFT;
   if (qrBuf) {
     b += '\n' + ALIGN_CENTER + FONT_NORMAL + lbl(s,'scan_to_save','Scan to save this bill:') + '\n';
-    const textBefore = Buffer.from(b, 'binary');
+    const textBefore = toBuffer(b, script);
+    const branding = toBuffer(brandingText, script);
     const after = Buffer.from(CUT, 'binary');
-    const checkBuf = Buffer.concat([textBefore, Buffer.from(ALIGN_CENTER, 'binary'), qrBuf, after]);
-    // Prepend logo without an extra INIT (which adds a blank line on most printers).
-    // ALIGN_CENTER centres the logo image; the ticket body already has its own INIT.
+    // Order: text → QR image → branding → cut
+    const checkBuf = Buffer.concat([textBefore, Buffer.from(ALIGN_CENTER, 'binary'), qrBuf, branding, after]);
     return logo ? Buffer.concat([Buffer.from(ALIGN_CENTER, 'binary'), logo, checkBuf]) : checkBuf;
   }
-  b += CUT;
-  const textBuf = Buffer.from(b, 'binary');
+  // No QR fallback path — branding still goes last.
+  b += brandingText + CUT;
+  const textBuf = toBuffer(b, script);
   return logo ? Buffer.concat([Buffer.from(ALIGN_CENTER, 'binary'), logo, textBuf]) : textBuf;
 }
 
@@ -1082,10 +1356,17 @@ http.createServer((req, res) => {
     req.on('end', async () => {
       try {
         const ticket = JSON.parse(body);
-        let data;
-        switch (ticket.type) {
-          case 'check':    data = buildCheckTicket(ticket);   log('CHECK: Mesa ' + ticket.table_number); break;
-          default:         data = buildKitchenTicket(ticket); log('KITCHEN: Mesa ' + ticket.table_number);
+        // Raster path: prefer pre-rendered bitmap when present (Arabic/CJK/etc.)
+        let data = null;
+        if (ticket.bitmap_b64) {
+          data = buildRasterTicket(ticket.bitmap_b64, ticket.bitmap_width_dots, ticket.bitmap_height);
+          if (data) log('RASTER: ' + ticket.bitmap_width_dots + 'x' + ticket.bitmap_height);
+        }
+        if (!data) {
+          switch (ticket.type) {
+            case 'check':    data = buildCheckTicket(ticket);   log('CHECK: Mesa ' + ticket.table_number); break;
+            default:         data = buildKitchenTicket(ticket); log('KITCHEN: Mesa ' + ticket.table_number);
+          }
         }
         const copies = (ticket.type === 'check' ? ticket.settings?.check_copies : ticket.settings?.order_copies) || 1;
         for (let i = 0; i < Math.min(copies, 3); i++) await sendToPrinter(data);
@@ -1166,4 +1447,3 @@ async function setIp(){
   log('LightMenu Print Agent v5.5.0 | Restaurant: ' + RESTAURANT_ID + ' | Network: ' + PRINTER_IP + ':' + PRINTER_PORT + ' | USB: direct + spooler fallback');
   log('Dashboard: http://localhost:' + SERVER_PORT);
 });
-
