@@ -13,9 +13,9 @@ const { exec } = require('child_process');
 const AGENT_VERSION = (() => {
     try {
         const m = JSON.parse(fs.readFileSync(path.join(__dirname, 'version.json'), 'utf8'));
-        return m?.version || '6.0.5';
+        return m?.version || '6.0.0';
     } catch {
-        return '6.0.5';
+        return '6.0.0';
     }
 })();
 
@@ -30,7 +30,7 @@ const _cfg = (() => {
 })();
 const RESTAURANT_ID   = _cfg.restaurant_id   || '__RESTAURANT_ID__';
 const API_TOKEN       = _cfg.api_token       || '__API_TOKEN__';
-let   RESTAURANT_NAME = _cfg.restaurant_name || '';  // surfaced in /status
+let   RESTAURANT_NAME = _cfg.restaurant_name || '';  // surfaced in /status for the UI header
 
 // LightMenu Supabase endpoint â€” do not change
 const SUPABASE_URL     = 'https://xakaknyanjzabxqmcipz.supabase.co';
@@ -242,7 +242,6 @@ function checkPort(ip, port, timeout) {
 // Read the Windows ARP table â€” lists every device the PC has seen on the LAN recently.
 // This is instant and much more reliable than port scanning 254 IPs.
 function getArpIps() {
-  const activeSubnets = getLocalSubnets(); // re-read every call — picks up adapter changes
   return new Promise(resolve => {
     exec('arp -a', (err, out) => {
       if (err || !out) { resolve([]); return; }
@@ -256,10 +255,6 @@ function getArpIps() {
         if (parts[3] === 0 || parts[3] === 255 || parts[0] >= 224) continue;
         // Skip known non-printer ranges
         if (ip.startsWith('169.254.')) continue;
-        // Filter to active adapters only — removes stale WiFi entries after
-        // switching to Ethernet without waiting for ARP cache to expire.
-        const ipSubnet = ip.split('.').slice(0, 3).join('.');
-        if (activeSubnets.length > 0 && !activeSubnets.includes(ipSubnet)) continue;
         ips.add(ip);
       }
       resolve([...ips]);
@@ -405,14 +400,22 @@ let _scanCount = 0;
 let _notifiedNotFound = false;
 
 // ─── HEARTBEAT ────────────────────────────────────────────────────────────────
-// Writes last_heartbeat to Supabase every 20s so the dashboard Active/Inactive
-// pill works without requiring a direct browser→agent HTTP connection.
+// The dashboard's "Print Agent: Active/Inactive" pill reads this timestamp from
+// the agent's "scan" printer_configs row. We write it every 20s. The dashboard
+// shows Active when it's within the last 60s, Inactive otherwise.
+//
+// Why DB-based instead of an HTTP /status ping from the browser:
+//   - With shared tunnel mode (print.lightmenu.app) the browser can't tell which
+//     restaurant's agent it's reaching — all agents share the same domain.
+//   - Browsers block direct LAN HTTP calls from HTTPS pages (mixed content).
+//   - This works identically for LAN + tunnel + behind-NAT setups.
 async function sendHeartbeat() {
   if (!RESTAURANT_ID || RESTAURANT_ID === '__RESTAURANT_ID__') return;
   try {
     const existing = await supabaseGet('printer_configs', { restaurant_id: RESTAURANT_ID, printer_type: 'scan' });
     const now = new Date().toISOString();
     if (Array.isArray(existing) && existing.length > 0) {
+      // Merge into existing settings so we don't wipe discovered_ips/scanned_at
       const prevSettings = existing[0].settings || {};
       await supabasePatch('printer_configs', existing[0].id, {
         settings: { ...prevSettings, last_heartbeat: now, agent_version: AGENT_VERSION },
@@ -430,8 +433,8 @@ async function sendHeartbeat() {
     log('Heartbeat failed: ' + e.message);
   }
 }
-setTimeout(sendHeartbeat, 1500);
-setInterval(sendHeartbeat, 20000);
+setTimeout(sendHeartbeat, 1500);   // first ping right after boot
+setInterval(sendHeartbeat, 20000); // then every 20s
 
 function showWindowsNotification(title, msg) {
   psRun([
@@ -475,22 +478,6 @@ async function runNetworkScan() {
 }
 setTimeout(runNetworkScan, 5000);
 setInterval(runNetworkScan, 10 * 60 * 1000);
-
-// ─── NETWORK ADAPTER CHANGE DETECTOR ────────────────────────────────────────
-// Polls every 5s — when the machine switches from WiFi to Ethernet the subnet
-// set changes and we immediately retrigger a printer scan.
-let _lastSubnetKey = getLocalSubnets().sort().join(',');
-setInterval(() => {
-  const current = getLocalSubnets().sort().join(',');
-  if (current !== _lastSubnetKey) {
-    log('Network adapter change detected (' + _lastSubnetKey + ' → ' + current + ') — rescanning...');
-    _lastSubnetKey = current;
-    _scanCount = 0;
-    PRINTER_IP = '';
-    if (_scanTimer) clearTimeout(_scanTimer);
-    setTimeout(runNetworkScan, 3000);
-  }
-}, 5000);
 
 async function refreshPrinters() {
   try {
@@ -594,7 +581,11 @@ async function pollAndPrint() {
           continue;
         }
 
-        // Raster path: use pre-rendered bitmap for non-Latin scripts
+        // Raster path FIRST: if the web app sent a pre-rendered bitmap (used
+        // for Arabic/CJK/Hebrew/Thai where this printer has no font ROM),
+        // print the pixels directly and skip the text builder entirely. If
+        // the bitmap is malformed, buildRasterTicket returns null and we
+        // fall through to the text path — never a silent failure.
         let data = null;
         if (job.bitmap_b64) {
           data = buildRasterTicket(job.bitmap_b64, job.bitmap_width_dots, job.bitmap_height);
@@ -640,13 +631,23 @@ function sendViaNetwork(data, ip, port) {
   return new Promise((resolve, reject) => {
     const s = new net.Socket();
     let settled = false;
-    const finish = (err) => { if (settled) return; settled = true; if (err) reject(err); else resolve(); };
-    // Separate connect vs. overall timeouts: cheap thermal printers have small
-    // TCP buffers and apply backpressure while printing. A logo + text ticket
-    // can take 15-30s to drain — the old 8s single timer cut the socket
-    // mid-transmission, causing the logo to print but items to go missing.
+    const finish = (err) => {
+      if (settled) return;
+      settled = true;
+      if (err) reject(err); else resolve();
+    };
+
+    // Two separate budgets. The connect timeout must NOT cover the data
+    // transfer — cheap thermal printers have ~4 KB TCP buffers and apply
+    // hard backpressure while they print, so a logo + text ticket easily
+    // takes 15–30 s to drain even though the bytes are correct. The old
+    // single 8 s timer was destroying the socket mid-transmission, so the
+    // printer fired the logo bitmap and then nothing else.
     const connectTimer = setTimeout(() => { s.destroy(); finish(new Error('Connect timeout')); }, 5000);
+    // Overall ceiling so a totally hung printer doesn't wedge the queue
+    // forever. 60 s is comfortably above any real-world print time.
     const overallTimer = setTimeout(() => { s.destroy(); finish(new Error('Print timeout (60s)')); }, 60000);
+
     s.connect(port, ip, () => {
       clearTimeout(connectTimer);
       s.write(data, () => s.end());
@@ -655,18 +656,25 @@ function sendViaNetwork(data, ip, port) {
     s.on('error', e => { clearTimeout(connectTimer); clearTimeout(overallTimer); finish(e); });
   });
 }
+
 function sendToPrinter(data, ip, port) {
-  // If a network IP is configured, always prefer it — a stale USB spooler
-  // entry from a previous session would otherwise swallow the job silently.
+  // PRIORITY: if the dashboard has an explicit network printer configured for
+  // this restaurant, ALWAYS use the network. Leftover "LightMenu USB" spooler
+  // entries from a previous USB session would otherwise silently swallow the
+  // job into a Windows print queue that points at an unplugged USB port.
+  // The owner's deliberate choice (a network IP in PrinterConfig) wins over
+  // whatever USB plumbing the agent happened to discover at boot.
   if (ip) {
     return sendViaNetwork(data, ip, port).catch(e => {
+      // If the network printer is genuinely unreachable, fall back to USB
+      // before reporting failure — better to print on a stale USB than not at all.
       log('Network send to ' + ip + ':' + port + ' failed (' + e.message + ')');
       if (usbDirectPort) return sendViaDirectUsb(data, usbDirectPort);
       if (usbWinPrinter) return sendViaSpooler(data, usbWinPrinter);
       throw e;
     });
   }
-  // No network IP — USB-first fallback
+  // No network IP configured — fall back to USB-first behaviour.
   if (usbDirectPort) {
     return sendViaDirectUsb(data, usbDirectPort).catch(e => {
       log('USB direct write failed (' + e.message + ') — retrying via spooler or network');
@@ -683,6 +691,7 @@ function sendToPrinter(data, ip, port) {
   }
   return sendViaNetwork(data, ip, port);
 }
+
 // Write ESC/POS bytes directly to \\.\USB001 etc. — no Windows printer or driver needed.
 // Requires usbprint.sys (built into Windows, auto-installed when any USB printer is first plugged in).
 function sendViaDirectUsb(data, portPath) {
@@ -770,9 +779,12 @@ const INIT = E + '@';
 const qrcode = require('./qrcode.js');
 
 // ─── MULTI-LANGUAGE ENCODING ──────────────────────────────────────────────────
-// Thermal printers use ESC/POS byte streams. JS strings are Unicode.
-// Buffer.from(s, 'binary') = Latin-1 — silently mangles chars above U+00FF.
+// Thermal printers use ESC/POS, which is byte-based. JS strings are Unicode.
+// Buffer.from(s, 'binary') = Latin-1 — safe for ASCII/ESC commands, but silently
+// mangles any character above U+00FF (Cyrillic, Arabic, CJK). This block detects
+// the dominant script in the ticket text and encodes accordingly.
 
+/** Scan strings to detect dominant non-Latin script. */
 function detectScript(...texts) {
   let cyr = 0, arb = 0, cjk = 0;
   for (const t of texts) {
@@ -791,9 +803,14 @@ function detectScript(...texts) {
   return 'cjk';
 }
 
+/** Collect all renderable text from a ticket for script detection. */
 function ticketScript(t) {
   const items = t.items || [];
   const s = t.settings || {};
+  // s.labels holds the user-translated UI strings ("Стол", "Mesa", etc.).
+  // Scan ALL its values, not just the few hand-picked fields — otherwise a
+  // ticket with Latin item names but Cyrillic labels falls back to 'latin'
+  // and the labels get truncated to ASCII garbage.
   return detectScript(
     t.restaurant_name, t.waiter_name, t.cancelled_by,
     t.restaurant_address, s.kitchen_footer_text, s.check_footer_text,
@@ -805,22 +822,25 @@ function ticketScript(t) {
   );
 }
 
+/** ESC/POS code page select — emitted after INIT, before any text. */
 function codePageHeader(script) {
-  if (script === 'cyrillic') return '\x1B\x74\x11'; // ESC t 17 — CP866
-  return '';
+  if (script === 'cyrillic') return '\x1B\x74\x11'; // ESC t 17 — CP866 Cyrillic
+  return ''; // arabic/cjk/latin: rely on printer's default UTF-8 / Latin-1 mode
 }
 
+/** Unicode codepoint → CP866 byte. Returns 0x3F ('?') for unmapped chars. */
 function cp866(cp) {
   if (cp < 0x80)                    return cp;
-  if (cp >= 0x0410 && cp <= 0x042F) return cp - 0x0410 + 0x80;
-  if (cp >= 0x0430 && cp <= 0x043F) return cp - 0x0430 + 0xA0;
-  if (cp >= 0x0440 && cp <= 0x044F) return cp - 0x0440 + 0xE0;
-  if (cp === 0x0401)                 return 0xF0;
-  if (cp === 0x0451)                 return 0xF1;
-  if (cp === 0x2116)                 return 0xFC;
+  if (cp >= 0x0410 && cp <= 0x042F) return cp - 0x0410 + 0x80; // А–Я  → 0x80–0x9F
+  if (cp >= 0x0430 && cp <= 0x043F) return cp - 0x0430 + 0xA0; // а–п  → 0xA0–0xAF
+  if (cp >= 0x0440 && cp <= 0x044F) return cp - 0x0440 + 0xE0; // р–я  → 0xE0–0xEF
+  if (cp === 0x0401)                 return 0xF0;               // Ё
+  if (cp === 0x0451)                 return 0xF1;               // ё
+  if (cp === 0x2116)                 return 0xFC;               // №
   return 0x3F;
 }
 
+// Arabic letter forms lookup: codepoint → [isolated, final, initial, medial]
 const AR_FORMS = {
   0x0621:[0xFE80,0xFE80,0xFE80,0xFE80], 0x0622:[0xFE81,0xFE82,0xFE81,0xFE82],
   0x0623:[0xFE83,0xFE84,0xFE83,0xFE84], 0x0624:[0xFE85,0xFE86,0xFE85,0xFE86],
@@ -841,9 +861,11 @@ const AR_FORMS = {
   0x0647:[0xFEE9,0xFEEA,0xFEEB,0xFEEC], 0x0648:[0xFEED,0xFEEE,0xFEED,0xFEEE],
   0x0649:[0xFEEF,0xFEF0,0xFEEF,0xFEF0], 0x064A:[0xFEF1,0xFEF2,0xFEF3,0xFEF4],
 };
+// Letters that don't connect on their left side (right-joining only)
 const AR_RJ = new Set([0x0621,0x0622,0x0623,0x0624,0x0625,0x0627,0x0629,
                         0x062F,0x0630,0x0631,0x0632,0x0648,0x0649]);
 
+/** Reshape Arabic text: choose the correct letter form based on context. */
 function reshapeArabic(text) {
   const cps = [...text].map(c => c.codePointAt(0));
   return cps.map((cp, i) => {
@@ -852,7 +874,7 @@ function reshapeArabic(text) {
     let prev = false, next = false;
     for (let j = i - 1; j >= 0; j--) {
       const p = cps[j];
-      if (p >= 0x064B && p <= 0x065F) continue;
+      if (p >= 0x064B && p <= 0x065F) continue; // skip diacritics
       prev = AR_FORMS[p] !== undefined && !AR_RJ.has(p); break;
     }
     for (let j = i + 1; j < cps.length; j++) {
@@ -865,57 +887,101 @@ function reshapeArabic(text) {
   }).join('');
 }
 
+/**
+ * Reverse a single line's Arabic content for RTL display. Any leading non-Arabic
+ * characters (whitespace, "2x ", "[INVIT] ") stay at the left margin so layout
+ * alignment is preserved.
+ */
 function rtlLine(line) {
-  if (!/[\u0600-\u06FF]/.test(line)) return line;
-  const m = line.match(/^([^\u0600-\u06FF]*)[\s\S]*?([^\u0600-\u06FF]*)$/);
-  const arOnly = line.replace(/^[^\u0600-\u06FF]+/, '').replace(/[^\u0600-\u06FF]+$/, '');
-  const head = line.slice(0, line.search(/[\u0600-\u06FF]/));
-  const tail = line.slice(line.search(/[\u0600-\u06FF]/) + arOnly.length);
-  return head + [...reshapeArabic(arOnly)].reverse().join('') + tail;
+  if (!/[؀-ۿ]/.test(line)) return line;
+  const m = line.match(/^([^؀-ۿ]*)([\s\S]*?)([^؀-ۿ]*)$/);
+  if (!m) return line;
+  const [, head, mid, tail] = m;
+  return head + [...reshapeArabic(mid)].reverse().join('') + tail;
 }
 
+/**
+ * Convert a ticket string to a printable Buffer with script-aware encoding.
+ *
+ * - ESC/POS control bytes (codepoint ≤ 0xFF) always pass through as raw bytes.
+ * - latin    → Buffer.from(b, 'binary')  (unchanged from v6.0.2 behaviour)
+ * - cyrillic → CP866 byte per character (printer is in CP866 mode via ESC t 17)
+ * - arabic   → reshape + RTL-reverse per line, then UTF-8
+ * - cjk      → UTF-8 (works on printers with built-in CJK font)
+ */
 function toBuffer(b, script) {
   if (script === 'latin') return Buffer.from(b, 'binary');
+
   if (script === 'arabic') {
     b = b.split('\n').map(rtlLine).join('\n');
   }
+
   const bytes = [];
   for (const ch of b) {
     const cp = ch.codePointAt(0);
     if (cp <= 0xFF) {
-      bytes.push(cp);
+      bytes.push(cp); // ASCII + ESC/POS command bytes pass through unchanged
     } else if (script === 'cyrillic') {
       bytes.push(cp866(cp));
     } else {
+      // arabic (Presentation Forms FE70–FEFF) and cjk: encode as UTF-8
       const utf = Buffer.from(ch, 'utf8');
       for (const byte of utf) bytes.push(byte);
     }
   }
   return Buffer.from(bytes);
 }
+// ─────────────────────────────────────────────────────────────────────────────
 
 /**
  * Build an ESC/POS raster ticket from a pre-rendered 1-bit bitmap.
- * Used for Arabic/CJK/Hebrew/Thai where the printer has no font ROM.
+ *
+ * The web app rasterises tickets containing non-Latin/Cyrillic text (Arabic,
+ * CJK, Hebrew, Thai) on a <canvas> because the printer firmware has no font
+ * ROM for those scripts. We get the resulting bitmap as base64-encoded
+ * packed bytes (MSB-first, row-major) plus its dimensions, and emit the
+ * exact byte stream the printer's `GS v 0` raster command expects.
+ *
+ * Wrapped with INIT + line feeds + CUT so it prints as a complete ticket,
+ * not a hanging image. Returns null if anything looks malformed — callers
+ * fall back to the text path.
+ *
+ * @param {string} b64        base64 of the packed bitmap bytes
+ * @param {number} widthDots  width in pixels (must be multiple of 8)
+ * @param {number} height     height in pixels
  */
 function buildRasterTicket(b64, widthDots, height) {
   if (!b64 || !widthDots || !height) return null;
   let buf;
   try { buf = Buffer.from(b64, 'base64'); }
   catch (e) { log('Raster decode failed: ' + e.message); return null; }
+
   const bytesPerRow = widthDots >> 3;
   const expected = bytesPerRow * height;
   if (buf.length !== expected) {
     log('Raster size mismatch — expected ' + expected + ' bytes, got ' + buf.length + '. Falling back to text path.');
     return null;
   }
+
+  // GS v 0 m xL xH yL yH d1...dk
+  //   m   = 0 (normal — no horizontal/vertical doubling)
+  //   xL/xH = width in BYTES, little-endian
+  //   yL/yH = height in DOTS, little-endian
   const xL = bytesPerRow & 0xFF, xH = (bytesPerRow >> 8) & 0xFF;
   const yL = height & 0xFF,      yH = (height >> 8) & 0xFF;
   const rasterCmd = Buffer.from([0x1D, 0x76, 0x30, 0x00, xL, xH, yL, yH]);
-  const init   = Buffer.from(INIT,         'binary');
-  const center = Buffer.from(ALIGN_CENTER,  'binary');
-  const feed   = Buffer.from(FEED(1),       'binary');
-  const cut    = Buffer.from(CUT,           'binary');
+
+  // Wrap with init + a few line feeds + cut so it prints as a finished ticket.
+  // INIT and CUT are pure ASCII control bytes; safe to emit as latin1 bytes.
+  // FEED(1) here is INTENTIONALLY shorter than the kitchen/text builders'
+  // FEED(4): the rasterised bitmap already includes its own bottom padding
+  // sized in the web app, so emitting extra paper here would leave a visible
+  // white gap below the QR before the cut. This is the RASTER path only —
+  // text-mode Spanish/English/French bills still use their original FEED.
+  const init   = Buffer.from(INIT,    'binary');
+  const center = Buffer.from(ALIGN_CENTER, 'binary');
+  const feed   = Buffer.from(FEED(1), 'binary');
+  const cut    = Buffer.from(CUT,     'binary');
   return Buffer.concat([init, center, rasterCmd, buf, feed, cut]);
 }
 
@@ -1198,10 +1264,10 @@ function buildCheckTicket(t) {
     b += zoneSuffix();
     for (const addon of getAddons(item)) {
       const aprice = Number(addon.price || 0);
+      const addonLabel = '   ' + qty + 'x + ' + addon.name;
       if (aprice > 0) {
         subtotal += aprice * qty;
         const aps = fmtPrice(aprice * qty, currency);
-        const addonLabel = '   ' + qty + 'x + ' + addon.name;
         b += FONT_BOLD + fillLine(tr(addonLabel, W - aps.length - 1), aps) + '\n' + FONT_NORMAL;
       } else {
         b += FONT_NORMAL + tr(addonLabel, W) + '\n';
@@ -1246,22 +1312,29 @@ function buildCheckTicket(t) {
     if (pl) b += '\n' + ALIGN_CENTER + FONT_TITLE + center(pl) + '\n' + FONT_NORMAL + ALIGN_LEFT + '\n';
   }
   b += sep + '\n\n';
+  // Footer: just the user's "thank you" text. The LightMenu branding used
+  // to be appended as a default fallback here, but that meant any custom
+  // check_footer_text wiped it out. We now print branding ALWAYS, after the
+  // QR — see brandingText below.
   const footerText = s.check_footer_text || lbl(s,'thank_you','Thank you for your visit!');
   b += ALIGN_CENTER + FONT_BOLD;
   for (const line of footerText.split(/\\n|\n/)) if (line.trim()) b += line.trim() + '\n';
   b += FONT_NORMAL + ALIGN_LEFT + '\n';
   const qrUrl = t.bill_url || t.qr_url || (t.order_id ? 'https://lightmenu.app/bill/' + t.order_id : 'https://lightmenu.app');
   const qrBuf = qrToRaster(qrUrl);
-  // Branding always printed after QR on every bill.
+  // Branding line printed AFTER the QR on every bill, every language.
+  // Latin ASCII, safe to encode via toBuffer regardless of script.
   const brandingText = '\n' + ALIGN_CENTER + FONT_NORMAL + 'Powered by LightMenu\nlightmenu.app\n' + ALIGN_LEFT;
   if (qrBuf) {
     b += '\n' + ALIGN_CENTER + FONT_NORMAL + lbl(s,'scan_to_save','Scan to save this bill:') + '\n';
     const textBefore = toBuffer(b, script);
     const branding = toBuffer(brandingText, script);
     const after = Buffer.from(CUT, 'binary');
+    // Order: text → QR image → branding → cut
     const checkBuf = Buffer.concat([textBefore, Buffer.from(ALIGN_CENTER, 'binary'), qrBuf, branding, after]);
     return logo ? Buffer.concat([Buffer.from(ALIGN_CENTER, 'binary'), logo, checkBuf]) : checkBuf;
   }
+  // No QR fallback path — branding still goes last.
   b += brandingText + CUT;
   const textBuf = toBuffer(b, script);
   return logo ? Buffer.concat([Buffer.from(ALIGN_CENTER, 'binary'), logo, textBuf]) : textBuf;
@@ -1319,6 +1392,7 @@ http.createServer((req, res) => {
     req.on('end', async () => {
       try {
         const ticket = JSON.parse(body);
+        // Raster path: prefer pre-rendered bitmap when present (Arabic/CJK/etc.)
         let data = null;
         if (ticket.bitmap_b64) {
           data = buildRasterTicket(ticket.bitmap_b64, ticket.bitmap_width_dots, ticket.bitmap_height);
@@ -1361,7 +1435,7 @@ input{background:#1a1d29;border:1px solid #2a2d3e;color:#fff;padding:7px 10px;bo
 #msg{margin-top:10px;font-size:13px;color:#22c55e;min-height:18px}
 </style></head><body>
 <h1>&#x1F5A8; LightMenu Print Agent</h1>
-<span class=dim>v6.0.5 &nbsp;|&nbsp; Restaurant: ${RESTAURANT_ID.slice(0,8)}...</span>
+<span class=dim>v5.0.0 &nbsp;|&nbsp; Restaurant: ${RESTAURANT_ID.slice(0,8)}...</span>
 <table style="margin-top:16px">
 <tr><td>Mode</td><td><span class="${PRINTER_IP || usbDirectPort || usbWinPrinter ? 'ok' : 'warn'}">${mode}</span></td></tr>
 <tr><td>Jobs printed</td><td><span class=ok>${printed}</span></td></tr>
@@ -1406,7 +1480,7 @@ async function setIp(){
 
   res.writeHead(404); res.end();
 }).listen(SERVER_PORT, '0.0.0.0', () => {
-  log('LightMenu Print Agent v6.0.5 | Restaurant: ' + RESTAURANT_ID + ' | Network: ' + PRINTER_IP + ':' + PRINTER_PORT + ' | USB: direct + spooler fallback');
+  log('LightMenu Print Agent v5.5.0 | Restaurant: ' + RESTAURANT_ID + ' | Network: ' + PRINTER_IP + ':' + PRINTER_PORT + ' | USB: direct + spooler fallback');
   log('Dashboard: http://localhost:' + SERVER_PORT);
 });
 
