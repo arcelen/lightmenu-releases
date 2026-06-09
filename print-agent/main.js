@@ -1,4 +1,4 @@
-﻿const net   = require('net');
+const net   = require('net');
 const http  = require('http');
 const https = require('https');
 const fs    = require('fs');
@@ -454,7 +454,7 @@ async function runNetworkScan() {
   await reportDiscoveredPrinters(ips);
   await autoAssignPrinterIps(ips);
 
-  if (!PRINTER_IP && !usbWinPrinter) {
+  if (!PRINTER_IP && !usbWinPrinter && !usbDirectPort) {
     // Aggressive retry schedule: every 30s for the first 10 scans (5 min), then every 2 min
     const delay = _scanCount <= 10 ? 30 * 1000 : 2 * 60 * 1000;
     if (_scanTimer) clearTimeout(_scanTimer);
@@ -474,6 +474,8 @@ async function runNetworkScan() {
     }
   } else {
     _notifiedNotFound = false; // reset if printer later disconnects
+    if (_scanTimer) { clearTimeout(_scanTimer); _scanTimer = null; } // stop retry loop once printer is found
+    _scanCount = 0; // reset counter so reconnect after disconnect gets full retry schedule
   }
 }
 setTimeout(runNetworkScan, 5000);
