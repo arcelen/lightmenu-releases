@@ -1,0 +1,4 @@
+# Keep all JS/JSON files with LF line endings on all platforms.
+# This ensures the sha256 computed locally matches what GitHub serves.
+*.js   text eol=lf
+*.json text eol=lf
