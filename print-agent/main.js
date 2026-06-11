@@ -112,6 +112,7 @@ async function scanUsb() {
     if (usbDirectPort !== port) {
       log('USB direct port ready: ' + port + ' (no driver needed)');
       usbDirectPort = port;
+      try { track('usb_connected', { port, strategy: 'direct' }); } catch {}
     }
     usbWinPrinter = null; // prefer direct over spooler
   } else if (r === 'SPOOLER:READY' || r.startsWith('SPOOLER:ADDED')) {
@@ -119,11 +120,15 @@ async function scanUsb() {
       const port = r.startsWith('SPOOLER:ADDED:') ? r.split(':')[2] : 'USB001';
       log('USB spooler printer ready on ' + port);
       usbWinPrinter = LM_WIN_PRINTER;
+      try { track('usb_connected', { port, strategy: 'spooler' }); } catch {}
     }
     usbDirectPort = null;
   } else {
     const wasConnected = usbDirectPort || usbWinPrinter;
-    if (wasConnected) log('USB lost â€” falling back to network (' + r + ')');
+    if (wasConnected) {
+      log('USB lost â€” falling back to network (' + r + ')');
+      try { track('usb_lost', { last_port: usbDirectPort || usbWinPrinter, reason: r }); } catch {}
+    }
     else if (r && r !== 'NO_PORT') log('USB scan: ' + r);
     usbDirectPort = null;
     usbWinPrinter = null;
@@ -450,9 +455,13 @@ function showWindowsNotification(title, msg) {
 
 async function runNetworkScan() {
   _scanCount++;
+  const prevIp = PRINTER_IP;
   const ips = await scanNetworkForPrinters();
   await reportDiscoveredPrinters(ips);
   await autoAssignPrinterIps(ips);
+  if (!prevIp && PRINTER_IP) {
+    try { track('printer_found', { ip: PRINTER_IP, port: PRINTER_PORT, scan_attempts: _scanCount }); } catch {}
+  }
 
   if (!PRINTER_IP && !usbWinPrinter) {
     // Aggressive retry schedule: every 30s for the first 10 scans (5 min), then every 2 min
@@ -610,10 +619,12 @@ async function pollAndPrint() {
         processingJobs.delete(job.id);
         printed++;
         log('Printed job ' + job.id + ' (' + ticket.type + ') Mesa ' + ticket.table_number);
+        track('job_printed', { job_id: job.id, type: ticketType, table: ticket.table_number, printer_mode: usbDirectPort ? 'usb-direct' : usbWinPrinter ? 'usb-spooler' : 'network', printer_ip: printerIp });
       } catch (e) {
         processingJobs.delete(job.id);
         failed++;
         log('Failed job ' + job.id + ': ' + (e?.message || String(e) || 'unknown error') + ' [ip=' + printerIp + ']');
+        track('job_failed', { job_id: job.id, error: e?.message || String(e), printer_mode: usbDirectPort ? 'usb-direct' : usbWinPrinter ? 'usb-spooler' : 'network', printer_ip: printerIp });
       }
     }
   } catch (e) {
@@ -629,6 +640,52 @@ let printed = 0, failed = 0;
 const processingJobs = new Set();
 
 function log(m) { console.log('[' + new Date().toLocaleTimeString() + '] ' + m); }
+
+// ─── OFFLINE ANALYTICS ────────────────────────────────────────────────────────
+// Events are written to a local JSON file immediately — works with zero internet.
+// A background flush drains the queue into Supabase whenever connectivity allows.
+// Required table (run once in Supabase SQL editor):
+//   create table if not exists agent_analytics (
+//     id uuid default gen_random_uuid() primary key,
+//     restaurant_id text, agent_version text,
+//     event text not null, ts timestamptz not null,
+//     data jsonb default '{}'
+//   );
+const ANALYTICS_FILE = path.join(__dirname, 'analytics.queue.json');
+const ANALYTICS_CAP  = 500; // max events to buffer locally
+
+function _readQueue() {
+  try { return JSON.parse(fs.readFileSync(ANALYTICS_FILE, 'utf8')); }
+  catch { return []; }
+}
+
+function track(event, data) {
+  if (!RESTAURANT_ID || RESTAURANT_ID === '__RESTAURANT_ID__') return;
+  const q = _readQueue();
+  q.push({ event, ts: new Date().toISOString(), restaurant_id: RESTAURANT_ID, agent_version: AGENT_VERSION, data: data || {} });
+  if (q.length > ANALYTICS_CAP) q.splice(0, q.length - ANALYTICS_CAP);
+  try { fs.writeFileSync(ANALYTICS_FILE, JSON.stringify(q)); } catch {}
+  _flushAnalytics().catch(() => {});
+}
+
+let _flushPending = false;
+async function _flushAnalytics() {
+  if (_flushPending) return;
+  const q = _readQueue();
+  if (q.length === 0) return;
+  _flushPending = true;
+  try {
+    await supabasePost('agent_analytics', q);
+    fs.writeFileSync(ANALYTICS_FILE, '[]');
+    if (q.length > 1) log('Analytics: flushed ' + q.length + ' event(s)');
+  } catch {
+    // offline — events stay queued; next interval will retry
+  } finally {
+    _flushPending = false;
+  }
+}
+setInterval(() => _flushAnalytics().catch(() => {}), 60000);
+// ─────────────────────────────────────────────────────────────────────────────
 
 function sendViaNetwork(data, ip, port) {
   ip   = ip   || PRINTER_IP;
@@ -1324,7 +1381,16 @@ http.createServer((req, res) => {
 
   if (req.method === 'GET' && req.url === '/status') {
     res.writeHead(200, { 'Content-Type': 'application/json' });
-    res.end(JSON.stringify({ status: 'running', version: AGENT_VERSION, restaurant_name: RESTAURANT_NAME, printer: { usb: usbDirectPort || usbWinPrinter || null, ip: PRINTER_IP, port: PRINTER_PORT, mode: usbDirectPort ? 'usb-direct' : usbWinPrinter ? 'usb-spooler' : 'network' }, printed, failed }));
+    res.end(JSON.stringify({ status: 'running', version: AGENT_VERSION, restaurant_name: RESTAURANT_NAME, printer: { usb: usbDirectPort || usbWinPrinter || null, ip: PRINTER_IP, port: PRINTER_PORT, mode: usbDirectPort ? 'usb-direct' : usbWinPrinter ? 'usb-spooler' : 'network' }, printed, failed, analytics_queued: _readQueue().length }));
+    return;
+  }
+
+  if (req.method === 'GET' && req.url === '/analytics') {
+    const q = _readQueue();
+    const summary = {};
+    for (const e of q) summary[e.event] = (summary[e.event] || 0) + 1;
+    res.writeHead(200, { 'Content-Type': 'application/json' });
+    res.end(JSON.stringify({ queued: q.length, summary, recent: q.slice(-20) }));
     return;
   }
 
@@ -1450,6 +1516,7 @@ async function setIp(){
 
   res.writeHead(404); res.end();
 }).listen(SERVER_PORT, '0.0.0.0', () => {
-  log('LightMenu Print Agent v5.5.0 | Restaurant: ' + RESTAURANT_ID + ' | Network: ' + PRINTER_IP + ':' + PRINTER_PORT + ' | USB: direct + spooler fallback');
+  log('LightMenu Print Agent v' + AGENT_VERSION + ' | Restaurant: ' + RESTAURANT_ID + ' | Network: ' + PRINTER_IP + ':' + PRINTER_PORT + ' | USB: direct + spooler fallback');
   log('Dashboard: http://localhost:' + SERVER_PORT);
+  try { track('agent_start', { port: SERVER_PORT, platform: process.platform, node_version: process.version }); } catch {}
 });
