@@ -526,6 +526,8 @@ async function pollAndPrint() {
   try {
     const jobs = await fetchPendingJobs();
     for (const job of jobs) {
+      if (processingJobs.has(job.id)) continue;
+      processingJobs.add(job.id);
       let printerIp   = PRINTER_IP;
       let printerPort = PRINTER_PORT;
       try {
@@ -604,9 +606,11 @@ async function pollAndPrint() {
           await sendToPrinter(data, printerIp, printerPort);
         }
         await markJobPrinted(job.id);
+        processingJobs.delete(job.id);
         printed++;
         log('Printed job ' + job.id + ' (' + ticket.type + ') Mesa ' + ticket.table_number);
       } catch (e) {
+        processingJobs.delete(job.id);
         failed++;
         log('Failed job ' + job.id + ': ' + (e?.message || String(e) || 'unknown error') + ' [ip=' + printerIp + ']');
       }
@@ -621,6 +625,7 @@ setInterval(pollAndPrint, 3000);
 setTimeout(pollAndPrint, 2000);
 
 let printed = 0, failed = 0;
+const processingJobs = new Set();
 
 function log(m) { console.log('[' + new Date().toLocaleTimeString() + '] ' + m); }
 
