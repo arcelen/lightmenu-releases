@@ -28,8 +28,9 @@ const _cfg = (() => {
     try { return JSON.parse(fs.readFileSync(path.join(__dirname, 'config.json'), 'utf8')); }
     catch { return {}; }
 })();
-const RESTAURANT_ID = _cfg.restaurant_id || '__RESTAURANT_ID__';
-const API_TOKEN     = _cfg.api_token     || '__API_TOKEN__';
+const RESTAURANT_ID   = _cfg.restaurant_id   || '__RESTAURANT_ID__';
+const API_TOKEN       = _cfg.api_token       || '__API_TOKEN__';
+let   RESTAURANT_NAME = _cfg.restaurant_name || '';
 
 // LightMenu Supabase endpoint â€” do not change
 const SUPABASE_URL     = 'https://xakaknyanjzabxqmcipz.supabase.co';
@@ -1323,7 +1324,7 @@ http.createServer((req, res) => {
 
   if (req.method === 'GET' && req.url === '/status') {
     res.writeHead(200, { 'Content-Type': 'application/json' });
-    res.end(JSON.stringify({ status: 'running', version: AGENT_VERSION, printer: { usb: usbDirectPort || usbWinPrinter || null, ip: PRINTER_IP, port: PRINTER_PORT, mode: usbDirectPort ? 'usb-direct' : usbWinPrinter ? 'usb-spooler' : 'network' }, printed, failed }));
+    res.end(JSON.stringify({ status: 'running', version: AGENT_VERSION, restaurant_name: RESTAURANT_NAME, printer: { usb: usbDirectPort || usbWinPrinter || null, ip: PRINTER_IP, port: PRINTER_PORT, mode: usbDirectPort ? 'usb-direct' : usbWinPrinter ? 'usb-spooler' : 'network' }, printed, failed }));
     return;
   }
 
