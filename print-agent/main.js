@@ -1825,7 +1825,7 @@ http.createServer((req, res) => {
     (async () => {
       const ZERO = '00000000-0000-0000-0000-000000000000';
       const probes = {
-        manage_staff_create:   { p_restaurant_id: ZERO, p_name: '__probe__' },
+        manage_staff_create:   { p_restaurant_id: ZERO, p_name: '__probe__', p_role_id: null },
         manage_staff_new_link: { p_staff_id: ZERO, p_restaurant_id: ZERO },
         manage_staff_toggle:   { p_staff_id: ZERO, p_restaurant_id: ZERO },
         manage_staff_role:     { p_staff_id: ZERO, p_role_id: ZERO, p_restaurant_id: ZERO },
