@@ -215,6 +215,35 @@ function genWaiterToken() {
   return t;
 }
 
+function supabaseRpc(funcName, params) {
+  return new Promise((resolve, reject) => {
+    const bodyStr = JSON.stringify(params);
+    const url = SUPABASE_URL + '/rest/v1/rpc/' + funcName;
+    const req = https.request(url, {
+      method: 'POST',
+      headers: {
+        'apikey': SUPABASE_ANON_KEY,
+        'Authorization': 'Bearer ' + SUPABASE_ANON_KEY,
+        'Content-Type': 'application/json',
+        'Content-Length': Buffer.byteLength(bodyStr),
+      }
+    }, (res) => {
+      let data = '';
+      res.on('data', c => data += c);
+      res.on('end', () => {
+        if (res.statusCode < 200 || res.statusCode >= 300) {
+          reject(new Error('HTTP ' + res.statusCode + ': ' + data));
+        } else {
+          try { resolve(JSON.parse(data)); } catch { resolve(null); }
+        }
+      });
+    });
+    req.on('error', reject);
+    req.write(bodyStr);
+    req.end();
+  });
+}
+
 function supabasePost(table, body) {
   return new Promise((resolve, reject) => {
     const bodyStr = JSON.stringify(body);
@@ -1651,10 +1680,8 @@ http.createServer((req, res) => {
     (async () => {
       let supaOk = false;
       try {
-        await supabaseDelete('staff_roles',   { staff_member_id: staffId }).catch(() => {});
-        await supabaseDelete('waiter_tokens', { staff_member_id: staffId }).catch(() => {});
-        await supabaseDelete('staff_members', { id: staffId });
-        supaOk = true;
+        const result = await supabaseRpc('manage_staff_delete', { p_staff_id: staffId, p_restaurant_id: RESTAURANT_ID });
+        supaOk = result && !result.error;
       } catch {}
       const localOk = store.removeStaff(staffId);
       res.writeHead(200, { 'Content-Type': 'application/json' });
@@ -1668,24 +1695,26 @@ http.createServer((req, res) => {
     const staffId = decodeURIComponent(req.url.split('/')[3]);
     (async () => {
       try {
-        const tokens = await supabaseGet('waiter_tokens', { staff_member_id: staffId }, 50);
-        const active = (tokens || []).find(t => t.is_active);
-        if (active) {
-          await supabasePatch('waiter_tokens', active.id, { is_active: false });
+        const result = await supabaseRpc('manage_staff_toggle', { p_staff_id: staffId, p_restaurant_id: RESTAURANT_ID });
+        if (result && result.error === 'not_found') {
+          // local-only staff — toggle in store
+          const active = store.toggleStaff(staffId);
           res.writeHead(200, { 'Content-Type': 'application/json' });
-          res.end(JSON.stringify({ ok: true, active: false }));
+          res.end(JSON.stringify({ ok: true, active: active !== null ? active : false }));
         } else {
-          // No active token — create a new one
-          const tok = genWaiterToken();
-          await supabasePost('waiter_tokens', {
-            restaurant_id: RESTAURANT_ID, staff_member_id: staffId, token: tok, is_active: true,
-          });
           res.writeHead(200, { 'Content-Type': 'application/json' });
-          res.end(JSON.stringify({ ok: true, active: true }));
+          res.end(JSON.stringify({ ok: true, active: result ? result.active : false }));
         }
       } catch (e) {
-        res.writeHead(500, { 'Content-Type': 'application/json' });
-        res.end(JSON.stringify({ error: e.message }));
+        // Offline — fall back to local store
+        const active = store.toggleStaff(staffId);
+        if (active !== null) {
+          res.writeHead(200, { 'Content-Type': 'application/json' });
+          res.end(JSON.stringify({ ok: true, active, offline: true }));
+        } else {
+          res.writeHead(500, { 'Content-Type': 'application/json' });
+          res.end(JSON.stringify({ error: e.message }));
+        }
       }
     })();
     return;
@@ -1696,16 +1725,10 @@ http.createServer((req, res) => {
     const staffId = decodeURIComponent(req.url.split('/')[3]);
     (async () => {
       try {
-        const tokens = await supabaseGet('waiter_tokens', { staff_member_id: staffId }, 50);
-        for (const t of (tokens || [])) {
-          if (t.is_active) await supabasePatch('waiter_tokens', t.id, { is_active: false }).catch(() => {});
-        }
-        const newTok = genWaiterToken();
-        await supabasePost('waiter_tokens', {
-          restaurant_id: RESTAURANT_ID, staff_member_id: staffId, token: newTok, is_active: true,
-        });
+        const result = await supabaseRpc('manage_staff_new_link', { p_staff_id: staffId, p_restaurant_id: RESTAURANT_ID });
+        if (result && result.error) throw new Error(result.error);
         res.writeHead(200, { 'Content-Type': 'application/json' });
-        res.end(JSON.stringify({ ok: true, link: `https://www.lightmenu.app/waiter/${newTok}` }));
+        res.end(JSON.stringify({ ok: true, link: `https://www.lightmenu.app/waiter/${result.token}` }));
       } catch (e) {
         res.writeHead(500, { 'Content-Type': 'application/json' });
         res.end(JSON.stringify({ error: e.message }));
@@ -1727,10 +1750,8 @@ http.createServer((req, res) => {
           res.end(JSON.stringify({ error: 'Missing role_id' }));
           return;
         }
-        await supabaseDelete('staff_roles', { staff_member_id: staffId }).catch(() => {});
-        await supabasePost('staff_roles', {
-          restaurant_id: RESTAURANT_ID, staff_member_id: staffId, role_id: data.role_id,
-        });
+        const result = await supabaseRpc('manage_staff_role', { p_staff_id: staffId, p_role_id: data.role_id, p_restaurant_id: RESTAURANT_ID });
+        if (result && result.error) throw new Error(result.error);
         res.writeHead(200, { 'Content-Type': 'application/json' });
         res.end(JSON.stringify({ ok: true }));
       } catch (e) {
