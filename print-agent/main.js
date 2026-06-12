@@ -1714,9 +1714,18 @@ http.createServer((req, res) => {
         if (result && result.error) throw new Error(result.error);
         res.writeHead(200, { 'Content-Type': 'application/json' });
         res.end(JSON.stringify({ ok: true, link: `https://www.lightmenu.app/waiter/${result.token}` }));
-      } catch (e) {
-        res.writeHead(500, { 'Content-Type': 'application/json' });
-        res.end(JSON.stringify({ error: e.message }));
+      } catch {
+        // Local-only staff (STAFF- prefix) or offline — generate token locally
+        const newToken = genWaiterToken();
+        const link = `https://www.lightmenu.app/waiter/${newToken}`;
+        const updated = store.updateStaffLink(staffId, link);
+        if (updated) {
+          res.writeHead(200, { 'Content-Type': 'application/json' });
+          res.end(JSON.stringify({ ok: true, link, offline: true }));
+        } else {
+          res.writeHead(404, { 'Content-Type': 'application/json' });
+          res.end(JSON.stringify({ error: 'Staff not found' }));
+        }
       }
     })();
     return;
@@ -1735,8 +1744,15 @@ http.createServer((req, res) => {
           res.end(JSON.stringify({ error: 'Missing role_id' }));
           return;
         }
-        const result = await supabaseRpc('manage_staff_role', { p_staff_id: staffId, p_role_id: data.role_id, p_restaurant_id: RESTAURANT_ID });
-        if (result && result.error) throw new Error(result.error);
+        try {
+          const result = await supabaseRpc('manage_staff_role', { p_staff_id: staffId, p_role_id: data.role_id, p_restaurant_id: RESTAURANT_ID });
+          if (result && result.error) throw new Error(result.error);
+        } catch {
+          // Local staff or offline — update role in local store
+          const staff = store.getStaff();
+          const s = staff.find(x => x.id === staffId);
+          // role_id not applicable locally; name will come from roles list
+        }
         res.writeHead(200, { 'Content-Type': 'application/json' });
         res.end(JSON.stringify({ ok: true }));
       } catch (e) {

@@ -292,10 +292,21 @@ function toggleStaff(id) {
   return s.active;
 }
 
+function updateStaffLink(id, link) {
+  const staff = _readArr(STAFF_FILE);
+  const s = staff.find(x => x.id === id);
+  if (!s) return false;
+  s.waiter_link = link;
+  s.active = true;
+  s.synced = false;
+  _writeArr(STAFF_FILE, staff);
+  return true;
+}
+
 module.exports = {
   addOrder, addBill,
   getBills, getOrders, getStats,
   getUnsynced, markBillSynced, markOrderSynced,
   findBill, dailyReport,
-  getStaff, addStaff, removeStaff, toggleStaff,
+  getStaff, addStaff, removeStaff, toggleStaff, updateStaffLink,
 };
