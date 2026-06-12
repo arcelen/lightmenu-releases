@@ -1,8 +1,8 @@
-# LightMenu Print Agent - Multi-page WPF UI
+﻿# LightMenu Print Agent - Multi-page WPF UI
 # ------------------------------------------
 # Pages: Dashboard, Analytics, Bills, Daily Report, Staff
 # All data sourced from the agent's HTTP endpoints (localhost:3000).
-# Works fully offline — the agent stores everything locally.
+# Works fully offline - the agent stores everything locally.
 
 $ErrorActionPreference = 'Stop'
 $scriptDir = Split-Path -Parent $MyInvocation.MyCommand.Definition
@@ -655,7 +655,7 @@ $script:i18n = @{
         period_today='Today'; period_week='This Week'; period_month='This Month'; period_all='All Time'; period_refresh='Refresh'
         lbl_total_revenue='TOTAL REVENUE'; lbl_total_orders='TOTAL ORDERS'; lbl_avg_ticket='AVG TICKET'; lbl_best_day='BEST DAY'
         lbl_payment_methods='PAYMENT METHODS'; lbl_cash='Cash'; lbl_card='Card'; lbl_mixed='Mixed'
-        lbl_revenue_chart='Revenue — Last 7 Days'
+        lbl_revenue_chart='Revenue - Last 7 Days'
         bills_info='Bills are stored locally on this PC and survive restarts. Export to CSV for permanent backup.'
         lbl_from='From:'; lbl_to='To:'; btn_apply='Apply'; btn_export_csv='Export CSV'
         lbl_gen_report='GENERATE REPORT'; lbl_date='Date:'; lbl_start='Start:'; lbl_end='End:'; btn_generate='Generate'; btn_save_report='Save Report as Text File'
@@ -676,7 +676,7 @@ $script:i18n = @{
         period_today="Aujourd'hui"; period_week='Cette semaine'; period_month='Ce mois'; period_all='Tout'; period_refresh='Actualiser'
         lbl_total_revenue="CHIFFRE D'AFFAIRES"; lbl_total_orders='TOTAL COMMANDES'; lbl_avg_ticket='TICKET MOYEN'; lbl_best_day='MEILLEUR JOUR'
         lbl_payment_methods='MODES DE PAIEMENT'; lbl_cash='Especes'; lbl_card='Carte'; lbl_mixed='Mixte'
-        lbl_revenue_chart="Chiffre d'affaires — 7 derniers jours"
+        lbl_revenue_chart="Chiffre d'affaires - 7 derniers jours"
         bills_info='Les factures sont stockees localement et survivent aux redemarrages. Exportez en CSV pour une sauvegarde permanente.'
         lbl_from='Du :'; lbl_to='Au :'; btn_apply='Appliquer'; btn_export_csv='Exporter CSV'
         lbl_gen_report='GENERER UN RAPPORT'; lbl_date='Date :'; lbl_start='Debut :'; lbl_end='Fin :'; btn_generate='Generer'; btn_save_report='Enregistrer le rapport'
@@ -697,7 +697,7 @@ $script:i18n = @{
         period_today='اليوم'; period_week='هذا الأسبوع'; period_month='هذا الشهر'; period_all='كل الوقت'; period_refresh='تحديث'
         lbl_total_revenue='إجمالي الإيرادات'; lbl_total_orders='إجمالي الطلبات'; lbl_avg_ticket='متوسط الفاتورة'; lbl_best_day='أفضل يوم'
         lbl_payment_methods='طرق الدفع'; lbl_cash='نقد'; lbl_card='بطاقة'; lbl_mixed='مختلط'
-        lbl_revenue_chart='الإيرادات — آخر 7 أيام'
+        lbl_revenue_chart='الإيرادات - آخر 7 أيام'
         bills_info='يتم تخزين الفواتير محليا وتبقى بعد إعادة التشغيل. صدّر إلى CSV للنسخ الاحتياطي.'
         lbl_from='من:'; lbl_to='إلى:'; btn_apply='تطبيق'; btn_export_csv='تصدير CSV'
         lbl_gen_report='إنشاء تقرير'; lbl_date='التاريخ:'; lbl_start='البداية:'; lbl_end='النهاية:'; btn_generate='إنشاء'; btn_save_report='حفظ التقرير'
@@ -1216,7 +1216,7 @@ function New-StaffCard($member) {
     $linkBox = New-Object System.Windows.Controls.TextBox
     $linkBox.Width = 190; $linkBox.IsReadOnly = $true; $linkBox.FontSize = 11; $linkBox.Padding = New-Object System.Windows.Thickness(6,4,6,4)
     $linkBox.Background = SolidBrush '#0F1117'; $linkBox.Foreground = SolidBrush '#9CA3AF'; $linkBox.BorderBrush = SolidBrush '#2A2D3A'
-    $linkBox.Text = if ($member.waiter_link) { $member.waiter_link } else { '— no link —' }
+    $linkBox.Text = if ($member.waiter_link) { $member.waiter_link } else { '- no link -' }
     $copyBtn = New-Object System.Windows.Controls.Button
     $copyBtn.Content = [char]0x2398; $copyBtn.FontSize = 13; $copyBtn.Margin = New-Object System.Windows.Thickness(6,0,0,0)
     $copyBtn.Background = SolidBrush '#2A2D3A'; $copyBtn.Foreground = [System.Windows.Media.Brushes]::White
