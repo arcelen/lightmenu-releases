@@ -619,6 +619,25 @@ async function pollAndPrint() {
         processingJobs.delete(job.id);
         printed++;
         updateDailyStats('printed');
+        // Save to local store — survives offline + powers Analytics/Bills/Daily Report pages
+        try {
+          const storeRec = {
+            order_id:       job.order_id,
+            date:           job.order_time || job.created_date || new Date().toISOString(),
+            table:          ticket.table_number,
+            waiter:         ticket.waiter_name,
+            items:          items,
+            printer_type:   job.printer_type || 'kitchen',
+            total:          ticket.total,
+            guest_count:    ticket.guest_count,
+            currency:       ticket.currency,
+            payment_method: ticket.payment_method,
+            bill_url:       ticket.bill_url,
+            source:         'supabase',
+          };
+          if (ticketType === 'check') store.addBill(storeRec);
+          else                        store.addOrder(storeRec);
+        } catch (e) { log('Store save failed: ' + e.message); }
         log('Printed job ' + job.id + ' (' + ticket.type + ') Mesa ' + ticket.table_number);
         track('job_printed', { job_id: job.id, type: ticketType, table: ticket.table_number, printer_mode: usbDirectPort ? 'usb-direct' : usbWinPrinter ? 'usb-spooler' : 'network', printer_ip: printerIp });
       } catch (e) {
@@ -825,6 +844,7 @@ const CUT  = G + 'V' + '\x42' + '\x00';
 const INIT = E + '@';
 
 const qrcode = require('./qrcode.js');
+const store  = require('./store.js');
 
 // ─── MULTI-LANGUAGE ENCODING ──────────────────────────────────────────────────
 // Thermal printers use ESC/POS, which is byte-based. JS strings are Unicode.
@@ -1415,6 +1435,84 @@ http.createServer((req, res) => {
     return;
   }
 
+  // ─── LOCAL STORE ENDPOINTS (consumed by ui.ps1) ─────────────────────────
+  if (req.method === 'GET' && req.url.startsWith('/local/stats')) {
+    const u = new URL(req.url, 'http://x');
+    const period = u.searchParams.get('period') || 'today';
+    res.writeHead(200, { 'Content-Type': 'application/json' });
+    res.end(JSON.stringify(store.getStats(period)));
+    return;
+  }
+
+  if (req.method === 'GET' && req.url.startsWith('/local/bills')) {
+    const u = new URL(req.url, 'http://x');
+    const start = u.searchParams.get('start') || null;
+    const end   = u.searchParams.get('end')   || null;
+    res.writeHead(200, { 'Content-Type': 'application/json' });
+    res.end(JSON.stringify(store.getBills(start, end)));
+    return;
+  }
+
+  if (req.method === 'GET' && req.url.startsWith('/local/orders')) {
+    const u = new URL(req.url, 'http://x');
+    const date = u.searchParams.get('date') || null;
+    res.writeHead(200, { 'Content-Type': 'application/json' });
+    res.end(JSON.stringify(store.getOrders(date)));
+    return;
+  }
+
+  if (req.method === 'GET' && req.url.startsWith('/local/report')) {
+    const u = new URL(req.url, 'http://x');
+    const date  = u.searchParams.get('date')  || new Date().toISOString().slice(0,10);
+    const start = u.searchParams.get('start') || '00:00';
+    const end   = u.searchParams.get('end')   || '23:59';
+    res.writeHead(200, { 'Content-Type': 'application/json' });
+    res.end(JSON.stringify(store.dailyReport(date, start, end)));
+    return;
+  }
+
+  if (req.method === 'POST' && req.url === '/local/reprint') {
+    let body = '';
+    req.on('data', c => body += c);
+    req.on('end', async () => {
+      try {
+        const { id } = JSON.parse(body);
+        const bill = store.findBill(id);
+        if (!bill) {
+          res.writeHead(404, { 'Content-Type': 'application/json' });
+          res.end(JSON.stringify({ ok: false, error: 'Bill not found' }));
+          return;
+        }
+        const ticket = {
+          type:                'check',
+          restaurant_id:       RESTAURANT_ID,
+          restaurant_name:     RESTAURANT_NAME,
+          table_number:        bill.table,
+          waiter_name:         bill.waiter,
+          currency:            bill.currency || 'EUR',
+          time:                bill.date,
+          order_id:            bill.order_id,
+          payment_method:      bill.payment_method,
+          total:               bill.total,
+          guest_count:         bill.guest_count,
+          bill_url:            bill.bill_url,
+          items:               bill.items || [],
+          settings:            {},
+        };
+        const data = buildCheckTicket(ticket);
+        await sendToPrinter(data);
+        log('Reprinted bill ' + bill.id);
+        res.writeHead(200, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ ok: true }));
+      } catch (e) {
+        log('Reprint failed: ' + e.message);
+        res.writeHead(500, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ ok: false, error: e.message }));
+      }
+    });
+    return;
+  }
+
   if (req.method === 'POST' && req.url === '/rescan') {
     log('Manual rescan triggered from dashboard');
     runNetworkScan();
@@ -1464,6 +1562,25 @@ http.createServer((req, res) => {
         const copies = (ticket.type === 'check' ? ticket.settings?.check_copies : ticket.settings?.order_copies) || 1;
         for (let i = 0; i < Math.min(copies, 3); i++) await sendToPrinter(data);
         printed++;
+        updateDailyStats('printed');
+        try {
+          const storeRec = {
+            order_id:       ticket.order_id,
+            date:           ticket.time || new Date().toISOString(),
+            table:          ticket.table_number,
+            waiter:         ticket.waiter_name,
+            items:          ticket.items || [],
+            printer_type:   ticket.type === 'check' ? 'check' : 'kitchen',
+            total:          ticket.total,
+            guest_count:    ticket.guest_count,
+            currency:       ticket.currency,
+            payment_method: ticket.payment_method,
+            bill_url:       ticket.bill_url,
+            source:         'local',
+          };
+          if (ticket.type === 'check') store.addBill(storeRec);
+          else                          store.addOrder(storeRec);
+        } catch (e) { log('Store save failed: ' + e.message); }
         res.writeHead(200, { 'Content-Type': 'application/json' });
         res.end(JSON.stringify({ ok: true }));
       } catch (e) {
