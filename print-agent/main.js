@@ -618,11 +618,13 @@ async function pollAndPrint() {
         await markJobPrinted(job.id);
         processingJobs.delete(job.id);
         printed++;
+        updateDailyStats('printed');
         log('Printed job ' + job.id + ' (' + ticket.type + ') Mesa ' + ticket.table_number);
         track('job_printed', { job_id: job.id, type: ticketType, table: ticket.table_number, printer_mode: usbDirectPort ? 'usb-direct' : usbWinPrinter ? 'usb-spooler' : 'network', printer_ip: printerIp });
       } catch (e) {
         processingJobs.delete(job.id);
         failed++;
+        updateDailyStats('failed');
         log('Failed job ' + job.id + ': ' + (e?.message || String(e) || 'unknown error') + ' [ip=' + printerIp + ']');
         track('job_failed', { job_id: job.id, error: e?.message || String(e), printer_mode: usbDirectPort ? 'usb-direct' : usbWinPrinter ? 'usb-spooler' : 'network', printer_ip: printerIp });
       }
@@ -653,6 +655,24 @@ function log(m) { console.log('[' + new Date().toLocaleTimeString() + '] ' + m);
 //   );
 const ANALYTICS_FILE = path.join(__dirname, 'analytics.queue.json');
 const ANALYTICS_CAP  = 500; // max events to buffer locally
+const STATS_FILE     = path.join(__dirname, 'stats.daily.json');
+
+// Read/write today's cumulative stats — survives agent restarts.
+// ui.ps1 reads this file directly so it shows accurate totals even when
+// the agent is disconnected or the HTTP server isn't responding.
+function updateDailyStats(type) {
+  const today = new Date().toISOString().slice(0, 10); // 'YYYY-MM-DD'
+  let s = { date: today, printed: 0, failed: 0, last_sync: null };
+  try {
+    const raw = JSON.parse(fs.readFileSync(STATS_FILE, 'utf8'));
+    if (raw.date === today) s = raw; // keep today's counts; reset on new day
+  } catch {}
+  if (type === 'printed') s.printed++;
+  else if (type === 'failed') s.failed++;
+  else if (type === 'sync') s.last_sync = new Date().toISOString();
+  s.date = today;
+  try { fs.writeFileSync(STATS_FILE, JSON.stringify(s)); } catch {}
+}
 
 function _readQueue() {
   try { return JSON.parse(fs.readFileSync(ANALYTICS_FILE, 'utf8')); }
@@ -677,6 +697,7 @@ async function _flushAnalytics() {
   try {
     await supabasePost('agent_analytics', q);
     fs.writeFileSync(ANALYTICS_FILE, '[]');
+    updateDailyStats('sync');
     if (q.length > 1) log('Analytics: flushed ' + q.length + ' event(s)');
   } catch {
     // offline — events stay queued; next interval will retry
