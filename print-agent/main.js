@@ -1513,10 +1513,37 @@ http.createServer((req, res) => {
     return;
   }
 
-  // Staff endpoints
+  // Staff endpoints — merge Supabase (when online) with local store
   if (req.method === 'GET' && req.url === '/local/staff') {
-    res.writeHead(200, { 'Content-Type': 'application/json' });
-    res.end(JSON.stringify(store.getStaff()));
+    (async () => {
+      const local = store.getStaff();
+      let remote = [];
+      try {
+        remote = await supabaseGet('staff_members', { restaurant_id: RESTAURANT_ID });
+        if (!Array.isArray(remote)) remote = [];
+      } catch { remote = []; }
+
+      // Normalize Supabase rows to the same shape the UI expects
+      const remoteNorm = remote.map(r => ({
+        id:          r.id,
+        name:        r.display_name || r.full_name || r.email || 'Staff',
+        role:        r.role || (r.roles && r.roles[0]) || 'Waiter',
+        waiter_link: r.magic_link_url || r.waiter_link || null,
+        created_at:  r.created_date || r.created_at || null,
+        last_used:   r.last_login_at || r.last_used || null,
+        active:      r.is_active !== false,
+        synced:      true,
+        source:      'supabase',
+      }));
+
+      // Merge: prefer remote, append locals not seen remotely
+      const remoteIds = new Set(remoteNorm.map(x => x.id));
+      const localOnly = local.filter(l => !remoteIds.has(l.id)).map(l => ({ ...l, source: 'local' }));
+      const merged = [...remoteNorm, ...localOnly];
+
+      res.writeHead(200, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify(merged));
+    })();
     return;
   }
 

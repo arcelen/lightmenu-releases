@@ -161,13 +161,14 @@ function Format-Money($amount) {
       <Grid>
         <StackPanel Orientation="Horizontal">
           <Button x:Name="NavDashboard"  Style="{StaticResource NavBtn}" Content="Dashboard"/>
+          <Button x:Name="NavStaff"      Style="{StaticResource NavBtn}" Content="Staff"        Margin="4,0,0,0"/>
           <Button x:Name="NavAnalytics"  Style="{StaticResource NavBtn}" Content="Analytics"    Margin="4,0,0,0"/>
           <Button x:Name="NavBills"      Style="{StaticResource NavBtn}" Content="Bills"        Margin="4,0,0,0"/>
           <Button x:Name="NavReport"     Style="{StaticResource NavBtn}" Content="Daily Report" Margin="4,0,0,0"/>
-          <Button x:Name="NavStaff"      Style="{StaticResource NavBtn}" Content="Staff"        Margin="4,0,0,0"/>
         </StackPanel>
-        <Button x:Name="LangBtn" HorizontalAlignment="Right" VerticalAlignment="Center"
-                Style="{StaticResource NavBtn}" Content="EN" FontSize="11" FontWeight="Bold" Padding="10,6"/>
+        <ComboBox x:Name="LangCombo" HorizontalAlignment="Right" VerticalAlignment="Center"
+                  Width="170" Padding="8,4" FontSize="12"
+                  Background="#1A1D29" Foreground="#FFFFFF" BorderBrush="#2A2D3A"/>
       </Grid>
     </Border>
 
@@ -712,7 +713,168 @@ $script:i18n = @{
         dlg_add_staff_title='إضافة موظف'; dlg_ok='إضافة'; dlg_cancel='إلغاء'
     }
 }
-$script:langCycle = @('en','fr','ar')
+$script:langCycle = @('en','fr','es','it','de','pt','nl','ru','ar','zh')
+$script:langMeta = @{
+    en = @{ flag='[US]'; name='English' }
+    fr = @{ flag='[FR]'; name='Français' }
+    es = @{ flag='[ES]'; name='Español' }
+    it = @{ flag='[IT]'; name='Italiano' }
+    de = @{ flag='[DE]'; name='Deutsch' }
+    pt = @{ flag='[PT]'; name='Português' }
+    nl = @{ flag='[NL]'; name='Nederlands' }
+    ru = @{ flag='[RU]'; name='Русский' }
+    ar = @{ flag='[SA]'; name='العربية' }
+    zh = @{ flag='[CN]'; name='中文' }
+}
+
+# Translations for the additional languages
+$script:i18n['es'] = @{
+    nav_dashboard='Panel'; nav_analytics='Analíticas'; nav_bills='Facturas'; nav_report='Reporte Diario'; nav_staff='Personal'
+    lbl_printer='IMPRESORA'; lbl_tunnel='TUNEL'; lbl_today_session='HOY'; lbl_last_update='ULTIMA ACT.'; lbl_live_log='REGISTRO'
+    btn_rescan='Buscar Impresoras'; btn_restart='Reiniciar'; btn_clear='Limpiar'
+    period_today='Hoy'; period_week='Esta Semana'; period_month='Este Mes'; period_all='Todo'; period_refresh='Actualizar'
+    lbl_total_revenue='INGRESOS TOTALES'; lbl_total_orders='PEDIDOS TOTALES'; lbl_avg_ticket='TICKET PROMEDIO'; lbl_best_day='MEJOR DIA'
+    lbl_payment_methods='METODOS DE PAGO'; lbl_cash='Efectivo'; lbl_card='Tarjeta'; lbl_mixed='Mixto'
+    lbl_revenue_chart='Ingresos - Últimos 7 días'
+    bills_info='Las facturas se guardan localmente y sobreviven a reinicios. Exporta a CSV para respaldo.'
+    lbl_from='Desde:'; lbl_to='Hasta:'; btn_apply='Aplicar'; btn_export_csv='Exportar CSV'
+    lbl_gen_report='GENERAR REPORTE'; lbl_date='Fecha:'; lbl_start='Inicio:'; lbl_end='Fin:'; btn_generate='Generar'; btn_save_report='Guardar Reporte'
+    lbl_rep_revenue='INGRESOS'; lbl_rep_orders='PEDIDOS'; lbl_rep_avg='TICKET PROM.'; lbl_pay_breakdown='DESGLOSE PAGOS'; lbl_top_items='ARTICULOS TOP'
+    report_empty='Genera un reporte para ver el desglose.'
+    staff_title='Personal'; btn_add_staff='+ Añadir'; lbl_staff_name='Nombre'; lbl_staff_role='Rol'
+    staff_last_used='Última:'; staff_never_used='Nunca usado'; staff_active='Activo'; staff_inactive='Inactivo'
+    btn_remove='Eliminar'; btn_toggle='Activar/Desact.'; btn_copy_link='Copiar enlace'
+    confirm_remove='¿Eliminar este miembro?'; confirm_restart='¿Reiniciar el agente ahora?'
+    rescan_info='Búsqueda iniciada. Revisa el registro.'
+    no_staff='Sin personal. Haz clic en "+ Añadir" para empezar.'
+    dlg_add_staff_title='Añadir Miembro'; dlg_ok='Añadir'; dlg_cancel='Cancelar'
+}
+$script:i18n['it'] = @{
+    nav_dashboard='Cruscotto'; nav_analytics='Analisi'; nav_bills='Conti'; nav_report='Rapporto Giornaliero'; nav_staff='Personale'
+    lbl_printer='STAMPANTE'; lbl_tunnel='TUNNEL'; lbl_today_session='OGGI'; lbl_last_update='ULTIMO AGG.'; lbl_live_log='LOG'
+    btn_rescan='Cerca Stampanti'; btn_restart='Riavvia'; btn_clear='Pulisci'
+    period_today='Oggi'; period_week='Questa Settimana'; period_month='Questo Mese'; period_all='Tutto'; period_refresh='Aggiorna'
+    lbl_total_revenue='RICAVO TOTALE'; lbl_total_orders='ORDINI TOTALI'; lbl_avg_ticket='TICKET MEDIO'; lbl_best_day='GIORNO MIGLIORE'
+    lbl_payment_methods='METODI PAGAMENTO'; lbl_cash='Contanti'; lbl_card='Carta'; lbl_mixed='Misto'
+    lbl_revenue_chart='Ricavi - Ultimi 7 giorni'
+    bills_info='I conti sono salvati localmente e sopravvivono ai riavvii. Esporta in CSV per backup.'
+    lbl_from='Da:'; lbl_to='A:'; btn_apply='Applica'; btn_export_csv='Esporta CSV'
+    lbl_gen_report='GENERA RAPPORTO'; lbl_date='Data:'; lbl_start='Inizio:'; lbl_end='Fine:'; btn_generate='Genera'; btn_save_report='Salva Rapporto'
+    lbl_rep_revenue='RICAVO'; lbl_rep_orders='ORDINI'; lbl_rep_avg='TICKET MEDIO'; lbl_pay_breakdown='DETTAGLI PAGAMENTI'; lbl_top_items='ARTICOLI TOP'
+    report_empty='Genera un rapporto per vedere il dettaglio.'
+    staff_title='Personale'; btn_add_staff='+ Aggiungi'; lbl_staff_name='Nome'; lbl_staff_role='Ruolo'
+    staff_last_used='Ultimo:'; staff_never_used='Mai usato'; staff_active='Attivo'; staff_inactive='Inattivo'
+    btn_remove='Rimuovi'; btn_toggle='Attiva/Disatt.'; btn_copy_link='Copia link'
+    confirm_remove='Rimuovere questo membro?'; confirm_restart="Riavviare l'agente ora?"
+    rescan_info='Scansione avviata. Controlla il log.'
+    no_staff='Nessun personale. Clicca "+ Aggiungi" per iniziare.'
+    dlg_add_staff_title='Aggiungi Membro'; dlg_ok='Aggiungi'; dlg_cancel='Annulla'
+}
+$script:i18n['de'] = @{
+    nav_dashboard='Übersicht'; nav_analytics='Analyse'; nav_bills='Rechnungen'; nav_report='Tagesbericht'; nav_staff='Personal'
+    lbl_printer='DRUCKER'; lbl_tunnel='TUNNEL'; lbl_today_session='HEUTE'; lbl_last_update='LETZTES UPDATE'; lbl_live_log='PROTOKOLL'
+    btn_rescan='Drucker suchen'; btn_restart='Neustart'; btn_clear='Leeren'
+    period_today='Heute'; period_week='Diese Woche'; period_month='Dieser Monat'; period_all='Alle'; period_refresh='Aktualisieren'
+    lbl_total_revenue='GESAMTUMSATZ'; lbl_total_orders='BESTELLUNGEN'; lbl_avg_ticket='DURCHSCHNITT'; lbl_best_day='BESTER TAG'
+    lbl_payment_methods='ZAHLUNGSARTEN'; lbl_cash='Bar'; lbl_card='Karte'; lbl_mixed='Gemischt'
+    lbl_revenue_chart='Umsatz - Letzte 7 Tage'
+    bills_info='Rechnungen werden lokal gespeichert und überleben Neustarts. Exportiere in CSV für Backup.'
+    lbl_from='Von:'; lbl_to='Bis:'; btn_apply='Anwenden'; btn_export_csv='CSV exportieren'
+    lbl_gen_report='BERICHT ERSTELLEN'; lbl_date='Datum:'; lbl_start='Start:'; lbl_end='Ende:'; btn_generate='Erstellen'; btn_save_report='Bericht speichern'
+    lbl_rep_revenue='UMSATZ'; lbl_rep_orders='BESTELLUNGEN'; lbl_rep_avg='DURCHSCHNITT'; lbl_pay_breakdown='ZAHLUNGEN'; lbl_top_items='TOP ARTIKEL'
+    report_empty='Bericht erstellen für Übersicht.'
+    staff_title='Personal'; btn_add_staff='+ Hinzufügen'; lbl_staff_name='Name'; lbl_staff_role='Rolle'
+    staff_last_used='Zuletzt:'; staff_never_used='Nie benutzt'; staff_active='Aktiv'; staff_inactive='Inaktiv'
+    btn_remove='Entfernen'; btn_toggle='Akt./Deakt.'; btn_copy_link='Link kopieren'
+    confirm_remove='Mitglied entfernen?'; confirm_restart='Agent jetzt neustarten?'
+    rescan_info='Scan gestartet. Siehe Protokoll.'
+    no_staff='Kein Personal. Klicke "+ Hinzufügen" zum Starten.'
+    dlg_add_staff_title='Mitglied hinzufügen'; dlg_ok='Hinzufügen'; dlg_cancel='Abbrechen'
+}
+$script:i18n['pt'] = @{
+    nav_dashboard='Painel'; nav_analytics='Análises'; nav_bills='Faturas'; nav_report='Relatório Diário'; nav_staff='Equipe'
+    lbl_printer='IMPRESSORA'; lbl_tunnel='TUNEL'; lbl_today_session='HOJE'; lbl_last_update='ULTIMA ATUAL.'; lbl_live_log='REGISTO'
+    btn_rescan='Buscar Impressoras'; btn_restart='Reiniciar'; btn_clear='Limpar'
+    period_today='Hoje'; period_week='Esta Semana'; period_month='Este Mês'; period_all='Tudo'; period_refresh='Atualizar'
+    lbl_total_revenue='RECEITA TOTAL'; lbl_total_orders='PEDIDOS TOTAIS'; lbl_avg_ticket='TICKET MEDIO'; lbl_best_day='MELHOR DIA'
+    lbl_payment_methods='METODOS PAGAMENTO'; lbl_cash='Dinheiro'; lbl_card='Cartão'; lbl_mixed='Misto'
+    lbl_revenue_chart='Receita - Últimos 7 dias'
+    bills_info='Faturas armazenadas localmente. Exporte para CSV para backup.'
+    lbl_from='De:'; lbl_to='Até:'; btn_apply='Aplicar'; btn_export_csv='Exportar CSV'
+    lbl_gen_report='GERAR RELATORIO'; lbl_date='Data:'; lbl_start='Início:'; lbl_end='Fim:'; btn_generate='Gerar'; btn_save_report='Salvar Relatório'
+    lbl_rep_revenue='RECEITA'; lbl_rep_orders='PEDIDOS'; lbl_rep_avg='TICKET MEDIO'; lbl_pay_breakdown='PAGAMENTOS'; lbl_top_items='TOP ITENS'
+    report_empty='Gere um relatório para ver os detalhes.'
+    staff_title='Equipe'; btn_add_staff='+ Adicionar'; lbl_staff_name='Nome'; lbl_staff_role='Função'
+    staff_last_used='Último:'; staff_never_used='Nunca usado'; staff_active='Ativo'; staff_inactive='Inativo'
+    btn_remove='Remover'; btn_toggle='Ativar/Desat.'; btn_copy_link='Copiar link'
+    confirm_remove='Remover este membro?'; confirm_restart='Reiniciar o agente agora?'
+    rescan_info='Busca iniciada. Veja o registo.'
+    no_staff='Sem equipe. Clique "+ Adicionar" para começar.'
+    dlg_add_staff_title='Adicionar Membro'; dlg_ok='Adicionar'; dlg_cancel='Cancelar'
+}
+$script:i18n['nl'] = @{
+    nav_dashboard='Dashboard'; nav_analytics='Analyse'; nav_bills='Rekeningen'; nav_report='Dagrapport'; nav_staff='Personeel'
+    lbl_printer='PRINTER'; lbl_tunnel='TUNNEL'; lbl_today_session='VANDAAG'; lbl_last_update='LAATSTE UPD.'; lbl_live_log='LOG'
+    btn_rescan='Printers zoeken'; btn_restart='Herstart'; btn_clear='Wissen'
+    period_today='Vandaag'; period_week='Deze Week'; period_month='Deze Maand'; period_all='Alles'; period_refresh='Vernieuwen'
+    lbl_total_revenue='TOTALE OMZET'; lbl_total_orders='TOTAAL BESTELLINGEN'; lbl_avg_ticket='GEM. TICKET'; lbl_best_day='BESTE DAG'
+    lbl_payment_methods='BETAALMETHODEN'; lbl_cash='Contant'; lbl_card='Kaart'; lbl_mixed='Gemengd'
+    lbl_revenue_chart='Omzet - Laatste 7 dagen'
+    bills_info='Rekeningen worden lokaal opgeslagen. Exporteer naar CSV voor back-up.'
+    lbl_from='Van:'; lbl_to='Tot:'; btn_apply='Toepassen'; btn_export_csv='Exporteer CSV'
+    lbl_gen_report='RAPPORT MAKEN'; lbl_date='Datum:'; lbl_start='Start:'; lbl_end='Einde:'; btn_generate='Maken'; btn_save_report='Rapport opslaan'
+    lbl_rep_revenue='OMZET'; lbl_rep_orders='BESTELLINGEN'; lbl_rep_avg='GEM. TICKET'; lbl_pay_breakdown='BETALINGEN'; lbl_top_items='TOP ITEMS'
+    report_empty='Maak een rapport voor details.'
+    staff_title='Personeel'; btn_add_staff='+ Toevoegen'; lbl_staff_name='Naam'; lbl_staff_role='Rol'
+    staff_last_used='Laatst:'; staff_never_used='Nooit gebruikt'; staff_active='Actief'; staff_inactive='Inactief'
+    btn_remove='Verwijderen'; btn_toggle='Aan/Uit'; btn_copy_link='Kopieer link'
+    confirm_remove='Lid verwijderen?'; confirm_restart='Agent nu herstarten?'
+    rescan_info='Scan gestart. Zie log.'
+    no_staff='Geen personeel. Klik "+ Toevoegen" om te beginnen.'
+    dlg_add_staff_title='Lid toevoegen'; dlg_ok='Toevoegen'; dlg_cancel='Annuleren'
+}
+$script:i18n['ru'] = @{
+    nav_dashboard='Панель'; nav_analytics='Аналитика'; nav_bills='Счета'; nav_report='Дневной Отчет'; nav_staff='Персонал'
+    lbl_printer='ПРИНТЕР'; lbl_tunnel='ТУННЕЛЬ'; lbl_today_session='СЕГОДНЯ'; lbl_last_update='ОБНОВЛЕНИЕ'; lbl_live_log='ЖУРНАЛ'
+    btn_rescan='Найти принтеры'; btn_restart='Перезапуск'; btn_clear='Очистить'
+    period_today='Сегодня'; period_week='Эта Неделя'; period_month='Этот Месяц'; period_all='Все Время'; period_refresh='Обновить'
+    lbl_total_revenue='ОБЩАЯ ВЫРУЧКА'; lbl_total_orders='ВСЕГО ЗАКАЗОВ'; lbl_avg_ticket='СРЕДНИЙ ЧЕК'; lbl_best_day='ЛУЧШИЙ ДЕНЬ'
+    lbl_payment_methods='СПОСОБЫ ОПЛАТЫ'; lbl_cash='Наличные'; lbl_card='Карта'; lbl_mixed='Смешанная'
+    lbl_revenue_chart='Выручка - Последние 7 дней'
+    bills_info='Счета хранятся локально. Экспортируйте в CSV для резервной копии.'
+    lbl_from='С:'; lbl_to='По:'; btn_apply='Применить'; btn_export_csv='Экспорт CSV'
+    lbl_gen_report='СОЗДАТЬ ОТЧЕТ'; lbl_date='Дата:'; lbl_start='Начало:'; lbl_end='Конец:'; btn_generate='Создать'; btn_save_report='Сохранить отчет'
+    lbl_rep_revenue='ВЫРУЧКА'; lbl_rep_orders='ЗАКАЗЫ'; lbl_rep_avg='СРЕДНИЙ ЧЕК'; lbl_pay_breakdown='ПЛАТЕЖИ'; lbl_top_items='ТОП ТОВАРОВ'
+    report_empty='Создайте отчет, чтобы увидеть детали.'
+    staff_title='Персонал'; btn_add_staff='+ Добавить'; lbl_staff_name='Имя'; lbl_staff_role='Роль'
+    staff_last_used='Посл.:'; staff_never_used='Не использовался'; staff_active='Активен'; staff_inactive='Неактивен'
+    btn_remove='Удалить'; btn_toggle='Вкл/Выкл'; btn_copy_link='Копировать'
+    confirm_remove='Удалить сотрудника?'; confirm_restart='Перезапустить агент сейчас?'
+    rescan_info='Сканирование начато. Смотрите журнал.'
+    no_staff='Нет персонала. Нажмите "+ Добавить" чтобы начать.'
+    dlg_add_staff_title='Добавить сотрудника'; dlg_ok='Добавить'; dlg_cancel='Отмена'
+}
+$script:i18n['zh'] = @{
+    nav_dashboard='仪表盘'; nav_analytics='分析'; nav_bills='账单'; nav_report='日报'; nav_staff='员工'
+    lbl_printer='打印机'; lbl_tunnel='隧道'; lbl_today_session='今日'; lbl_last_update='最后更新'; lbl_live_log='实时日志'
+    btn_rescan='扫描打印机'; btn_restart='重启'; btn_clear='清除'
+    period_today='今日'; period_week='本周'; period_month='本月'; period_all='全部'; period_refresh='刷新'
+    lbl_total_revenue='总收入'; lbl_total_orders='总订单'; lbl_avg_ticket='平均单价'; lbl_best_day='最佳日'
+    lbl_payment_methods='支付方式'; lbl_cash='现金'; lbl_card='卡'; lbl_mixed='混合'
+    lbl_revenue_chart='收入 - 过去7天'
+    bills_info='账单本地存储。导出CSV以备份。'
+    lbl_from='从:'; lbl_to='至:'; btn_apply='应用'; btn_export_csv='导出CSV'
+    lbl_gen_report='生成报告'; lbl_date='日期:'; lbl_start='开始:'; lbl_end='结束:'; btn_generate='生成'; btn_save_report='保存报告'
+    lbl_rep_revenue='收入'; lbl_rep_orders='订单'; lbl_rep_avg='平均单价'; lbl_pay_breakdown='支付明细'; lbl_top_items='热销商品'
+    report_empty='生成报告以查看详情。'
+    staff_title='员工'; btn_add_staff='+ 添加员工'; lbl_staff_name='姓名'; lbl_staff_role='角色'
+    staff_last_used='最后:'; staff_never_used='未使用'; staff_active='在线'; staff_inactive='离线'
+    btn_remove='删除'; btn_toggle='切换'; btn_copy_link='复制链接'
+    confirm_remove='删除此员工？'; confirm_restart='立即重启代理？'
+    rescan_info='扫描已开始。查看日志。'
+    no_staff='暂无员工。点击"+ 添加员工"开始。'
+    dlg_add_staff_title='添加员工'; dlg_ok='添加'; dlg_cancel='取消'
+}
 
 function T($key) {
     $d = $script:i18n[$script:lang]
@@ -732,7 +894,6 @@ function Apply-Language {
     (ctl 'NavBills').Content     = T 'nav_bills'
     (ctl 'NavReport').Content    = T 'nav_report'
     (ctl 'NavStaff').Content     = T 'nav_staff'
-    (ctl 'LangBtn').Content      = $script:lang.ToUpper()
 
     # Dashboard labels
     (ctl 'LblPrinter').Text      = T 'lbl_printer'
@@ -789,9 +950,23 @@ function Apply-Language {
     if ($script:activePage -eq 'Staff') { Update-Staff-Page }
 }
 
-(ctl 'LangBtn').Add_Click({
-    $idx = $script:langCycle.IndexOf($script:lang)
-    $script:lang = $script:langCycle[($idx + 1) % $script:langCycle.Count]
+# Populate language dropdown
+$langCombo = ctl 'LangCombo'
+foreach ($code in $script:langCycle) {
+    $meta = $script:langMeta[$code]
+    $item = New-Object System.Windows.Controls.ComboBoxItem
+    $item.Content = "$($meta.flag)  $($meta.name)"
+    $item.Tag     = $code
+    $item.Foreground = [System.Windows.Media.Brushes]::Black
+    $langCombo.Items.Add($item) | Out-Null
+    if ($code -eq $script:lang) { $langCombo.SelectedItem = $item }
+}
+
+$langCombo.Add_SelectionChanged({
+    $sel = $langCombo.SelectedItem
+    if (-not $sel -or -not $sel.Tag) { return }
+    if ($sel.Tag -eq $script:lang) { return }
+    $script:lang = $sel.Tag
     Apply-Language
     Set-Active-Period $script:activePeriod
 })
