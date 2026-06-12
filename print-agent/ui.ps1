@@ -166,9 +166,38 @@ function Format-Money($amount) {
           <Button x:Name="NavBills"      Style="{StaticResource NavBtn}" Content="Bills"        Margin="4,0,0,0"/>
           <Button x:Name="NavReport"     Style="{StaticResource NavBtn}" Content="Daily Report" Margin="4,0,0,0"/>
         </StackPanel>
-        <ComboBox x:Name="LangCombo" HorizontalAlignment="Right" VerticalAlignment="Center"
-                  Width="170" Padding="8,4" FontSize="12"
-                  Background="#1A1D29" Foreground="#FFFFFF" BorderBrush="#2A2D3A"/>
+        <Grid HorizontalAlignment="Right" VerticalAlignment="Center" Width="170">
+          <Button x:Name="LangBtn" Background="#1A1D29" Foreground="#FFFFFF" BorderThickness="0" Cursor="Hand" Padding="12,6" HorizontalContentAlignment="Stretch">
+            <Button.Template>
+              <ControlTemplate TargetType="Button">
+                <Border Background="{TemplateBinding Background}" BorderBrush="#2A2D3A" BorderThickness="1" CornerRadius="6" Padding="{TemplateBinding Padding}">
+                  <Grid>
+                    <TextBlock x:Name="LangBtnText" Text="English" Foreground="#FFFFFF" FontSize="12" VerticalAlignment="Center"/>
+                    <TextBlock Text="v" Foreground="#9CA3AF" FontSize="10" HorizontalAlignment="Right" VerticalAlignment="Center"/>
+                  </Grid>
+                </Border>
+              </ControlTemplate>
+            </Button.Template>
+          </Button>
+          <Popup x:Name="LangPopup" PlacementTarget="{Binding ElementName=LangBtn}" Placement="Bottom" StaysOpen="False" AllowsTransparency="True">
+            <Border Background="#1A1D29" BorderBrush="#2A2D3A" BorderThickness="1" CornerRadius="6" Padding="4" Margin="0,4,0,0">
+              <ListBox x:Name="LangList" Background="Transparent" BorderThickness="0" Foreground="#FFFFFF" Width="200" MaxHeight="320">
+                <ListBox.ItemContainerStyle>
+                  <Style TargetType="ListBoxItem">
+                    <Setter Property="Background" Value="Transparent"/>
+                    <Setter Property="Foreground" Value="#FFFFFF"/>
+                    <Setter Property="Padding" Value="12,8"/>
+                    <Setter Property="FontSize" Value="12"/>
+                    <Style.Triggers>
+                      <Trigger Property="IsMouseOver" Value="True"><Setter Property="Background" Value="#2A2D3A"/></Trigger>
+                      <Trigger Property="IsSelected" Value="True"><Setter Property="Background" Value="#14B8A6"/></Trigger>
+                    </Style.Triggers>
+                  </Style>
+                </ListBox.ItemContainerStyle>
+              </ListBox>
+            </Border>
+          </Popup>
+        </Grid>
       </Grid>
     </Border>
 
@@ -950,26 +979,44 @@ function Apply-Language {
     if ($script:activePage -eq 'Staff') { Update-Staff-Page }
 }
 
-# Populate language dropdown
-$langCombo = ctl 'LangCombo'
-foreach ($code in $script:langCycle) {
-    $meta = $script:langMeta[$code]
-    $item = New-Object System.Windows.Controls.ComboBoxItem
-    $item.Content = "$($meta.flag)  $($meta.name)"
-    $item.Tag     = $code
-    $item.Foreground = [System.Windows.Media.Brushes]::Black
-    $langCombo.Items.Add($item) | Out-Null
-    if ($code -eq $script:lang) { $langCombo.SelectedItem = $item }
+# Populate language dropdown (custom Button + Popup with ListBox)
+$langBtn   = ctl 'LangBtn'
+$langPopup = ctl 'LangPopup'
+$langList  = ctl 'LangList'
+
+function Get-LangBtnText() {
+    $btn = ctl 'LangBtn'
+    if (-not $btn -or -not $btn.Template) { return $null }
+    $btn.ApplyTemplate() | Out-Null
+    return $btn.Template.FindName('LangBtnText', $btn)
 }
 
-$langCombo.Add_SelectionChanged({
-    $sel = $langCombo.SelectedItem
+foreach ($code in $script:langCycle) {
+    $meta = $script:langMeta[$code]
+    $item = New-Object System.Windows.Controls.ListBoxItem
+    $item.Content = "$($meta.flag)  $($meta.name)"
+    $item.Tag     = $code
+    $langList.Items.Add($item) | Out-Null
+    if ($code -eq $script:lang) { $langList.SelectedItem = $item }
+}
+
+$langBtn.Add_Click({ $langPopup.IsOpen = -not $langPopup.IsOpen })
+
+$langList.Add_SelectionChanged({
+    $sel = $langList.SelectedItem
     if (-not $sel -or -not $sel.Tag) { return }
+    $langPopup.IsOpen = $false
     if ($sel.Tag -eq $script:lang) { return }
     $script:lang = $sel.Tag
+    $btnText = Get-LangBtnText
+    if ($btnText) { $btnText.Text = $script:langMeta[$script:lang].name }
     Apply-Language
     Set-Active-Period $script:activePeriod
 })
+
+# Set initial label
+$initText = Get-LangBtnText
+if ($initText) { $initText.Text = $script:langMeta[$script:lang].name }
 
 # ─── PAGE SWITCHING ─────────────────────────────────────────────────────────
 $script:activePage  = 'Dashboard'
@@ -1428,12 +1475,12 @@ function New-StaffCard($member) {
     $memberData = $member
 
     # SHARE — opens QR popup
-    $shareBtn = Make-PillButton ([char]0x21AA + ' Share') '#10B981' $member.id
+    $shareBtn = Make-PillButton 'Share' '#10B981' $member.id
     $shareBtn.Add_Click({ Show-QrDialog $memberData.id $memberData.name }.GetNewClosure())
     $btnRow.Children.Add($shareBtn) | Out-Null
 
     # ON/OFF toggle
-    $toggleText = if ($member.active) { [char]0x25CB + ' Off' } else { [char]0x25CF + ' On' }
+    $toggleText = if ($member.active) { 'Off' } else { 'On' }
     $toggleColor = if ($member.active) { '#EF4444' } else { '#22C55E' }
     $toggleBtn = Make-PillButton $toggleText $toggleColor $member.id
     $toggleBtn.Add_Click({
@@ -1441,12 +1488,12 @@ function New-StaffCard($member) {
         try {
             Invoke-RestMethod -Uri "$base/local/staff/$([System.Uri]::EscapeDataString($mid))/toggle" -Method Post -TimeoutSec 8 -ErrorAction Stop | Out-Null
             Update-Staff-Page
-        } catch { [System.Windows.MessageBox]::Show("Toggle failed: $($_.Exception.Message)", 'LightMenu', 'OK', 'Warning') | Out-Null }
+        } catch { Show-SupabaseError $_ 'Toggle' }
     })
     $btnRow.Children.Add($toggleBtn) | Out-Null
 
     # NEW LINK
-    $newLinkBtn = Make-PillButton ([char]0x21BB + ' New Link') '#9CA3AF' $member.id
+    $newLinkBtn = Make-PillButton 'New Link' '#9CA3AF' $member.id
     $newLinkBtn.Add_Click({
         $mid = $this.Tag
         $res = [System.Windows.MessageBox]::Show("Generate a new link? The old link will stop working.", 'LightMenu', 'YesNo', 'Question')
@@ -1454,17 +1501,17 @@ function New-StaffCard($member) {
         try {
             Invoke-RestMethod -Uri "$base/local/staff/$([System.Uri]::EscapeDataString($mid))/new_link" -Method Post -TimeoutSec 8 -ErrorAction Stop | Out-Null
             Update-Staff-Page
-        } catch { [System.Windows.MessageBox]::Show("Failed: $($_.Exception.Message)", 'LightMenu', 'OK', 'Warning') | Out-Null }
+        } catch { Show-SupabaseError $_ 'New Link' }
     })
     $btnRow.Children.Add($newLinkBtn) | Out-Null
 
     # ROLE
-    $roleBtn = Make-PillButton ([char]0x2630 + ' Role') '#8B5CF6' $member.id
+    $roleBtn = Make-PillButton 'Role' '#8B5CF6' $member.id
     $roleBtn.Add_Click({ Show-RoleDialog $memberData.id $memberData.role }.GetNewClosure())
     $btnRow.Children.Add($roleBtn) | Out-Null
 
     # DELETE
-    $removeBtn = Make-PillButton ([char]0x2717) '#EF4444' $member.id
+    $removeBtn = Make-PillButton 'Delete' '#EF4444' $member.id
     $removeBtn.Add_Click({
         $mid = $this.Tag
         $res = [System.Windows.MessageBox]::Show((T 'confirm_remove'), 'LightMenu', 'YesNo', 'Question')
@@ -1472,7 +1519,7 @@ function New-StaffCard($member) {
             try {
                 Invoke-RestMethod -Uri "$base/local/staff/$([System.Uri]::EscapeDataString($mid))" -Method Delete -TimeoutSec 8 -ErrorAction Stop | Out-Null
                 Update-Staff-Page
-            } catch { [System.Windows.MessageBox]::Show("Failed: $($_.Exception.Message)", 'LightMenu', 'OK', 'Warning') | Out-Null }
+            } catch { Show-SupabaseError $_ 'Delete' }
         }
     })
     $btnRow.Children.Add($removeBtn) | Out-Null
@@ -1480,6 +1527,12 @@ function New-StaffCard($member) {
     $sp.Children.Add($btnRow) | Out-Null
     $card.Child = $sp
     return $card
+}
+
+function Show-SupabaseError($errorRecord, $action) {
+    $msg = "$action failed.`n`nThe agent could not write to Supabase (permission denied)."
+    $msg += "`n`nFor now, please use the web dashboard to manage staff. We're adding write support next."
+    [System.Windows.MessageBox]::Show($msg, 'LightMenu', 'OK', 'Information') | Out-Null
 }
 
 function Make-PillButton($content, $color, $tag) {
@@ -1515,6 +1568,7 @@ function Show-QrDialog($staffId, $staffName) {
 
     [xml]$qrXaml = @"
 <Window xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         Height="520" Width="420" ResizeMode="NoResize"
         WindowStartupLocation="CenterOwner"
         Background="#0F1117" TextElement.Foreground="#FFFFFF">
@@ -1590,6 +1644,7 @@ function Show-RoleDialog($staffId, $currentRole) {
 
     [xml]$roleXaml = @"
 <Window xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         Height="280" Width="380" ResizeMode="NoResize"
         WindowStartupLocation="CenterOwner"
         Background="#0F1117" TextElement.Foreground="#FFFFFF">
