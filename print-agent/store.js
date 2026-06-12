@@ -252,9 +252,50 @@ function _toMin(hhmm) {
   return Number(m[1]) * 60 + Number(m[2]);
 }
 
+// ─── Staff store ─────────────────────────────────────────────────────────────
+const STAFF_FILE = path.join(__dirname, 'staff.local.json');
+
+function getStaff() { return _readArr(STAFF_FILE); }
+
+function addStaff(record) {
+  if (!record || !record.name) return null;
+  const staff = _readArr(STAFF_FILE);
+  const entry = {
+    id:          'STAFF-' + Date.now() + '-' + Math.random().toString(36).slice(2, 8),
+    name:        record.name,
+    role:        record.role || 'Waiter',
+    waiter_link: record.waiter_link || null,
+    created_at:  new Date().toISOString(),
+    last_used:   record.last_used || null,
+    active:      true,
+    synced:      false,
+  };
+  staff.push(entry);
+  _writeArr(STAFF_FILE, staff);
+  return entry;
+}
+
+function removeStaff(id) {
+  const staff = _readArr(STAFF_FILE);
+  const idx = staff.findIndex(s => s.id === id);
+  if (idx >= 0) { staff.splice(idx, 1); _writeArr(STAFF_FILE, staff); return true; }
+  return false;
+}
+
+function toggleStaff(id) {
+  const staff = _readArr(STAFF_FILE);
+  const s = staff.find(x => x.id === id);
+  if (!s) return null;
+  s.active = !s.active;
+  s.synced = false;
+  _writeArr(STAFF_FILE, staff);
+  return s.active;
+}
+
 module.exports = {
   addOrder, addBill,
   getBills, getOrders, getStats,
   getUnsynced, markBillSynced, markOrderSynced,
   findBill, dailyReport,
+  getStaff, addStaff, removeStaff, toggleStaff,
 };

@@ -1513,6 +1513,38 @@ http.createServer((req, res) => {
     return;
   }
 
+  // Staff endpoints
+  if (req.method === 'GET' && req.url === '/local/staff') {
+    res.writeHead(200, { 'Content-Type': 'application/json' });
+    res.end(JSON.stringify(store.getStaff()));
+    return;
+  }
+
+  if (req.method === 'POST' && req.url === '/local/staff') {
+    let body = '';
+    req.on('data', c => body += c);
+    req.on('end', () => {
+      try {
+        const data = JSON.parse(body || '{}');
+        const result = store.addStaff(data);
+        res.writeHead(result ? 200 : 400, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify(result || { error: 'Missing name' }));
+      } catch (e) {
+        res.writeHead(400, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ error: e.message }));
+      }
+    });
+    return;
+  }
+
+  if (req.method === 'DELETE' && req.url.startsWith('/local/staff/')) {
+    const staffId = decodeURIComponent(req.url.slice('/local/staff/'.length));
+    const ok = store.removeStaff(staffId);
+    res.writeHead(200, { 'Content-Type': 'application/json' });
+    res.end(JSON.stringify({ ok }));
+    return;
+  }
+
   if (req.method === 'POST' && req.url === '/rescan') {
     log('Manual rescan triggered from dashboard');
     runNetworkScan();
