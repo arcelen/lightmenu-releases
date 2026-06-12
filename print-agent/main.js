@@ -1649,7 +1649,12 @@ http.createServer((req, res) => {
           }
         } catch { /* fall through to local */ }
 
-        if (!result) result = store.addStaff(data);
+        if (!result) {
+          // Local fallback — generate a token + link so card shows a link immediately
+          const tok = genWaiterToken();
+          const entry = store.addStaff({ ...data, waiter_link: `https://www.lightmenu.app/waiter/${tok}` });
+          result = entry;
+        }
         res.writeHead(200, { 'Content-Type': 'application/json' });
         res.end(JSON.stringify(result));
       } catch (e) {
@@ -1778,13 +1783,37 @@ http.createServer((req, res) => {
     return;
   }
 
-  // QR code: returns link + 2D matrix of modules for client-side rendering
+  // QR code: returns 2D matrix of modules for client-side rendering.
+  // Two modes:
+  //   GET /local/qr?text=<url>           — direct: just QR the given text
+  //   GET /local/staff/:id/qr            — legacy: look up active token from Supabase
+  if (req.method === 'GET' && req.url.startsWith('/local/qr')) {
+    try {
+      const u = new URL(req.url, 'http://x');
+      const text = u.searchParams.get('text') || '';
+      if (!text) { res.writeHead(400); res.end('{}'); return; }
+      const qr = qrcode(0, 'M'); qr.addData(text); qr.make();
+      const n = qr.getModuleCount();
+      const modules = [];
+      for (let r = 0; r < n; r++) {
+        const row = [];
+        for (let c = 0; c < n; c++) row.push(qr.isDark(r, c) ? 1 : 0);
+        modules.push(row);
+      }
+      res.writeHead(200, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ link: text, size: n, modules }));
+    } catch (e) {
+      res.writeHead(500); res.end(JSON.stringify({ error: e.message }));
+    }
+    return;
+  }
+
   if (req.method === 'GET' && req.url.match(/^\/local\/staff\/[^/]+\/qr$/)) {
     const staffId = decodeURIComponent(req.url.split('/')[3]);
     (async () => {
       try {
-        const tokens = await supabaseGet('waiter_tokens', { staff_member_id: staffId }, 50);
-        const active = (tokens || []).find(t => t.is_active) || (tokens || [])[0];
+        const tokens = await supabaseGet('waiter_tokens', { staff_member_id: staffId }, 50).catch(() => []);
+        const active = (Array.isArray(tokens) ? tokens : []).find(t => t.is_active) || (Array.isArray(tokens) ? tokens : [])[0];
         if (!active) { res.writeHead(404); res.end('{}'); return; }
         const link = `https://www.lightmenu.app/waiter/${active.token}`;
         const qr = qrcode(0, 'M'); qr.addData(link); qr.make();

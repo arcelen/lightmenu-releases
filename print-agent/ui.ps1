@@ -1476,7 +1476,7 @@ function New-StaffCard($member) {
 
     # SHARE — opens QR popup
     $shareBtn = Make-PillButton 'Share' '#06B6D4' $member.id
-    $shareBtn.Add_Click({ Show-QrDialog $memberData.id $memberData.name }.GetNewClosure())
+    $shareBtn.Add_Click({ Show-QrDialog $memberData.id $memberData.name $memberData.waiter_link }.GetNewClosure())
     $btnRow.Children.Add($shareBtn) | Out-Null
 
     # ON/OFF toggle
@@ -1569,14 +1569,24 @@ function Make-PillButton($content, $fgColor, $tag) {
     return $b
 }
 
-function Show-QrDialog($staffId, $staffName) {
+function Show-QrDialog($staffId, $staffName, $waiterLink) {
+    # Prefer passing the link directly (avoids Supabase round-trip).
+    # Fallback to legacy lookup-by-id if no link provided.
     try {
-        $r = Invoke-RestMethod -Uri "$base/local/staff/$([System.Uri]::EscapeDataString($staffId))/qr" -TimeoutSec 8 -ErrorAction Stop
+        if ($waiterLink) {
+            $encoded = [System.Uri]::EscapeDataString($waiterLink)
+            $r = Invoke-RestMethod -Uri "$base/local/qr?text=$encoded" -TimeoutSec 8 -ErrorAction Stop
+        } else {
+            $r = Invoke-RestMethod -Uri "$base/local/staff/$([System.Uri]::EscapeDataString($staffId))/qr" -TimeoutSec 8 -ErrorAction Stop
+        }
     } catch {
         [System.Windows.MessageBox]::Show("Could not generate QR: $($_.Exception.Message)", 'LightMenu', 'OK', 'Warning') | Out-Null
         return
     }
-    if (-not $r -or -not $r.modules) { return }
+    if (-not $r -or -not $r.modules) {
+        [System.Windows.MessageBox]::Show("No link available for $staffName. Click 'New Link' first.", 'LightMenu', 'OK', 'Information') | Out-Null
+        return
+    }
 
     [xml]$qrXaml = @"
 <Window xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
