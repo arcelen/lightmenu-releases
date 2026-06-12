@@ -1331,7 +1331,7 @@ function New-StaffCard($member) {
     $card.CornerRadius  = New-Object System.Windows.CornerRadius(10)
     $card.Padding       = New-Object System.Windows.Thickness(16)
     $card.Margin        = New-Object System.Windows.Thickness(0,0,12,12)
-    $card.Width         = 280
+    $card.Width         = 350
 
     $sp = New-Object System.Windows.Controls.StackPanel
 
@@ -1420,38 +1420,237 @@ function New-StaffCard($member) {
     }
     $sp.Children.Add($lastUsedText) | Out-Null
 
-    # Action buttons
+    # Action buttons (Share, On/Off, New Link, Role, Delete)
     $btnRow = New-Object System.Windows.Controls.StackPanel
-    $btnRow.Orientation = 'Horizontal'; $btnRow.Margin = New-Object System.Windows.Thickness(0,12,0,0)
+    $btnRow.Orientation = 'Horizontal'
+    $btnRow.Margin = New-Object System.Windows.Thickness(0,14,0,0)
 
-    $makeSmallBtn = {
-        param($content, $color, $memberId)
-        $b = New-Object System.Windows.Controls.Button
-        $b.Content = $content; $b.FontSize = 11; $b.Cursor = 'Hand'
-        $b.Background = SolidBrush ($color + '22'); $b.Foreground = SolidBrush $color
-        $b.BorderBrush = SolidBrush ($color + '55'); $b.BorderThickness = New-Object System.Windows.Thickness(1)
-        $b.Padding = New-Object System.Windows.Thickness(10,4,10,4)
-        $b.Margin = New-Object System.Windows.Thickness(0,0,6,0)
-        $b.Tag = $memberId
-        return $b
-    }
+    $memberData = $member
 
-    $removeBtn = & $makeSmallBtn (T 'btn_remove') '#EF4444' $member.id
+    # SHARE — opens QR popup
+    $shareBtn = Make-PillButton ([char]0x21AA + ' Share') '#10B981' $member.id
+    $shareBtn.Add_Click({ Show-QrDialog $memberData.id $memberData.name }.GetNewClosure())
+    $btnRow.Children.Add($shareBtn) | Out-Null
+
+    # ON/OFF toggle
+    $toggleText = if ($member.active) { [char]0x25CB + ' Off' } else { [char]0x25CF + ' On' }
+    $toggleColor = if ($member.active) { '#EF4444' } else { '#22C55E' }
+    $toggleBtn = Make-PillButton $toggleText $toggleColor $member.id
+    $toggleBtn.Add_Click({
+        $mid = $this.Tag
+        try {
+            Invoke-RestMethod -Uri "$base/local/staff/$([System.Uri]::EscapeDataString($mid))/toggle" -Method Post -TimeoutSec 8 -ErrorAction Stop | Out-Null
+            Update-Staff-Page
+        } catch { [System.Windows.MessageBox]::Show("Toggle failed: $($_.Exception.Message)", 'LightMenu', 'OK', 'Warning') | Out-Null }
+    })
+    $btnRow.Children.Add($toggleBtn) | Out-Null
+
+    # NEW LINK
+    $newLinkBtn = Make-PillButton ([char]0x21BB + ' New Link') '#9CA3AF' $member.id
+    $newLinkBtn.Add_Click({
+        $mid = $this.Tag
+        $res = [System.Windows.MessageBox]::Show("Generate a new link? The old link will stop working.", 'LightMenu', 'YesNo', 'Question')
+        if ($res -ne 'Yes') { return }
+        try {
+            Invoke-RestMethod -Uri "$base/local/staff/$([System.Uri]::EscapeDataString($mid))/new_link" -Method Post -TimeoutSec 8 -ErrorAction Stop | Out-Null
+            Update-Staff-Page
+        } catch { [System.Windows.MessageBox]::Show("Failed: $($_.Exception.Message)", 'LightMenu', 'OK', 'Warning') | Out-Null }
+    })
+    $btnRow.Children.Add($newLinkBtn) | Out-Null
+
+    # ROLE
+    $roleBtn = Make-PillButton ([char]0x2630 + ' Role') '#8B5CF6' $member.id
+    $roleBtn.Add_Click({ Show-RoleDialog $memberData.id $memberData.role }.GetNewClosure())
+    $btnRow.Children.Add($roleBtn) | Out-Null
+
+    # DELETE
+    $removeBtn = Make-PillButton ([char]0x2717) '#EF4444' $member.id
     $removeBtn.Add_Click({
         $mid = $this.Tag
         $res = [System.Windows.MessageBox]::Show((T 'confirm_remove'), 'LightMenu', 'YesNo', 'Question')
         if ($res -eq 'Yes') {
             try {
-                Invoke-RestMethod -Uri "$base/local/staff/$([System.Uri]::EscapeDataString($mid))" -Method Delete -TimeoutSec 5 -ErrorAction Stop | Out-Null
+                Invoke-RestMethod -Uri "$base/local/staff/$([System.Uri]::EscapeDataString($mid))" -Method Delete -TimeoutSec 8 -ErrorAction Stop | Out-Null
                 Update-Staff-Page
             } catch { [System.Windows.MessageBox]::Show("Failed: $($_.Exception.Message)", 'LightMenu', 'OK', 'Warning') | Out-Null }
         }
     })
     $btnRow.Children.Add($removeBtn) | Out-Null
 
-    $card.Child = $sp
     $sp.Children.Add($btnRow) | Out-Null
+    $card.Child = $sp
     return $card
+}
+
+function Make-PillButton($content, $color, $tag) {
+    $b = New-Object System.Windows.Controls.Button
+    $b.Content     = $content
+    $b.FontSize    = 11
+    $b.Cursor      = 'Hand'
+    $b.Background  = SolidBrush ($color + '22')
+    $b.Foreground  = SolidBrush $color
+    $b.BorderBrush = SolidBrush ($color + '55')
+    $b.BorderThickness = New-Object System.Windows.Thickness(1)
+    $b.Padding     = New-Object System.Windows.Thickness(10,5,10,5)
+    $b.Margin      = New-Object System.Windows.Thickness(0,0,6,0)
+    $b.Tag         = $tag
+    $b.Template = [System.Windows.Markup.XamlReader]::Parse(@"
+<ControlTemplate xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation" TargetType="Button">
+  <Border Background="{TemplateBinding Background}" BorderBrush="{TemplateBinding BorderBrush}" BorderThickness="{TemplateBinding BorderThickness}" CornerRadius="6" Padding="{TemplateBinding Padding}">
+    <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center"/>
+  </Border>
+</ControlTemplate>
+"@)
+    return $b
+}
+
+function Show-QrDialog($staffId, $staffName) {
+    try {
+        $r = Invoke-RestMethod -Uri "$base/local/staff/$([System.Uri]::EscapeDataString($staffId))/qr" -TimeoutSec 8 -ErrorAction Stop
+    } catch {
+        [System.Windows.MessageBox]::Show("Could not generate QR: $($_.Exception.Message)", 'LightMenu', 'OK', 'Warning') | Out-Null
+        return
+    }
+    if (-not $r -or -not $r.modules) { return }
+
+    [xml]$qrXaml = @"
+<Window xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        Height="520" Width="420" ResizeMode="NoResize"
+        WindowStartupLocation="CenterOwner"
+        Background="#0F1117" TextElement.Foreground="#FFFFFF">
+  <Border Background="#161922" CornerRadius="12">
+    <StackPanel Margin="28">
+      <TextBlock x:Name="QrTitle" FontSize="17" FontWeight="Bold" Foreground="#FFFFFF" Margin="0,0,0,6"/>
+      <TextBlock Text="Scan to open the waiter app" Foreground="#9CA3AF" FontSize="12" Margin="0,0,0,18"/>
+      <Border Background="#FFFFFF" CornerRadius="8" Padding="16" HorizontalAlignment="Center">
+        <Canvas x:Name="QrCanvas" Width="280" Height="280" Background="White"/>
+      </Border>
+      <Border Background="#0F1117" BorderBrush="#2A2D3A" BorderThickness="1" CornerRadius="6" Margin="0,18,0,0" Padding="10,8">
+        <TextBox x:Name="QrLink" Background="Transparent" BorderThickness="0" Foreground="#9CA3AF" FontSize="11" IsReadOnly="True"/>
+      </Border>
+      <StackPanel Orientation="Horizontal" HorizontalAlignment="Right" Margin="0,16,0,0">
+        <Button x:Name="QrCopy" Padding="14,7" Margin="0,0,8,0" Background="#2A2D3A" Foreground="#FFFFFF" BorderThickness="0" Cursor="Hand" Content="Copy link" FontSize="12"/>
+        <Button x:Name="QrClose" Padding="14,7" BorderThickness="0" Cursor="Hand" Foreground="#FFFFFF" FontSize="12" FontWeight="SemiBold" Content="Close">
+          <Button.Background>
+            <LinearGradientBrush StartPoint="0,0" EndPoint="1,0">
+              <GradientStop Color="#14B8A6" Offset="0"/>
+              <GradientStop Color="#06B6D4" Offset="1"/>
+            </LinearGradientBrush>
+          </Button.Background>
+        </Button>
+      </StackPanel>
+    </StackPanel>
+  </Border>
+</Window>
+"@
+    $reader = New-Object System.Xml.XmlNodeReader $qrXaml
+    $qrDlg  = [Windows.Markup.XamlReader]::Load($reader)
+    $qrDlg.Owner = $window
+    $qrDlg.Title = "Share - $staffName"
+    $qrDlg.FindName('QrTitle').Text = "Share with $staffName"
+    $qrDlg.FindName('QrLink').Text  = $r.link
+
+    # Draw QR onto Canvas
+    $canvas = $qrDlg.FindName('QrCanvas')
+    $size = [int]$r.size
+    $cell = 280 / $size
+    $black = SolidBrush '#000000'
+    for ($row = 0; $row -lt $size; $row++) {
+        for ($col = 0; $col -lt $size; $col++) {
+            if ($r.modules[$row][$col] -eq 1) {
+                $rect = New-Object System.Windows.Shapes.Rectangle
+                $rect.Width = [Math]::Ceiling($cell) + 0.5
+                $rect.Height = [Math]::Ceiling($cell) + 0.5
+                $rect.Fill = $black
+                [System.Windows.Controls.Canvas]::SetLeft($rect, $col * $cell)
+                [System.Windows.Controls.Canvas]::SetTop($rect, $row * $cell)
+                $canvas.Children.Add($rect) | Out-Null
+            }
+        }
+    }
+
+    $linkText = $r.link
+    $qrDlg.FindName('QrCopy').Add_Click({ [System.Windows.Clipboard]::SetText($linkText) }.GetNewClosure())
+    $qrDlg.FindName('QrClose').Add_Click({ $qrDlg.Close() }.GetNewClosure())
+    $qrDlg.ShowDialog() | Out-Null
+}
+
+function Show-RoleDialog($staffId, $currentRole) {
+    # Fetch available roles
+    $roles = @()
+    try {
+        $r = Invoke-RestMethod -Uri "$base/local/roles" -TimeoutSec 5 -ErrorAction Stop
+        if ($r -isnot [array]) { $r = @($r) }
+        $roles = $r
+    } catch {}
+    if ($roles.Count -eq 0) {
+        [System.Windows.MessageBox]::Show("No roles found. Create roles in the web dashboard first.", 'LightMenu', 'OK', 'Information') | Out-Null
+        return
+    }
+
+    [xml]$roleXaml = @"
+<Window xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        Height="280" Width="380" ResizeMode="NoResize"
+        WindowStartupLocation="CenterOwner"
+        Background="#0F1117" TextElement.Foreground="#FFFFFF">
+  <Border Background="#161922" CornerRadius="12">
+    <StackPanel Margin="28">
+      <TextBlock Text="Change Role" FontSize="17" FontWeight="Bold" Foreground="#FFFFFF" Margin="0,0,0,18"/>
+      <TextBlock Text="Role" Foreground="#9CA3AF" FontSize="11" FontWeight="Bold" Margin="0,0,0,8"/>
+      <ListBox x:Name="RoleList" Background="#0F1117" Foreground="#FFFFFF" BorderBrush="#2A2D3A" BorderThickness="1" Height="120" FontSize="13">
+        <ListBox.ItemContainerStyle>
+          <Style TargetType="ListBoxItem">
+            <Setter Property="Background" Value="Transparent"/>
+            <Setter Property="Foreground" Value="#FFFFFF"/>
+            <Setter Property="Padding" Value="10,8"/>
+            <Style.Triggers>
+              <Trigger Property="IsMouseOver" Value="True"><Setter Property="Background" Value="#2A2D3A"/></Trigger>
+              <Trigger Property="IsSelected" Value="True"><Setter Property="Background" Value="#14B8A6"/></Trigger>
+            </Style.Triggers>
+          </Style>
+        </ListBox.ItemContainerStyle>
+      </ListBox>
+      <StackPanel Orientation="Horizontal" HorizontalAlignment="Right" Margin="0,18,0,0">
+        <Button x:Name="RoleCancel" Padding="14,7" Margin="0,0,8,0" Background="#2A2D3A" Foreground="#FFFFFF" BorderThickness="0" Cursor="Hand" Content="Cancel" FontSize="12"/>
+        <Button x:Name="RoleOk" Padding="18,7" BorderThickness="0" Cursor="Hand" Foreground="#FFFFFF" FontSize="12" FontWeight="SemiBold" Content="Save">
+          <Button.Background>
+            <LinearGradientBrush StartPoint="0,0" EndPoint="1,0">
+              <GradientStop Color="#14B8A6" Offset="0"/>
+              <GradientStop Color="#06B6D4" Offset="1"/>
+            </LinearGradientBrush>
+          </Button.Background>
+        </Button>
+      </StackPanel>
+    </StackPanel>
+  </Border>
+</Window>
+"@
+    $reader = New-Object System.Xml.XmlNodeReader $roleXaml
+    $dlg    = [Windows.Markup.XamlReader]::Load($reader)
+    $dlg.Owner = $window
+    $dlg.Title = "Change Role"
+
+    $listBox = $dlg.FindName('RoleList')
+    foreach ($r in $roles) {
+        $item = New-Object System.Windows.Controls.ListBoxItem
+        $item.Content = $r.name
+        $item.Tag     = $r.id
+        $listBox.Items.Add($item) | Out-Null
+        if ($r.name -eq $currentRole) { $listBox.SelectedItem = $item }
+    }
+
+    $dlg.FindName('RoleCancel').Add_Click({ $dlg.Close() }.GetNewClosure())
+    $dlg.FindName('RoleOk').Add_Click({
+        $sel = $listBox.SelectedItem
+        if (-not $sel) { $dlg.Close(); return }
+        try {
+            $body = @{ role_id = $sel.Tag } | ConvertTo-Json
+            Invoke-RestMethod -Uri "$base/local/staff/$([System.Uri]::EscapeDataString($staffId))/role" -Method Post -Body $body -ContentType 'application/json' -TimeoutSec 8 -ErrorAction Stop | Out-Null
+            $dlg.Close()
+            Update-Staff-Page
+        } catch { [System.Windows.MessageBox]::Show("Role update failed: $($_.Exception.Message)", 'LightMenu', 'OK', 'Warning') | Out-Null }
+    }.GetNewClosure())
+    $dlg.ShowDialog() | Out-Null
 }
 
 function Update-Staff-Page {
@@ -1478,37 +1677,21 @@ function Update-Staff-Page {
 }
 
 function Show-AddStaffDialog {
+    # Load roles from Supabase
+    $roles = @()
+    try {
+        $r = Invoke-RestMethod -Uri "$base/local/roles" -TimeoutSec 5 -ErrorAction Stop
+        if ($r -isnot [array]) { $r = @($r) }
+        $roles = $r
+    } catch {}
+
     [xml]$dlgXaml = @"
 <Window xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
-        Height="340" Width="420" ResizeMode="NoResize"
+        Height="420" Width="430" ResizeMode="NoResize"
         WindowStartupLocation="CenterOwner"
         Background="#0F1117" TextElement.Foreground="#FFFFFF">
-  <Window.Resources>
-    <Style TargetType="ComboBoxItem">
-      <Setter Property="Background" Value="#1A1D29"/>
-      <Setter Property="Foreground" Value="#FFFFFF"/>
-      <Setter Property="Padding" Value="10,6"/>
-      <Setter Property="Template">
-        <Setter.Value>
-          <ControlTemplate TargetType="ComboBoxItem">
-            <Border x:Name="bd" Background="{TemplateBinding Background}" Padding="{TemplateBinding Padding}">
-              <ContentPresenter/>
-            </Border>
-            <ControlTemplate.Triggers>
-              <Trigger Property="IsHighlighted" Value="True">
-                <Setter TargetName="bd" Property="Background" Value="#2A2D3A"/>
-              </Trigger>
-              <Trigger Property="IsSelected" Value="True">
-                <Setter TargetName="bd" Property="Background" Value="#14B8A6"/>
-              </Trigger>
-            </ControlTemplate.Triggers>
-          </ControlTemplate>
-        </Setter.Value>
-      </Setter>
-    </Style>
-  </Window.Resources>
-  <Border Background="#161922" CornerRadius="12" Margin="0">
+  <Border Background="#161922" CornerRadius="12">
     <StackPanel Margin="28,24,28,24">
       <TextBlock x:Name="DlgTitle" Text="Add Staff Member" FontSize="17" FontWeight="Bold" Foreground="#FFFFFF" Margin="0,0,0,20"/>
 
@@ -1518,14 +1701,21 @@ function Show-AddStaffDialog {
       </Border>
 
       <TextBlock x:Name="DlgRoleLbl" Text="Role" Foreground="#9CA3AF" FontSize="11" FontWeight="Bold" Margin="0,18,0,8"/>
-      <ComboBox x:Name="DlgRole" Background="#0F1117" Foreground="#FFFFFF" BorderBrush="#2A2D3A" BorderThickness="1" Padding="10,8" FontSize="13" SelectedIndex="0">
-        <ComboBoxItem Content="Waiter"/>
-        <ComboBoxItem Content="Manager"/>
-        <ComboBoxItem Content="Chef"/>
-        <ComboBoxItem Content="Cashier"/>
-      </ComboBox>
+      <ListBox x:Name="DlgRole" Background="#0F1117" Foreground="#FFFFFF" BorderBrush="#2A2D3A" BorderThickness="1" Height="130" FontSize="13">
+        <ListBox.ItemContainerStyle>
+          <Style TargetType="ListBoxItem">
+            <Setter Property="Background" Value="Transparent"/>
+            <Setter Property="Foreground" Value="#FFFFFF"/>
+            <Setter Property="Padding" Value="10,8"/>
+            <Style.Triggers>
+              <Trigger Property="IsMouseOver" Value="True"><Setter Property="Background" Value="#2A2D3A"/></Trigger>
+              <Trigger Property="IsSelected" Value="True"><Setter Property="Background" Value="#14B8A6"/></Trigger>
+            </Style.Triggers>
+          </Style>
+        </ListBox.ItemContainerStyle>
+      </ListBox>
 
-      <StackPanel Orientation="Horizontal" HorizontalAlignment="Right" Margin="0,28,0,0">
+      <StackPanel Orientation="Horizontal" HorizontalAlignment="Right" Margin="0,22,0,0">
         <Button x:Name="DlgCancel" Padding="18,9" Background="#2A2D3A" Foreground="#FFFFFF"
                 BorderThickness="0" Cursor="Hand" Margin="0,0,10,0" FontSize="13">
           <Button.Template>
@@ -1560,20 +1750,36 @@ function Show-AddStaffDialog {
     $dlg  = [Windows.Markup.XamlReader]::Load($r2)
     $dlg.Owner = $window
     $dlg.Title = T 'dlg_add_staff_title'
-    $dlg.FindName('DlgTitle').Text   = T 'dlg_add_staff_title'
-    $dlg.FindName('DlgNameLbl').Text = T 'lbl_staff_name'
-    $dlg.FindName('DlgRoleLbl').Text = T 'lbl_staff_role'
+    $dlg.FindName('DlgTitle').Text     = T 'dlg_add_staff_title'
+    $dlg.FindName('DlgNameLbl').Text   = T 'lbl_staff_name'
+    $dlg.FindName('DlgRoleLbl').Text   = T 'lbl_staff_role'
     $dlg.FindName('DlgCancel').Content = T 'dlg_cancel'
     $dlg.FindName('DlgOk').Content     = T 'dlg_ok'
     $script:dlgResult = $null
+
+    $roleList = $dlg.FindName('DlgRole')
+    if ($roles.Count -eq 0) {
+        $emptyItem = New-Object System.Windows.Controls.ListBoxItem
+        $emptyItem.Content = 'Waiter'
+        $emptyItem.Tag = $null
+        $roleList.Items.Add($emptyItem) | Out-Null
+        $roleList.SelectedIndex = 0
+    } else {
+        foreach ($r in $roles) {
+            $item = New-Object System.Windows.Controls.ListBoxItem
+            $item.Content = $r.name
+            $item.Tag     = $r.id
+            $roleList.Items.Add($item) | Out-Null
+        }
+        $roleList.SelectedIndex = 0
+    }
 
     $dlg.FindName('DlgCancel').Add_Click({ $dlg.Close() })
     $dlg.FindName('DlgOk').Add_Click({
         $name = $dlg.FindName('DlgName').Text.Trim()
         if ($name -eq '') { return }
-        $roleItem = $dlg.FindName('DlgRole').SelectedItem
-        $role = if ($roleItem) { $roleItem.Content } else { 'Waiter' }
-        $script:dlgResult = @{ name = $name; role = $role }
+        $sel = $roleList.SelectedItem
+        $script:dlgResult = @{ name = $name; role = ($sel.Content); role_id = $sel.Tag }
         $dlg.Close()
     })
     $dlg.ShowDialog() | Out-Null

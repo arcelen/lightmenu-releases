@@ -185,6 +185,36 @@ function supabasePatch(table, id, patch) {
   });
 }
 
+function supabaseDelete(table, query) {
+  return new Promise((resolve, reject) => {
+    const qs = Object.entries(query).map(([k, v]) => k + '=eq.' + encodeURIComponent(v)).join('&');
+    const url = SUPABASE_URL + '/rest/v1/' + table + '?' + qs;
+    const req = https.request(url, {
+      method: 'DELETE',
+      headers: {
+        'apikey': SUPABASE_ANON_KEY,
+        'Authorization': 'Bearer ' + SUPABASE_ANON_KEY,
+        'Prefer': 'return=minimal',
+      }
+    }, (res) => {
+      res.resume();
+      res.on('end', () => {
+        if (res.statusCode < 200 || res.statusCode >= 300) reject(new Error('HTTP ' + res.statusCode));
+        else resolve(true);
+      });
+    });
+    req.on('error', reject);
+    req.end();
+  });
+}
+
+function genWaiterToken() {
+  const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789';
+  let t = '';
+  for (let i = 0; i < 32; i++) t += chars.charAt(Math.floor(Math.random() * chars.length));
+  return t;
+}
+
 function supabasePost(table, body) {
   return new Promise((resolve, reject) => {
     const bodyStr = JSON.stringify(body);
@@ -1569,12 +1599,45 @@ http.createServer((req, res) => {
   if (req.method === 'POST' && req.url === '/local/staff') {
     let body = '';
     req.on('data', c => body += c);
-    req.on('end', () => {
+    req.on('end', async () => {
       try {
         const data = JSON.parse(body || '{}');
-        const result = store.addStaff(data);
-        res.writeHead(result ? 200 : 400, { 'Content-Type': 'application/json' });
-        res.end(JSON.stringify(result || { error: 'Missing name' }));
+        if (!data.name) {
+          res.writeHead(400, { 'Content-Type': 'application/json' });
+          res.end(JSON.stringify({ error: 'Missing name' }));
+          return;
+        }
+        let result = null;
+        try {
+          // Try Supabase first (online)
+          const created = await supabasePost('staff_members', {
+            restaurant_id: RESTAURANT_ID,
+            display_name:  data.name,
+            status:        'accepted',
+          });
+          const member = Array.isArray(created) ? created[0] : created;
+          if (member && member.id) {
+            const token = genWaiterToken();
+            await supabasePost('waiter_tokens', {
+              restaurant_id:   RESTAURANT_ID,
+              staff_member_id: member.id,
+              token:           token,
+              is_active:       true,
+            }).catch(() => null);
+            if (data.role_id) {
+              await supabasePost('staff_roles', {
+                restaurant_id:   RESTAURANT_ID,
+                staff_member_id: member.id,
+                role_id:         data.role_id,
+              }).catch(() => null);
+            }
+            result = { id: member.id, name: member.display_name, source: 'supabase' };
+          }
+        } catch { /* fall through to local */ }
+
+        if (!result) result = store.addStaff(data);
+        res.writeHead(200, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify(result));
       } catch (e) {
         res.writeHead(400, { 'Content-Type': 'application/json' });
         res.end(JSON.stringify({ error: e.message }));
@@ -1585,9 +1648,137 @@ http.createServer((req, res) => {
 
   if (req.method === 'DELETE' && req.url.startsWith('/local/staff/')) {
     const staffId = decodeURIComponent(req.url.slice('/local/staff/'.length));
-    const ok = store.removeStaff(staffId);
-    res.writeHead(200, { 'Content-Type': 'application/json' });
-    res.end(JSON.stringify({ ok }));
+    (async () => {
+      let supaOk = false;
+      try {
+        await supabaseDelete('staff_roles',   { staff_member_id: staffId }).catch(() => {});
+        await supabaseDelete('waiter_tokens', { staff_member_id: staffId }).catch(() => {});
+        await supabaseDelete('staff_members', { id: staffId });
+        supaOk = true;
+      } catch {}
+      const localOk = store.removeStaff(staffId);
+      res.writeHead(200, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ ok: supaOk || localOk }));
+    })();
+    return;
+  }
+
+  // Toggle staff active state (waiter_token.is_active)
+  if (req.method === 'POST' && req.url.match(/^\/local\/staff\/[^/]+\/toggle$/)) {
+    const staffId = decodeURIComponent(req.url.split('/')[3]);
+    (async () => {
+      try {
+        const tokens = await supabaseGet('waiter_tokens', { staff_member_id: staffId }, 50);
+        const active = (tokens || []).find(t => t.is_active);
+        if (active) {
+          await supabasePatch('waiter_tokens', active.id, { is_active: false });
+          res.writeHead(200, { 'Content-Type': 'application/json' });
+          res.end(JSON.stringify({ ok: true, active: false }));
+        } else {
+          // No active token — create a new one
+          const tok = genWaiterToken();
+          await supabasePost('waiter_tokens', {
+            restaurant_id: RESTAURANT_ID, staff_member_id: staffId, token: tok, is_active: true,
+          });
+          res.writeHead(200, { 'Content-Type': 'application/json' });
+          res.end(JSON.stringify({ ok: true, active: true }));
+        }
+      } catch (e) {
+        res.writeHead(500, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ error: e.message }));
+      }
+    })();
+    return;
+  }
+
+  // Generate new waiter link (deactivate existing, create new)
+  if (req.method === 'POST' && req.url.match(/^\/local\/staff\/[^/]+\/new_link$/)) {
+    const staffId = decodeURIComponent(req.url.split('/')[3]);
+    (async () => {
+      try {
+        const tokens = await supabaseGet('waiter_tokens', { staff_member_id: staffId }, 50);
+        for (const t of (tokens || [])) {
+          if (t.is_active) await supabasePatch('waiter_tokens', t.id, { is_active: false }).catch(() => {});
+        }
+        const newTok = genWaiterToken();
+        await supabasePost('waiter_tokens', {
+          restaurant_id: RESTAURANT_ID, staff_member_id: staffId, token: newTok, is_active: true,
+        });
+        res.writeHead(200, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ ok: true, link: `https://www.lightmenu.app/waiter/${newTok}` }));
+      } catch (e) {
+        res.writeHead(500, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ error: e.message }));
+      }
+    })();
+    return;
+  }
+
+  // Change role
+  if (req.method === 'POST' && req.url.match(/^\/local\/staff\/[^/]+\/role$/)) {
+    const staffId = decodeURIComponent(req.url.split('/')[3]);
+    let body = '';
+    req.on('data', c => body += c);
+    req.on('end', async () => {
+      try {
+        const data = JSON.parse(body || '{}');
+        if (!data.role_id) {
+          res.writeHead(400, { 'Content-Type': 'application/json' });
+          res.end(JSON.stringify({ error: 'Missing role_id' }));
+          return;
+        }
+        await supabaseDelete('staff_roles', { staff_member_id: staffId }).catch(() => {});
+        await supabasePost('staff_roles', {
+          restaurant_id: RESTAURANT_ID, staff_member_id: staffId, role_id: data.role_id,
+        });
+        res.writeHead(200, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ ok: true }));
+      } catch (e) {
+        res.writeHead(500, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ error: e.message }));
+      }
+    });
+    return;
+  }
+
+  // List available roles for this restaurant
+  if (req.method === 'GET' && req.url === '/local/roles') {
+    (async () => {
+      try {
+        const roles = await supabaseGet('roles', { restaurant_id: RESTAURANT_ID }, 100);
+        res.writeHead(200, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify(Array.isArray(roles) ? roles : []));
+      } catch {
+        res.writeHead(200, { 'Content-Type': 'application/json' });
+        res.end('[]');
+      }
+    })();
+    return;
+  }
+
+  // QR code: returns link + 2D matrix of modules for client-side rendering
+  if (req.method === 'GET' && req.url.match(/^\/local\/staff\/[^/]+\/qr$/)) {
+    const staffId = decodeURIComponent(req.url.split('/')[3]);
+    (async () => {
+      try {
+        const tokens = await supabaseGet('waiter_tokens', { staff_member_id: staffId }, 50);
+        const active = (tokens || []).find(t => t.is_active) || (tokens || [])[0];
+        if (!active) { res.writeHead(404); res.end('{}'); return; }
+        const link = `https://www.lightmenu.app/waiter/${active.token}`;
+        const qr = qrcode(0, 'M'); qr.addData(link); qr.make();
+        const n = qr.getModuleCount();
+        const modules = [];
+        for (let r = 0; r < n; r++) {
+          const row = [];
+          for (let c = 0; c < n; c++) row.push(qr.isDark(r, c) ? 1 : 0);
+          modules.push(row);
+        }
+        res.writeHead(200, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ link, size: n, modules }));
+      } catch (e) {
+        res.writeHead(500); res.end(JSON.stringify({ error: e.message }));
+      }
+    })();
     return;
   }
 
