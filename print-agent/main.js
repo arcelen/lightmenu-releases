@@ -138,10 +138,10 @@ async function scanUsb() {
 setTimeout(scanUsb, 2000);
 setInterval(scanUsb, 30000);
 
-function supabaseGet(table, query) {
+function supabaseGet(table, query, limit) {
   return new Promise((resolve, reject) => {
     const qs = Object.entries(query).map(([k, v]) => k + '=eq.' + encodeURIComponent(v)).join('&');
-    const url = SUPABASE_URL + '/rest/v1/' + table + '?' + qs + '&limit=20';
+    const url = SUPABASE_URL + '/rest/v1/' + table + '?' + qs + '&limit=' + (limit || 20);
     const req = https.request(url, {
       method: 'GET',
       headers: {
@@ -1517,26 +1517,45 @@ http.createServer((req, res) => {
   if (req.method === 'GET' && req.url === '/local/staff') {
     (async () => {
       const local = store.getStaff();
-      let remote = [];
+      let members = [], tokens = [], staffRoles = [], rolesTable = [];
       try {
-        remote = await supabaseGet('staff_members', { restaurant_id: RESTAURANT_ID });
-        if (!Array.isArray(remote)) remote = [];
-      } catch { remote = []; }
+        [members, tokens, staffRoles, rolesTable] = await Promise.all([
+          supabaseGet('staff_members', { restaurant_id: RESTAURANT_ID }, 200).catch(() => []),
+          supabaseGet('waiter_tokens', { restaurant_id: RESTAURANT_ID }, 200).catch(() => []),
+          supabaseGet('staff_roles',   { restaurant_id: RESTAURANT_ID }, 200).catch(() => []),
+          supabaseGet('roles',         { restaurant_id: RESTAURANT_ID }, 100).catch(() => []),
+        ]);
+      } catch { /* offline */ }
+      if (!Array.isArray(members))    members = [];
+      if (!Array.isArray(tokens))     tokens = [];
+      if (!Array.isArray(staffRoles)) staffRoles = [];
+      if (!Array.isArray(rolesTable)) rolesTable = [];
 
-      // Normalize Supabase rows to the same shape the UI expects
-      const remoteNorm = remote.map(r => ({
-        id:          r.id,
-        name:        r.display_name || r.full_name || r.email || 'Staff',
-        role:        r.role || (r.roles && r.roles[0]) || 'Waiter',
-        waiter_link: r.magic_link_url || r.waiter_link || null,
-        created_at:  r.created_date || r.created_at || null,
-        last_used:   r.last_login_at || r.last_used || null,
-        active:      r.is_active !== false,
-        synced:      true,
-        source:      'supabase',
-      }));
+      const linkBase = 'https://www.lightmenu.app';
 
-      // Merge: prefer remote, append locals not seen remotely
+      const rolesById = {};
+      for (const r of rolesTable) rolesById[r.id] = r.name || r.label || 'Role';
+
+      const remoteNorm = members.map(m => {
+        const activeTok = tokens.find(t => t.staff_member_id === m.id && t.is_active);
+        const anyTok    = activeTok || tokens.find(t => t.staff_member_id === m.id);
+        const sRoles    = staffRoles.filter(sr => sr.staff_member_id === m.id);
+        const roleName  = sRoles.length && rolesById[sRoles[0].role_id]
+                          ? rolesById[sRoles[0].role_id]
+                          : (m.role || 'Waiter');
+        return {
+          id:          m.id,
+          name:        m.display_name || m.user_email || m.full_name || 'Staff',
+          role:        roleName,
+          waiter_link: anyTok ? `${linkBase}/waiter/${anyTok.token}` : null,
+          created_at:  m.created_date || m.created_at || null,
+          last_used:   m.last_login_at || (anyTok && anyTok.last_used_at) || null,
+          active:      activeTok ? true : false,
+          synced:      true,
+          source:      'supabase',
+        };
+      });
+
       const remoteIds = new Set(remoteNorm.map(x => x.id));
       const localOnly = local.filter(l => !remoteIds.has(l.id)).map(l => ({ ...l, source: 'local' }));
       const merged = [...remoteNorm, ...localOnly];

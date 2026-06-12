@@ -1481,33 +1481,79 @@ function Show-AddStaffDialog {
     [xml]$dlgXaml = @"
 <Window xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
-        Height="290" Width="380" ResizeMode="NoResize"
+        Height="340" Width="420" ResizeMode="NoResize"
         WindowStartupLocation="CenterOwner"
         Background="#0F1117" TextElement.Foreground="#FFFFFF">
-  <StackPanel Margin="24">
-    <TextBlock x:Name="DlgTitle" Text="Add Staff Member" FontSize="15" FontWeight="Bold" Margin="0,0,0,18"/>
-    <TextBlock x:Name="DlgNameLbl" Text="Name" Foreground="#9CA3AF" FontSize="11" FontWeight="Bold" Margin="0,0,0,6"/>
-    <TextBox x:Name="DlgName" Background="#1A1D29" BorderBrush="#2A2D3A" Foreground="#FFFFFF" Padding="8,6" FontSize="13"/>
-    <TextBlock x:Name="DlgRoleLbl" Text="Role" Foreground="#9CA3AF" FontSize="11" FontWeight="Bold" Margin="0,14,0,6"/>
-    <ComboBox x:Name="DlgRole" Background="#1A1D29" BorderBrush="#2A2D3A" Foreground="#FFFFFF" Padding="6,4" FontSize="13" SelectedIndex="0">
-      <ComboBoxItem Content="Waiter"/>
-      <ComboBoxItem Content="Manager"/>
-      <ComboBoxItem Content="Chef"/>
-      <ComboBoxItem Content="Cashier"/>
-    </ComboBox>
-    <StackPanel Orientation="Horizontal" HorizontalAlignment="Right" Margin="0,22,0,0">
-      <Button x:Name="DlgCancel" Padding="16,8" Background="#2A2D3A" Foreground="#FFFFFF"
-              BorderThickness="0" Cursor="Hand" Margin="0,0,10,0" FontSize="13"/>
-      <Button x:Name="DlgOk" Padding="16,8" BorderThickness="0" Cursor="Hand" Foreground="#FFFFFF" FontSize="13" FontWeight="SemiBold">
-        <Button.Background>
-          <LinearGradientBrush StartPoint="0,0" EndPoint="1,0">
-            <GradientStop Color="#14B8A6" Offset="0"/>
-            <GradientStop Color="#06B6D4" Offset="1"/>
-          </LinearGradientBrush>
-        </Button.Background>
-      </Button>
+  <Window.Resources>
+    <Style TargetType="ComboBoxItem">
+      <Setter Property="Background" Value="#1A1D29"/>
+      <Setter Property="Foreground" Value="#FFFFFF"/>
+      <Setter Property="Padding" Value="10,6"/>
+      <Setter Property="Template">
+        <Setter.Value>
+          <ControlTemplate TargetType="ComboBoxItem">
+            <Border x:Name="bd" Background="{TemplateBinding Background}" Padding="{TemplateBinding Padding}">
+              <ContentPresenter/>
+            </Border>
+            <ControlTemplate.Triggers>
+              <Trigger Property="IsHighlighted" Value="True">
+                <Setter TargetName="bd" Property="Background" Value="#2A2D3A"/>
+              </Trigger>
+              <Trigger Property="IsSelected" Value="True">
+                <Setter TargetName="bd" Property="Background" Value="#14B8A6"/>
+              </Trigger>
+            </ControlTemplate.Triggers>
+          </ControlTemplate>
+        </Setter.Value>
+      </Setter>
+    </Style>
+  </Window.Resources>
+  <Border Background="#161922" CornerRadius="12" Margin="0">
+    <StackPanel Margin="28,24,28,24">
+      <TextBlock x:Name="DlgTitle" Text="Add Staff Member" FontSize="17" FontWeight="Bold" Foreground="#FFFFFF" Margin="0,0,0,20"/>
+
+      <TextBlock x:Name="DlgNameLbl" Text="Name" Foreground="#9CA3AF" FontSize="11" FontWeight="Bold" Margin="0,0,0,8"/>
+      <Border Background="#0F1117" BorderBrush="#2A2D3A" BorderThickness="1" CornerRadius="6">
+        <TextBox x:Name="DlgName" Background="Transparent" BorderThickness="0" Foreground="#FFFFFF" Padding="10,8" FontSize="13" CaretBrush="#FFFFFF"/>
+      </Border>
+
+      <TextBlock x:Name="DlgRoleLbl" Text="Role" Foreground="#9CA3AF" FontSize="11" FontWeight="Bold" Margin="0,18,0,8"/>
+      <ComboBox x:Name="DlgRole" Background="#0F1117" Foreground="#FFFFFF" BorderBrush="#2A2D3A" BorderThickness="1" Padding="10,8" FontSize="13" SelectedIndex="0">
+        <ComboBoxItem Content="Waiter"/>
+        <ComboBoxItem Content="Manager"/>
+        <ComboBoxItem Content="Chef"/>
+        <ComboBoxItem Content="Cashier"/>
+      </ComboBox>
+
+      <StackPanel Orientation="Horizontal" HorizontalAlignment="Right" Margin="0,28,0,0">
+        <Button x:Name="DlgCancel" Padding="18,9" Background="#2A2D3A" Foreground="#FFFFFF"
+                BorderThickness="0" Cursor="Hand" Margin="0,0,10,0" FontSize="13">
+          <Button.Template>
+            <ControlTemplate TargetType="Button">
+              <Border Background="{TemplateBinding Background}" CornerRadius="8" Padding="{TemplateBinding Padding}">
+                <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center"/>
+              </Border>
+            </ControlTemplate>
+          </Button.Template>
+        </Button>
+        <Button x:Name="DlgOk" Padding="22,9" BorderThickness="0" Cursor="Hand" Foreground="#FFFFFF" FontSize="13" FontWeight="SemiBold">
+          <Button.Background>
+            <LinearGradientBrush StartPoint="0,0" EndPoint="1,0">
+              <GradientStop Color="#14B8A6" Offset="0"/>
+              <GradientStop Color="#06B6D4" Offset="1"/>
+            </LinearGradientBrush>
+          </Button.Background>
+          <Button.Template>
+            <ControlTemplate TargetType="Button">
+              <Border Background="{TemplateBinding Background}" CornerRadius="8" Padding="{TemplateBinding Padding}">
+                <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center"/>
+              </Border>
+            </ControlTemplate>
+          </Button.Template>
+        </Button>
+      </StackPanel>
     </StackPanel>
-  </StackPanel>
+  </Border>
 </Window>
 "@
     $r2   = New-Object System.Xml.XmlNodeReader $dlgXaml
