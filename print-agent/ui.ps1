@@ -45,7 +45,8 @@ function Format-Money($amount) {
         Title="LightMenu Print Agent" Height="820" Width="900"
         MinHeight="640" MinWidth="780"
         WindowStartupLocation="CenterScreen"
-        Background="#0F1117">
+        Background="#0F1117"
+        TextElement.Foreground="#FFFFFF">
   <Window.Resources>
     <Style x:Key="CardStyle" TargetType="Border">
       <Setter Property="Background" Value="#1A1D29"/>
@@ -618,15 +619,17 @@ $script:pages = @{
     'Report'    = (ctl 'PageReport')
 }
 
+function SolidBrush($hex) { New-Object System.Windows.Media.SolidColorBrush ([System.Windows.Media.ColorConverter]::ConvertFromString($hex)) }
+
 function Switch-Page($name) {
     foreach ($k in $script:pages.Keys) {
         if ($k -eq $name) {
             $script:pages[$k].Visibility = 'Visible'
             $script:navButtons[$k].Foreground = [System.Windows.Media.Brushes]::White
-            $script:navButtons[$k].Background = [System.Windows.Media.Brushes]::'#1A1D29'
+            $script:navButtons[$k].Background = SolidBrush '#1A1D29'
         } else {
             $script:pages[$k].Visibility = 'Collapsed'
-            $script:navButtons[$k].Foreground = [System.Windows.Media.Brushes]::'#7A8295'
+            $script:navButtons[$k].Foreground = SolidBrush '#7A8295'
             $script:navButtons[$k].Background = [System.Windows.Media.Brushes]::Transparent
         }
     }
