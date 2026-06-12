@@ -1781,19 +1781,64 @@ http.createServer((req, res) => {
     return;
   }
 
-  // Diagnostic: check which staff-management SQL functions are installed
+  // Wipe local-only staff entries (STAFF- prefixed) — useful after switching to Supabase
+  if (req.method === 'POST' && req.url === '/local/staff/wipe-local') {
+    const local = store.getStaff();
+    let removed = 0;
+    for (const s of local) {
+      if (s.id && s.id.startsWith('STAFF-')) {
+        store.removeStaff(s.id);
+        removed++;
+      }
+    }
+    res.writeHead(200, { 'Content-Type': 'application/json' });
+    res.end(JSON.stringify({ ok: true, removed }));
+    return;
+  }
+
+  // Diagnostic: attempt a create + immediately delete, return the raw result
+  if (req.method === 'GET' && req.url === '/local/staff/test-create') {
+    (async () => {
+      const testName = '__test__' + Date.now();
+      const out = { name: testName, restaurant_id: RESTAURANT_ID };
+      try {
+        const r = await supabaseRpc('manage_staff_create', { p_restaurant_id: RESTAURANT_ID, p_name: testName, p_role_id: null });
+        out.rpc_result = r;
+        out.success = r && r.id ? true : false;
+        if (r && r.id) {
+          // cleanup
+          await supabaseRpc('manage_staff_delete', { p_staff_id: r.id, p_restaurant_id: RESTAURANT_ID }).catch(() => {});
+        }
+      } catch (e) {
+        out.success = false;
+        out.error = e.message || String(e);
+      }
+      res.writeHead(200, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify(out, null, 2));
+    })();
+    return;
+  }
+
+  // Diagnostic: check which staff-management SQL functions are installed.
+  // PostgREST matches RPC by parameter NAMES — must send the right params per function.
   if (req.method === 'GET' && req.url === '/local/staff/diag') {
     (async () => {
-      const fns = ['manage_staff_create','manage_staff_new_link','manage_staff_toggle','manage_staff_role','manage_staff_delete'];
+      const ZERO = '00000000-0000-0000-0000-000000000000';
+      const probes = {
+        manage_staff_create:   { p_restaurant_id: ZERO, p_name: '__probe__' },
+        manage_staff_new_link: { p_staff_id: ZERO, p_restaurant_id: ZERO },
+        manage_staff_toggle:   { p_staff_id: ZERO, p_restaurant_id: ZERO },
+        manage_staff_role:     { p_staff_id: ZERO, p_role_id: ZERO, p_restaurant_id: ZERO },
+        manage_staff_delete:   { p_staff_id: ZERO, p_restaurant_id: ZERO },
+      };
       const status = {};
-      for (const fn of fns) {
+      for (const [fn, params] of Object.entries(probes)) {
         try {
-          // Call with bogus args — we only care whether the function exists
-          await supabaseRpc(fn, { p_staff_id: '00000000-0000-0000-0000-000000000000', p_restaurant_id: RESTAURANT_ID });
+          await supabaseRpc(fn, params);
           status[fn] = 'installed';
         } catch (e) {
           const msg = e.message || String(e);
-          if (/PGRST202|does not exist|404/i.test(msg)) status[fn] = 'MISSING';
+          if (/PGRST202|does not exist|Could not find the function/i.test(msg)) status[fn] = 'MISSING';
           else status[fn] = 'installed';
         }
       }
