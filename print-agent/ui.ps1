@@ -1549,7 +1549,9 @@ function Make-PillButton($content, $fgColor, $tag) {
     $b.Margin      = New-Object System.Windows.Thickness(0,0,6,0)
     $b.Tag         = $tag
     $b.Template = [System.Windows.Markup.XamlReader]::Parse(@"
-<ControlTemplate xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation" TargetType="Button">
+<ControlTemplate xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+                 xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+                 TargetType="Button">
   <Border x:Name="bdr" Background="{TemplateBinding Background}" BorderBrush="{TemplateBinding BorderBrush}" BorderThickness="{TemplateBinding BorderThickness}" CornerRadius="6" Padding="{TemplateBinding Padding}">
     <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center"/>
   </Border>
