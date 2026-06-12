@@ -1475,7 +1475,7 @@ function New-StaffCard($member) {
     $memberData = $member
 
     # SHARE — opens QR popup
-    $shareBtn = Make-PillButton 'Share' '#10B981' $member.id
+    $shareBtn = Make-PillButton 'Share' '#06B6D4' $member.id
     $shareBtn.Add_Click({ Show-QrDialog $memberData.id $memberData.name }.GetNewClosure())
     $btnRow.Children.Add($shareBtn) | Out-Null
 
@@ -1493,7 +1493,7 @@ function New-StaffCard($member) {
     $btnRow.Children.Add($toggleBtn) | Out-Null
 
     # NEW LINK
-    $newLinkBtn = Make-PillButton 'New Link' '#9CA3AF' $member.id
+    $newLinkBtn = Make-PillButton 'New Link' '#D1D5DB' $member.id
     $newLinkBtn.Add_Click({
         $mid = $this.Tag
         $res = [System.Windows.MessageBox]::Show("Generate a new link? The old link will stop working.", 'LightMenu', 'YesNo', 'Question')
@@ -1506,12 +1506,12 @@ function New-StaffCard($member) {
     $btnRow.Children.Add($newLinkBtn) | Out-Null
 
     # ROLE
-    $roleBtn = Make-PillButton 'Role' '#8B5CF6' $member.id
+    $roleBtn = Make-PillButton 'Role' '#D1D5DB' $member.id
     $roleBtn.Add_Click({ Show-RoleDialog $memberData.id $memberData.role }.GetNewClosure())
     $btnRow.Children.Add($roleBtn) | Out-Null
 
     # DELETE
-    $removeBtn = Make-PillButton 'Delete' '#EF4444' $member.id
+    $removeBtn = Make-PillButton 'Delete' '#F87171' $member.id
     $removeBtn.Add_Click({
         $mid = $this.Tag
         $res = [System.Windows.MessageBox]::Show((T 'confirm_remove'), 'LightMenu', 'YesNo', 'Question')
@@ -1530,28 +1530,38 @@ function New-StaffCard($member) {
 }
 
 function Show-SupabaseError($errorRecord, $action) {
-    $msg = "$action failed.`n`nThe agent could not write to Supabase (permission denied)."
-    $msg += "`n`nFor now, please use the web dashboard to manage staff. We're adding write support next."
-    [System.Windows.MessageBox]::Show($msg, 'LightMenu', 'OK', 'Information') | Out-Null
+    $detail = if ($errorRecord.Exception) { $errorRecord.Exception.Message } else { "$errorRecord" }
+    $msg = "$action failed.`n`n$detail"
+    [System.Windows.MessageBox]::Show($msg, 'LightMenu', 'OK', 'Warning') | Out-Null
 }
 
-function Make-PillButton($content, $color, $tag) {
+function Make-PillButton($content, $fgColor, $tag) {
     $b = New-Object System.Windows.Controls.Button
     $b.Content     = $content
     $b.FontSize    = 11
+    $b.FontWeight  = 'Medium'
     $b.Cursor      = 'Hand'
-    $b.Background  = SolidBrush ($color + '22')
-    $b.Foreground  = SolidBrush $color
-    $b.BorderBrush = SolidBrush ($color + '55')
+    $b.Background  = SolidBrush '#252836'
+    $b.Foreground  = SolidBrush $fgColor
+    $b.BorderBrush = SolidBrush '#3A3D4E'
     $b.BorderThickness = New-Object System.Windows.Thickness(1)
-    $b.Padding     = New-Object System.Windows.Thickness(10,5,10,5)
+    $b.Padding     = New-Object System.Windows.Thickness(11,5,11,5)
     $b.Margin      = New-Object System.Windows.Thickness(0,0,6,0)
     $b.Tag         = $tag
     $b.Template = [System.Windows.Markup.XamlReader]::Parse(@"
 <ControlTemplate xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation" TargetType="Button">
-  <Border Background="{TemplateBinding Background}" BorderBrush="{TemplateBinding BorderBrush}" BorderThickness="{TemplateBinding BorderThickness}" CornerRadius="6" Padding="{TemplateBinding Padding}">
+  <Border x:Name="bdr" Background="{TemplateBinding Background}" BorderBrush="{TemplateBinding BorderBrush}" BorderThickness="{TemplateBinding BorderThickness}" CornerRadius="6" Padding="{TemplateBinding Padding}">
     <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center"/>
   </Border>
+  <ControlTemplate.Triggers>
+    <Trigger Property="IsMouseOver" Value="True">
+      <Setter TargetName="bdr" Property="Background" Value="#2F3244"/>
+      <Setter TargetName="bdr" Property="BorderBrush" Value="#4A4D5E"/>
+    </Trigger>
+    <Trigger Property="IsPressed" Value="True">
+      <Setter TargetName="bdr" Property="Background" Value="#1A1D29"/>
+    </Trigger>
+  </ControlTemplate.Triggers>
 </ControlTemplate>
 "@)
     return $b

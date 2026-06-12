@@ -690,7 +690,7 @@ async function pollAndPrint() {
             total:          ticket.total,
             guest_count:    ticket.guest_count,
             currency:       ticket.currency,
-            payment_method: ticket.payment_method,
+            payment_method: job.payment_method || settings.payment_method || ticket.payment_method,
             bill_url:       ticket.bill_url,
             source:         'supabase',
           };
@@ -1638,29 +1638,14 @@ http.createServer((req, res) => {
         }
         let result = null;
         try {
-          // Try Supabase first (online)
-          const created = await supabasePost('staff_members', {
-            restaurant_id: RESTAURANT_ID,
-            display_name:  data.name,
-            status:        'accepted',
+          // Create staff + token atomically via RPC (bypasses RLS on waiter_tokens)
+          const rpcResult = await supabaseRpc('manage_staff_create', {
+            p_restaurant_id: RESTAURANT_ID,
+            p_name:          data.name,
+            p_role_id:       data.role_id || null,
           });
-          const member = Array.isArray(created) ? created[0] : created;
-          if (member && member.id) {
-            const token = genWaiterToken();
-            await supabasePost('waiter_tokens', {
-              restaurant_id:   RESTAURANT_ID,
-              staff_member_id: member.id,
-              token:           token,
-              is_active:       true,
-            }).catch(() => null);
-            if (data.role_id) {
-              await supabasePost('staff_roles', {
-                restaurant_id:   RESTAURANT_ID,
-                staff_member_id: member.id,
-                role_id:         data.role_id,
-              }).catch(() => null);
-            }
-            result = { id: member.id, name: member.display_name, source: 'supabase' };
+          if (rpcResult && rpcResult.id) {
+            result = { id: rpcResult.id, name: rpcResult.name, source: 'supabase' };
           }
         } catch { /* fall through to local */ }
 
