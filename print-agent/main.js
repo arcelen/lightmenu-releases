@@ -1650,10 +1650,11 @@ http.createServer((req, res) => {
         } catch { /* fall through to local */ }
 
         if (!result) {
-          // Local fallback — generate a token + link so card shows a link immediately
-          const tok = genWaiterToken();
-          const entry = store.addStaff({ ...data, waiter_link: `https://www.lightmenu.app/waiter/${tok}` });
-          result = entry;
+          // RPC failed — likely because SQL not installed. Save locally WITHOUT
+          // a token: a local token wouldn't work in Supabase anyway, and giving
+          // one would mislead the user into thinking the waiter link is live.
+          const entry = store.addStaff(data);
+          result = { ...entry, local_only: true };
         }
         res.writeHead(200, { 'Content-Type': 'application/json' });
         res.end(JSON.stringify(result));
@@ -1713,24 +1714,36 @@ http.createServer((req, res) => {
   // Generate new waiter link (deactivate existing, create new)
   if (req.method === 'POST' && req.url.match(/^\/local\/staff\/[^/]+\/new_link$/)) {
     const staffId = decodeURIComponent(req.url.split('/')[3]);
+    const isLocal = staffId.startsWith('STAFF-');
     (async () => {
-      try {
-        const result = await supabaseRpc('manage_staff_new_link', { p_staff_id: staffId, p_restaurant_id: RESTAURANT_ID });
-        if (result && result.error) throw new Error(result.error);
-        res.writeHead(200, { 'Content-Type': 'application/json' });
-        res.end(JSON.stringify({ ok: true, link: `https://www.lightmenu.app/waiter/${result.token}` }));
-      } catch {
-        // Local-only staff (STAFF- prefix) or offline — generate token locally
+      // Local-only staff lives only in the agent's file store — never in Supabase.
+      // Generate a local token; warn the caller that the link won't work server-side.
+      if (isLocal) {
         const newToken = genWaiterToken();
         const link = `https://www.lightmenu.app/waiter/${newToken}`;
         const updated = store.updateStaffLink(staffId, link);
         if (updated) {
           res.writeHead(200, { 'Content-Type': 'application/json' });
-          res.end(JSON.stringify({ ok: true, link, offline: true }));
+          res.end(JSON.stringify({ ok: true, link, local_only: true }));
         } else {
           res.writeHead(404, { 'Content-Type': 'application/json' });
           res.end(JSON.stringify({ error: 'Staff not found' }));
         }
+        return;
+      }
+      try {
+        const result = await supabaseRpc('manage_staff_new_link', { p_staff_id: staffId, p_restaurant_id: RESTAURANT_ID });
+        if (result && result.error) throw new Error(result.error);
+        res.writeHead(200, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ ok: true, link: `https://www.lightmenu.app/waiter/${result.token}` }));
+      } catch (e) {
+        const msg = e.message || String(e);
+        const sqlMissing = /404|not found|does not exist|PGRST202|PGRST201/i.test(msg);
+        res.writeHead(500, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({
+          error: sqlMissing ? 'sql_not_installed' : msg,
+          detail: msg,
+        }));
       }
     })();
     return;
@@ -1765,6 +1778,29 @@ http.createServer((req, res) => {
         res.end(JSON.stringify({ error: e.message }));
       }
     });
+    return;
+  }
+
+  // Diagnostic: check which staff-management SQL functions are installed
+  if (req.method === 'GET' && req.url === '/local/staff/diag') {
+    (async () => {
+      const fns = ['manage_staff_create','manage_staff_new_link','manage_staff_toggle','manage_staff_role','manage_staff_delete'];
+      const status = {};
+      for (const fn of fns) {
+        try {
+          // Call with bogus args — we only care whether the function exists
+          await supabaseRpc(fn, { p_staff_id: '00000000-0000-0000-0000-000000000000', p_restaurant_id: RESTAURANT_ID });
+          status[fn] = 'installed';
+        } catch (e) {
+          const msg = e.message || String(e);
+          if (/PGRST202|does not exist|404/i.test(msg)) status[fn] = 'MISSING';
+          else status[fn] = 'installed';
+        }
+      }
+      const allInstalled = Object.values(status).every(v => v === 'installed');
+      res.writeHead(200, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ all_installed: allInstalled, functions: status }));
+    })();
     return;
   }
 
