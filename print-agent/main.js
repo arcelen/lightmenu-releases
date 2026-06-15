@@ -383,6 +383,31 @@ function getLocalSubnets() {
   return subnets.length > 0 ? subnets : ['192.168.1'];
 }
 
+// Best-guess LAN IPv4 of THIS PC (the machine running the agent).
+// This is the address the mobile/web app POSTs to at http://<ip>:3000/print.
+// We broadcast it via the heartbeat so the app auto-fills the "Printer Agent IP"
+// field with zero manual setup — and picks up DHCP changes within ~20s.
+// Same adapter/subnet filtering as getLocalSubnets so we skip VM/VPN/loopback.
+function getLocalIp() {
+  const ifaces = os.networkInterfaces();
+  const skipNames = /virtualbox|vmware|hyper.v|vethernet|loopback|pseudo|tap|tunnel|npcap|wsl/i;
+  const skipSubnets = ['192.168.56', '192.168.99', '192.168.100', '172.16.0', '172.17.0'];
+  const candidates = [];
+  for (const [name, list] of Object.entries(ifaces)) {
+    if (skipNames.test(name)) continue;
+    for (const addr of list) {
+      if (addr.family !== 'IPv4' || addr.internal) continue;
+      if (addr.address.startsWith('169.254.')) continue; // APIPA / no DHCP
+      const subnet = addr.address.split('.').slice(0, 3).join('.');
+      if (skipSubnets.includes(subnet)) continue;
+      candidates.push(addr.address);
+    }
+  }
+  // Prefer common home/office LAN ranges (what the phone is most likely on).
+  const preferred = candidates.find(ip => ip.startsWith('192.168.') || ip.startsWith('10.'));
+  return preferred || candidates[0] || null;
+}
+
 function checkPort(ip, port, timeout) {
   return new Promise(resolve => {
     const s = new net.Socket();
@@ -638,11 +663,17 @@ async function sendHeartbeat() {
   try {
     const existing = await supabaseGet('printer_configs', { restaurant_id: RESTAURANT_ID, printer_type: 'scan' });
     const now = new Date().toISOString();
+    // The PC's own LAN IP — what the mobile/web app uses to reach this agent
+    // directly. Broadcasting it here means the "Printer Agent IP" field fills
+    // itself, and a DHCP/PC change is reflected on the next heartbeat (≤20s).
+    const agentIp = getLocalIp();
+    const beat = { last_heartbeat: now, agent_version: AGENT_VERSION };
+    if (agentIp) { beat.agent_ip = agentIp; beat.agent_port = SERVER_PORT; beat.agent_hostname = os.hostname(); }
     if (Array.isArray(existing) && existing.length > 0) {
       // Merge into existing settings so we don't wipe discovered_ips/scanned_at
       const prevSettings = existing[0].settings || {};
       await supabasePatch('printer_configs', existing[0].id, {
-        settings: { ...prevSettings, last_heartbeat: now, agent_version: AGENT_VERSION },
+        settings: { ...prevSettings, ...beat },
       });
     } else {
       await supabasePost('printer_configs', {
@@ -650,7 +681,7 @@ async function sendHeartbeat() {
         name: '__scan__',
         printer_type: 'scan',
         is_active: false,
-        settings: { last_heartbeat: now, agent_version: AGENT_VERSION },
+        settings: beat,
       });
     }
   } catch (e) {
