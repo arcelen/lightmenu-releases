@@ -113,6 +113,9 @@ async function scanUsb() {
       log('USB direct port ready: ' + port + ' (no driver needed)');
       usbDirectPort = port;
       try { track('usb_connected', { port, strategy: 'direct' }); } catch {}
+      // Register physical printer by hardware fingerprint so the same device
+      // stays on the same DB row across USB↔ETH transport switches.
+      registerUsbFingerprints().catch(() => {});
     }
     usbWinPrinter = null; // prefer direct over spooler
   } else if (r === 'SPOOLER:READY' || r.startsWith('SPOOLER:ADDED')) {
@@ -121,6 +124,7 @@ async function scanUsb() {
       log('USB spooler printer ready on ' + port);
       usbWinPrinter = LM_WIN_PRINTER;
       try { track('usb_connected', { port, strategy: 'spooler' }); } catch {}
+      registerUsbFingerprints().catch(() => {});
     }
     usbDirectPort = null;
   } else {
@@ -274,6 +278,91 @@ function supabasePost(table, body) {
   });
 }
 
+// ─── SUPABASE RPC ─────────────────────────────────────────────────────────────
+// Calls a SECURITY DEFINER Postgres function. Used for slug routing,
+// fingerprint upsert, and honest print-outcome logging — all defined in
+// migration 0006_printer_identity.sql. RPC fails silently to a soft null
+// so legacy deployments without the migration applied keep working.
+function supabaseRpc(fnName, args) {
+  return new Promise((resolve) => {
+    const bodyStr = JSON.stringify(args || {});
+    const url = SUPABASE_URL + '/rest/v1/rpc/' + fnName;
+    const req = https.request(url, {
+      method: 'POST',
+      headers: {
+        'apikey': SUPABASE_ANON_KEY,
+        'Authorization': 'Bearer ' + SUPABASE_ANON_KEY,
+        'Content-Type': 'application/json',
+        'Content-Length': Buffer.byteLength(bodyStr),
+      }
+    }, (res) => {
+      let data = '';
+      res.on('data', c => data += c);
+      res.on('end', () => {
+        if (res.statusCode < 200 || res.statusCode >= 300) {
+          resolve(null); // RPC not deployed yet — caller falls back to legacy path
+        } else {
+          try { resolve(JSON.parse(data)); } catch { resolve(null); }
+        }
+      });
+    });
+    req.on('error', () => resolve(null));
+    req.write(bodyStr);
+    req.end();
+  });
+}
+
+// ─── PRINTER IDENTITY HELPERS ─────────────────────────────────────────────────
+// These wrap the SECURITY DEFINER RPCs from migration 0006. They return the
+// useful payload directly, or null when the migration isn't applied yet
+// (so the agent keeps working on older Supabase schemas).
+
+// Resolve a printer slug (e.g. "kitchen-main") to the current active row.
+// Used as preferred routing when kitchens.printer_slug is set.
+async function resolvePrinterBySlug(slug) {
+  if (!slug) return null;
+  const r = await supabaseRpc('get_active_printer_by_slug', {
+    p_restaurant_id: RESTAURANT_ID,
+    p_slug: slug,
+  });
+  return (r && r.id) ? r : null;
+}
+
+// Find-or-create a printer by hardware fingerprint. Used on discovery so
+// the same physical printer stays on the same DB row across transport
+// changes (USB → ETH, IP reassignments).
+async function upsertPrinterByFingerprint(fingerprint, type, ip, port, name) {
+  if (!fingerprint) return null;
+  const r = await supabaseRpc('upsert_printer_by_fingerprint', {
+    p_restaurant_id: RESTAURANT_ID,
+    p_fingerprint:  fingerprint,
+    p_printer_type: type || 'kitchen',
+    p_printer_ip:   ip || null,
+    p_printer_port: Number(port) || 9100,
+    p_name:         name || null,
+  });
+  return (r && r.id) ? r : null;
+}
+
+// Log an honest outcome for a print job: 'printed' | 'failed' | 'uncertain'.
+// Writes to print_queue.status AND to printer_events (audit log). The
+// dashboard subscribes to printer_events for realtime alerts/retry.
+async function logPrintOutcome(jobId, printerId, status, message, payload) {
+  const r = await supabaseRpc('log_print_outcome', {
+    p_job_id:        jobId,
+    p_printer_id:    printerId || null,
+    p_restaurant_id: RESTAURANT_ID,
+    p_status:        status,
+    p_message:       message || null,
+    p_payload:       payload || {},
+  });
+  // If RPC isn't deployed, fall back to legacy direct PATCH so old setups still mark printed.
+  if (r === null && status === 'printed') {
+    try { await supabasePatch('print_queue', jobId, { status: 'printed' }); } catch {}
+  }
+  return r;
+}
+
 // â”€â”€â”€ NETWORK PRINTER DISCOVERY â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 function getLocalSubnets() {
   const ifaces = os.networkInterfaces();
@@ -324,6 +413,60 @@ function getArpIps() {
       resolve([...ips]);
     });
   });
+}
+
+// Build an ip→MAC map from the Windows ARP table.
+// MAC is the stable hardware identity of an ETH printer — survives DHCP
+// reassignments, router swaps, etc. We use it as the printer's fingerprint
+// so the same physical printer always lands on the same DB row.
+function getArpMacMap() {
+  return new Promise(resolve => {
+    exec('arp -a', (err, out) => {
+      if (err || !out) { resolve({}); return; }
+      const map = {};
+      for (const line of out.split('\n')) {
+        // Matches lines like:  "  192.168.1.200        00-11-22-aa-bb-cc     dynamic"
+        const m = line.match(/(\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3})\s+([0-9a-f]{2}([-:][0-9a-f]{2}){5})/i);
+        if (!m) continue;
+        const ip  = m[1];
+        const mac = m[2].toLowerCase().replace(/-/g, ':');
+        map[ip] = mac;
+      }
+      resolve(map);
+    });
+  });
+}
+
+// Push every currently-attached USB printer's fingerprint into the DB so the
+// same physical device keeps the same printer_configs row across transport
+// changes (USB ↔ ETH). Called once whenever scanUsb succeeds.
+async function registerUsbFingerprints() {
+  if (!RESTAURANT_ID || RESTAURANT_ID === '__RESTAURANT_ID__') return;
+  try {
+    const fps = await getUsbPrinterFingerprints();
+    for (const fp of fps) {
+      const r = await upsertPrinterByFingerprint(fp, 'kitchen', null, null, null);
+      if (r) log('USB fingerprint registered: ' + fp + ' (' + (r.is_new ? 'new' : 'matched') + ')');
+    }
+  } catch (e) { log('USB fingerprint register failed: ' + e.message); }
+}
+
+// Pull the USB hardware fingerprint (VendorID:ProductID:Serial) for printers
+// currently attached to this PC. Returns a list of strings like
+// "usb:0519:000B:ABCD123". Stable across reboots and USB-port moves, so we
+// use it as fingerprint when the printer is on USB.
+async function getUsbPrinterFingerprints() {
+  const r = await psRun([
+    `$pnp = Get-CimInstance Win32_PnPEntity -Filter "Service='usbprint'" -ErrorAction SilentlyContinue`,
+    `if (-not $pnp) { Write-Output ''; exit }`,
+    `$pnp | ForEach-Object {`,
+    `  $id = $_.DeviceID`,
+    `  if ($id -match 'USB\\\\VID_([0-9A-F]{4})&PID_([0-9A-F]{4})\\\\(.+)$') {`,
+    `    Write-Output ('usb:' + $matches[1] + ':' + $matches[2] + ':' + $matches[3])`,
+    `  }`,
+    `}`,
+  ]);
+  return r.split(/\r?\n/).map(s => s.trim()).filter(Boolean);
 }
 
 // Check a list of IPs in controlled batches â€” avoids overwhelming the Windows TCP stack
@@ -400,6 +543,9 @@ async function reportDiscoveredPrinters(ips) {
 async function autoAssignPrinterIps(discoveredIps) {
   if (!RESTAURANT_ID || RESTAURANT_ID === '__RESTAURANT_ID__') return;
   if (discoveredIps.length === 0) return;
+  // Pull MACs once — used as the fingerprint for each discovered ETH printer.
+  // Same physical printer → same DB row even after DHCP reassigns the IP.
+  const macMap = await getArpMacMap();
   try {
     const all  = await supabaseGet('printer_configs', { restaurant_id: RESTAURANT_ID, is_active: 'true' });
     const real = Array.isArray(all) ? all.filter(c => c.printer_type !== 'scan') : [];
@@ -407,17 +553,31 @@ async function autoAssignPrinterIps(discoveredIps) {
     if (real.length === 0) {
       // First-time setup â€” create a config for each discovered printer
       for (let i = 0; i < discoveredIps.length; i++) {
+        const ip  = discoveredIps[i];
+        const mac = macMap[ip];
+        const fp  = mac ? ('eth:' + mac) : null;
         try {
+          // Prefer the fingerprint upsert RPC — if the printer has been seen
+          // before (even on a different IP), this returns the existing row
+          // instead of creating a duplicate. Falls back to plain POST when
+          // the migration isn't applied or no MAC was resolved.
+          const upserted = fp ? await upsertPrinterByFingerprint(fp, 'kitchen', ip, 9100,
+            discoveredIps.length === 1 ? 'Printer' : 'Printer ' + (i + 1)
+          ) : null;
+          if (upserted) {
+            log('Auto-registered printer ' + ip + ' (fp=' + fp + ', ' + (upserted.is_new ? 'new' : 'matched existing') + ')');
+            continue;
+          }
           await supabasePost('printer_configs', {
             restaurant_id: RESTAURANT_ID,
             name: discoveredIps.length === 1 ? 'Printer' : 'Printer ' + (i + 1),
             printer_type: 'kitchen',
-            printer_ip: discoveredIps[i],
+            printer_ip: ip,
             is_active: true,
           });
-          log('Auto-created printer config for ' + discoveredIps[i]);
+          log('Auto-created printer config for ' + ip);
         } catch (e) {
-          log('Auto-create failed for ' + discoveredIps[i] + ': ' + e.message);
+          log('Auto-create failed for ' + (discoveredIps[i]) + ': ' + e.message);
           // Fall back: set IP in memory directly so printing still works
           PRINTER_IP = discoveredIps[i];
           PRINTER_PORT = 9100;
@@ -633,10 +793,27 @@ async function pollAndPrint() {
           settings,
         };
 
-        // Fall back to any active printer config if no exact match
-        let printerConfig = printersCache.find(p =>
-          p.printer_type === (job.printer_type || 'kitchen') && p.is_active
-        );
+        // ─── Multi-printer routing cascade ─────────────────────────────────
+        // Each job is resolved to ONE specific printer in this order:
+        //   1. job.printer_config_id   — explicit per-job target (best)
+        //   2. job.printer_slug        — human-readable slot via RPC
+        //   3. printer_type match      — first active printer of that type
+        //   4. any active kitchen      — last-resort fallback
+        // This stops the old bug where USB globals or first-match-by-type
+        // stole jobs meant for a different printer (catastrophic with 2+
+        // printers of the same type).
+        let printerConfig = null;
+        if (job.printer_config_id) {
+          printerConfig = printersCache.find(p => p.id === job.printer_config_id && p.is_active);
+        }
+        if (!printerConfig && job.printer_slug) {
+          printerConfig = await resolvePrinterBySlug(job.printer_slug);
+        }
+        if (!printerConfig) {
+          printerConfig = printersCache.find(p =>
+            p.printer_type === (job.printer_type || 'kitchen') && p.is_active
+          );
+        }
         if (!printerConfig) {
           printerConfig = printersCache.find(p => p.printer_type === 'kitchen' && p.is_active)
                        || printersCache.find(p => p.is_active);
@@ -646,7 +823,7 @@ async function pollAndPrint() {
           printerPort = Number(printerConfig.printer_port) || 9100;
         }
 
-        if (!printerIp && !usbWinPrinter) {
+        if (!printerIp && !usbWinPrinter && !usbDirectPort) {
           log('Waiting for printer IP â€” job ' + job.id + ' will retry (scan in progress)');
           continue;
         }
@@ -671,10 +848,24 @@ async function pollAndPrint() {
         }
 
         const copies = (ticketType === 'check' ? settings.check_copies : settings.order_copies) || 1;
+        // Network-first dispatch: if the resolved config has an IP, send via TCP DIRECTLY.
+        // Bypasses USB globals (usbDirectPort/usbWinPrinter) that would otherwise steal
+        // every job — the core multi-printer bug. USB path only triggers when the
+        // resolved config has no IP (true USB-only printer).
+        const useNetwork = !!printerIp;
         for (let i = 0; i < Math.min(copies, 3); i++) {
-          await sendToPrinter(data, printerIp, printerPort);
+          if (useNetwork) {
+            await sendViaNetwork(data, printerIp, printerPort);
+          } else {
+            await sendToPrinter(data, printerIp, printerPort);
+          }
         }
-        await markJobPrinted(job.id);
+        // Honest reporting via log_print_outcome RPC — writes BOTH print_queue.status
+        // AND a printer_events audit row. Dashboard subscribes to printer_events for
+        // realtime alerts. Falls back to legacy PATCH if RPC isn't deployed yet.
+        await logPrintOutcome(job.id, printerConfig?.id, 'printed', null, {
+          ip: printerIp, port: printerPort, transport: useNetwork ? 'network' : 'usb',
+        });
         processingJobs.delete(job.id);
         printed++;
         updateDailyStats('printed');
@@ -703,8 +894,16 @@ async function pollAndPrint() {
         processingJobs.delete(job.id);
         failed++;
         updateDailyStats('failed');
-        log('Failed job ' + job.id + ': ' + (e?.message || String(e) || 'unknown error') + ' [ip=' + printerIp + ']');
-        track('job_failed', { job_id: job.id, error: e?.message || String(e), printer_mode: usbDirectPort ? 'usb-direct' : usbWinPrinter ? 'usb-spooler' : 'network', printer_ip: printerIp });
+        const errMsg = e?.message || String(e) || 'unknown error';
+        log('Failed job ' + job.id + ': ' + errMsg + ' [ip=' + printerIp + ']');
+        // Honest failure log: writes printer_events row + leaves print_queue.status
+        // as pending (so it's retryable). Dashboard realtime listener will toast.
+        try {
+          await logPrintOutcome(job.id, null, 'failed', errMsg, {
+            ip: printerIp, port: printerPort,
+          });
+        } catch {}
+        track('job_failed', { job_id: job.id, error: errMsg, printer_mode: usbDirectPort ? 'usb-direct' : usbWinPrinter ? 'usb-spooler' : 'network', printer_ip: printerIp });
       }
     }
   } catch (e) {
