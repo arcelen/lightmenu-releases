@@ -904,9 +904,25 @@ async function pollAndPrint() {
         // every job — the core multi-printer bug. USB path only triggers when the
         // resolved config has no IP (true USB-only printer).
         const useNetwork = !!printerIp;
+        // Single-printer resilience: if the configured network printer is
+        // unreachable but a USB printer is plugged in (e.g. the restaurant
+        // moved the printer from Ethernet to USB without editing the dashboard
+        // IP), fall back to USB instead of timing out forever. Restricted to
+        // ≤1 configured physical printer so multi-printer routing stays strict.
+        const usbAvailable = !!(usbDirectPort || usbWinPrinter);
+        const physicalPrinters = printersCache.filter(p => p.printer_type && p.printer_type !== 'scan');
+        const allowUsbFallback = usbAvailable && physicalPrinters.length <= 1;
+        let transport = useNetwork ? 'network' : 'usb';
         for (let i = 0; i < Math.min(copies, 3); i++) {
           if (useNetwork) {
-            await sendViaNetwork(data, printerIp, printerPort);
+            try {
+              await sendViaNetwork(data, printerIp, printerPort);
+            } catch (netErr) {
+              if (!allowUsbFallback) throw netErr;
+              log('Network printer ' + printerIp + ':' + printerPort + ' unreachable (' + netErr.message + ') — falling back to USB');
+              await sendToPrinter(data, '', printerPort); // empty IP → USB-direct then spooler
+              transport = 'usb-fallback';
+            }
           } else {
             await sendToPrinter(data, printerIp, printerPort);
           }
@@ -921,7 +937,7 @@ async function pollAndPrint() {
         // AND a printer_events audit row. Dashboard subscribes to printer_events for
         // realtime alerts. Falls back to legacy PATCH if RPC isn't deployed yet.
         await logPrintOutcome(job.id, printerConfig?.id, 'printed', null, {
-          ip: printerIp, port: printerPort, transport: useNetwork ? 'network' : 'usb',
+          ip: printerIp, port: printerPort, transport,
         });
         processingJobs.delete(job.id);
         printed++;
