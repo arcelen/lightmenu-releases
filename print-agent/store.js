@@ -14,11 +14,13 @@
 const fs   = require('fs');
 const path = require('path');
 
-const ORDERS_FILE = path.join(__dirname, 'orders.local.json');
-const BILLS_FILE  = path.join(__dirname, 'bills.local.json');
+const ORDERS_FILE  = path.join(__dirname, 'orders.local.json');
+const BILLS_FILE   = path.join(__dirname, 'bills.local.json');
+const PRINTED_FILE = path.join(__dirname, 'printed.local.json');
 
-const MAX_ORDERS = 5000; // ~30 days at 150 orders/day
-const MAX_BILLS  = 5000;
+const MAX_ORDERS  = 5000; // ~30 days at 150 orders/day
+const MAX_BILLS   = 5000;
+const MAX_PRINTED = 5000;
 
 function _readArr(file) {
   try { const a = JSON.parse(fs.readFileSync(file, 'utf8')); return Array.isArray(a) ? a : []; }
@@ -303,10 +305,30 @@ function updateStaffLink(id, link) {
   return true;
 }
 
+// ─── Print-twice guard ───────────────────────────────────────────────────────
+// Records job ids that have already physically printed, so a crash or network
+// blip between "printed the ticket" and "told Supabase it printed" can never
+// cause a reprint on the next poll — we check this before sending to the
+// printer, not just before marking Supabase.
+function wasPrinted(jobId) {
+  if (!jobId) return false;
+  return _readArr(PRINTED_FILE).includes(jobId);
+}
+
+function markPrinted(jobId) {
+  if (!jobId) return;
+  const ids = _readArr(PRINTED_FILE);
+  if (ids.includes(jobId)) return;
+  ids.push(jobId);
+  if (ids.length > MAX_PRINTED) ids.splice(0, ids.length - MAX_PRINTED);
+  _writeArr(PRINTED_FILE, ids);
+}
+
 module.exports = {
   addOrder, addBill,
   getBills, getOrders, getStats,
   getUnsynced, markBillSynced, markOrderSynced,
   findBill, dailyReport,
   getStaff, addStaff, removeStaff, toggleStaff, updateStaffLink,
+  wasPrinted, markPrinted,
 };

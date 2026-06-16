@@ -787,6 +787,15 @@ async function pollAndPrint() {
     const jobs = await fetchPendingJobs();
     for (const job of jobs) {
       if (processingJobs.has(job.id)) continue;
+
+      // Print-twice guard: if we already physically printed this job (the
+      // Supabase ack just never landed — crash or network blip), don't print
+      // again. Just retry telling Supabase, then move on.
+      if (store.wasPrinted(job.id)) {
+        try { await logPrintOutcome(job.id, null, 'printed', null, {}); } catch {}
+        continue;
+      }
+
       processingJobs.add(job.id);
       let printerIp   = PRINTER_IP;
       let printerPort = PRINTER_PORT;
@@ -856,6 +865,17 @@ async function pollAndPrint() {
 
         if (!printerIp && !usbWinPrinter && !usbDirectPort) {
           log('Waiting for printer IP â€” job ' + job.id + ' will retry (scan in progress)');
+          processingJobs.delete(job.id);
+          continue;
+        }
+
+        // Known-bad printer from a recent failure — back off instead of
+        // hammering it again every 3s. Job stays pending and retries once
+        // the cooldown expires.
+        const cooldownKey = printerConfig?.id || printerIp || 'usb';
+        const cooldownUntil = printerCooldowns.get(cooldownKey);
+        if (cooldownUntil && Date.now() < cooldownUntil) {
+          processingJobs.delete(job.id);
           continue;
         }
 
@@ -891,6 +911,12 @@ async function pollAndPrint() {
             await sendToPrinter(data, printerIp, printerPort);
           }
         }
+        // Record the physical print BEFORE telling Supabase — if the PATCH/RPC
+        // below fails (network blip) the next poll will see this job is
+        // already printed and skip straight to re-confirming, never reprinting.
+        store.markPrinted(job.id);
+        jobFailureCounts.delete(job.id);
+        printerCooldowns.delete(cooldownKey);
         // Honest reporting via log_print_outcome RPC — writes BOTH print_queue.status
         // AND a printer_events audit row. Dashboard subscribes to printer_events for
         // realtime alerts. Falls back to legacy PATCH if RPC isn't deployed yet.
@@ -927,14 +953,31 @@ async function pollAndPrint() {
         updateDailyStats('failed');
         const errMsg = e?.message || String(e) || 'unknown error';
         log('Failed job ' + job.id + ': ' + errMsg + ' [ip=' + printerIp + ']');
-        // Honest failure log: writes printer_events row + leaves print_queue.status
-        // as pending (so it's retryable). Dashboard realtime listener will toast.
+
+        // Cool the printer off for a bit so a dead IP doesn't get re-hit
+        // every 3s — it'll be retried automatically once the cooldown lapses.
+        const failKey = printerIp || 'usb';
+        printerCooldowns.set(failKey, Date.now() + PRINTER_COOLDOWN_MS);
+
+        const attempts = (jobFailureCounts.get(job.id) || 0) + 1;
+        jobFailureCounts.set(job.id, attempts);
+        const giveUp = attempts >= MAX_JOB_RETRIES;
+
+        // Honest failure log: writes printer_events row + (normally) leaves
+        // print_queue.status as pending so it's retryable. Once we've hit the
+        // retry cap, also PATCH it straight to 'failed' so it stops being
+        // refetched forever and shows up for manual attention instead.
         try {
           await logPrintOutcome(job.id, null, 'failed', errMsg, {
-            ip: printerIp, port: printerPort,
+            ip: printerIp, port: printerPort, attempts,
           });
+          if (giveUp) {
+            await supabasePatch('print_queue', job.id, { status: 'failed' });
+            jobFailureCounts.delete(job.id);
+            log('Giving up on job ' + job.id + ' after ' + attempts + ' attempts — marked failed');
+          }
         } catch {}
-        track('job_failed', { job_id: job.id, error: errMsg, printer_mode: usbDirectPort ? 'usb-direct' : usbWinPrinter ? 'usb-spooler' : 'network', printer_ip: printerIp });
+        track('job_failed', { job_id: job.id, error: errMsg, attempts, printer_mode: usbDirectPort ? 'usb-direct' : usbWinPrinter ? 'usb-spooler' : 'network', printer_ip: printerIp });
       }
     }
   } catch (e) {
@@ -948,8 +991,33 @@ setTimeout(pollAndPrint, 2000);
 
 let printed = 0, failed = 0;
 const processingJobs = new Set();
+// Per-job failure counter + per-printer cooldown — stops a single dead
+// printer from being hammered every 3s forever and gives jobs a real
+// terminal state (print_queue.status = 'failed') after enough attempts.
+const jobFailureCounts = new Map();
+const printerCooldowns = new Map();
+const MAX_JOB_RETRIES = 10;
+const PRINTER_COOLDOWN_MS = 15000;
 
-function log(m) { console.log('[' + new Date().toLocaleTimeString() + '] ' + m); }
+// Durable rotating log — so a failure can be diagnosed after the fact instead
+// of vanishing with the console window. Rotates at ~5MB, keeps one previous
+// file (agent.log -> agent.log.1).
+const LOG_FILE = path.join(__dirname, 'agent.log');
+const LOG_FILE_OLD = path.join(__dirname, 'agent.log.1');
+const MAX_LOG_BYTES = 5 * 1024 * 1024;
+
+function log(m) {
+  const line = '[' + new Date().toLocaleTimeString() + '] ' + m;
+  console.log(line);
+  try {
+    let size = 0;
+    try { size = fs.statSync(LOG_FILE).size; } catch {}
+    if (size > MAX_LOG_BYTES) {
+      try { fs.renameSync(LOG_FILE, LOG_FILE_OLD); } catch {}
+    }
+    fs.appendFileSync(LOG_FILE, line + '\n');
+  } catch {}
+}
 
 // ─── OFFLINE ANALYTICS ────────────────────────────────────────────────────────
 // Events are written to a local JSON file immediately — works with zero internet.
