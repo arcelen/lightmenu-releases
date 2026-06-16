@@ -1431,7 +1431,14 @@ function qrToRaster(text) {
   let qr;
   try { qr = qrcode(0, 'M'); qr.addData(text); qr.make(); } catch (e) { return null; }
   const modules = qr.getModuleCount();
-  const SCALE = 4;
+  // Keep the printed QR a consistent, compact footprint no matter how much
+  // data it encodes. The self-contained bill URL has far more data than the
+  // old short token, which at a fixed scale printed a huge code. Target a
+  // fixed width and shrink the per-module scale for denser codes (min 2 so it
+  // stays scannable). Small codes (e.g. the old token) keep the original
+  // SCALE 4, so they look exactly like before.
+  const TARGET_PX = 220;
+  const SCALE = Math.max(2, Math.min(4, Math.floor(TARGET_PX / modules)));
   const pixelW = modules * SCALE, pixelH = modules * SCALE;
   const padW = ((pixelW + 7) & ~7);
   const bytesPerRow = padW >> 3;
