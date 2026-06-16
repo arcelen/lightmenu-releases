@@ -1,5 +1,5 @@
 {
-  "version": "6.0.33",
+  "version": "6.0.34",
   "files": {
     "main.js":              { "sha256": "88077735c55f741d5b84cd65ab6b5585dec3dae327b7ab26aa805fa19a8bb094", "url": "https://raw.githubusercontent.com/arcelen/lightmenu-releases/main/print-agent/main.js" },
     "store.js":             { "sha256": "5fbb1a0fca061747331e9a0dc23f03409a5caaf8b6ad23f0575d39f9d58b406f", "url": "https://raw.githubusercontent.com/arcelen/lightmenu-releases/main/print-agent/store.js" },

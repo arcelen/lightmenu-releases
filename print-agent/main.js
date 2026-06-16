@@ -75,12 +75,15 @@ function psRun(lines) {
 
 async function scanUsb() {
   const r = await psRun([
-    // ── Strategy 1: direct write to \\.\USBx (no driver needed) ───────────────
+    // ── Strategy 1: direct write to \\.\USBxxx (no driver needed) ─────────────
     // usbprint.sys (built-in Windows class driver) makes \\.\USB001…009 writable
-    // the first time any USB printer is plugged in — no manufacturer driver needed.
+    // the first time any USB printer is plugged in — no manufacturer driver
+    // needed. Windows names these zero-padded (USB001), so probe BOTH the padded
+    // and unpadded forms — the old code only tried \\.\USB1 and always missed.
     `$direct = $null`,
-    `for ($i = 1; $i -le 9; $i++) {`,
-    `  $p = '\\\\.\\USB' + $i`,
+    `$cands = @()`,
+    `for ($i = 1; $i -le 9; $i++) { $cands += ('\\\\.\\USB00' + $i); $cands += ('\\\\.\\USB' + $i) }`,
+    `foreach ($p in $cands) {`,
     `  try {`,
     `    $s = [System.IO.File]::Open($p, [System.IO.FileMode]::Open, [System.IO.FileAccess]::Write, [System.IO.FileShare]::ReadWrite)`,
     `    $s.Close()`,
@@ -90,11 +93,19 @@ async function scanUsb() {
     `}`,
     `if ($direct) { Write-Output ('DIRECT:' + $direct); exit }`,
 
-    // ── Strategy 2: spooler via Generic/Text-Only (also built into Windows) ────
+    // ── Strategy 2: our own "LightMenu USB" printer if we created it before ────
     `$n = '${LM_WIN_PRINTER}'`,
-    `$pr = Get-Printer -Name $n -ErrorAction SilentlyContinue`,
-    `if ($pr) { Write-Output 'SPOOLER:READY'; exit }`,
-    // pnputil rescan — triggers usbprint.sys install for newly-connected printers
+    `if (Get-Printer -Name $n -ErrorAction SilentlyContinue) { Write-Output 'SPOOLER:READY'; exit }`,
+
+    // ── Strategy 3: ANY printer already installed on a USB port ───────────────
+    // The common real case: the restaurant installed the printer with its own
+    // vendor driver, so it shows up as a normal Windows printer on a USB port.
+    // Use it directly instead of ignoring it. Skip obvious non-receipt devices
+    // (PDF/XPS/OneNote/Fax) so we don't grab a virtual printer.
+    `$ex = Get-Printer -ErrorAction SilentlyContinue | Where-Object { $_.PortName -match 'USB' -and $_.Name -ne $n -and $_.Name -notmatch 'PDF|XPS|OneNote|Fax|Microsoft' } | Select-Object -First 1`,
+    `if ($ex) { Write-Output ('SPOOLER:EXISTING:' + $ex.Name); exit }`,
+
+    // ── Strategy 4: create our own on a USBxxx port (Generic/Text-Only) ───────
     `try { pnputil /scan-devices 2>$null | Out-Null } catch {}`,
     `Start-Sleep -Milliseconds 1500`,
     `$port = Get-PrinterPort | Where-Object { $_.Name -match '^USB\\d+' } | Select-Object -First 1`,
@@ -108,7 +119,7 @@ async function scanUsb() {
   ]);
 
   if (r.startsWith('DIRECT:')) {
-    const port = r.slice(7); // '\\.\USB1' etc.
+    const port = r.slice(7); // '\\.\USB001' etc.
     if (usbDirectPort !== port) {
       log('USB direct port ready: ' + port + ' (no driver needed)');
       usbDirectPort = port;
@@ -118,12 +129,14 @@ async function scanUsb() {
       registerUsbFingerprints().catch(() => {});
     }
     usbWinPrinter = null; // prefer direct over spooler
-  } else if (r === 'SPOOLER:READY' || r.startsWith('SPOOLER:ADDED')) {
-    if (!usbWinPrinter) {
-      const port = r.startsWith('SPOOLER:ADDED:') ? r.split(':')[2] : 'USB001';
-      log('USB spooler printer ready on ' + port);
-      usbWinPrinter = LM_WIN_PRINTER;
-      try { track('usb_connected', { port, strategy: 'spooler' }); } catch {}
+  } else if (r === 'SPOOLER:READY' || r.startsWith('SPOOLER:ADDED') || r.startsWith('SPOOLER:EXISTING:')) {
+    // Resolve which Windows printer name to spool to: an existing vendor
+    // printer (Strategy 3) keeps its own name; ours uses LM_WIN_PRINTER.
+    const name = r.startsWith('SPOOLER:EXISTING:') ? r.slice('SPOOLER:EXISTING:'.length) : LM_WIN_PRINTER;
+    if (usbWinPrinter !== name) {
+      log('USB printer ready via spooler: ' + name);
+      usbWinPrinter = name;
+      try { track('usb_connected', { name, strategy: r.startsWith('SPOOLER:EXISTING:') ? 'spooler-existing' : 'spooler' }); } catch {}
       registerUsbFingerprints().catch(() => {});
     }
     usbDirectPort = null;
@@ -903,27 +916,30 @@ async function pollAndPrint() {
         // Bypasses USB globals (usbDirectPort/usbWinPrinter) that would otherwise steal
         // every job — the core multi-printer bug. USB path only triggers when the
         // resolved config has no IP (true USB-only printer).
-        const useNetwork = !!printerIp;
-        // Single-printer resilience: if the configured network printer is
-        // unreachable but a USB printer is plugged in (e.g. the restaurant
-        // moved the printer from Ethernet to USB without editing the dashboard
-        // IP), fall back to USB instead of timing out forever. Restricted to
-        // ≤1 configured physical printer so multi-printer routing stays strict.
+        // Transport selection. In a single-printer setup, PREFER a connected
+        // USB printer — the operator plugged it in on purpose, so don't waste
+        // 8s timing out on a stale network IP first. Network stays primary for
+        // multi-printer setups and when no USB is present. Either path falls
+        // back to the other so a wrong dashboard config never blocks printing.
         const usbAvailable = !!(usbDirectPort || usbWinPrinter);
         const physicalPrinters = printersCache.filter(p => p.printer_type && p.printer_type !== 'scan');
-        const allowUsbFallback = usbAvailable && physicalPrinters.length <= 1;
+        const singlePrinter = physicalPrinters.length <= 1;
+        const preferUsb = usbAvailable && singlePrinter;
+        const useNetwork = !!printerIp && !preferUsb;
         let transport = useNetwork ? 'network' : 'usb';
         for (let i = 0; i < Math.min(copies, 3); i++) {
           if (useNetwork) {
             try {
               await sendViaNetwork(data, printerIp, printerPort);
             } catch (netErr) {
-              if (!allowUsbFallback) throw netErr;
+              if (!usbAvailable || !singlePrinter) throw netErr;
               log('Network printer ' + printerIp + ':' + printerPort + ' unreachable (' + netErr.message + ') — falling back to USB');
               await sendToPrinter(data, '', printerPort); // empty IP → USB-direct then spooler
               transport = 'usb-fallback';
             }
           } else {
+            // USB-first. sendToPrinter tries USB direct → spooler, and only if
+            // both USB methods fail does it fall through to the network IP.
             await sendToPrinter(data, printerIp, printerPort);
           }
         }
