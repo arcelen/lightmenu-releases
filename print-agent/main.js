@@ -94,15 +94,16 @@ async function scanUsb() {
     `if ($direct) { Write-Output ('DIRECT:' + $direct); exit }`,
 
     // ── Strategy 2: our own "LightMenu USB" printer if we created it before ────
+    // Only use it when Windows reports PrinterStatus = 3 (Normal/online).
+    // Status 4 = Offline means the USB cable is removed — the spooler entry
+    // stays registered in Windows permanently but the printer is physically gone.
     `$n = '${LM_WIN_PRINTER}'`,
-    `if (Get-Printer -Name $n -ErrorAction SilentlyContinue) { Write-Output 'SPOOLER:READY'; exit }`,
+    `$sp = Get-Printer -Name $n -ErrorAction SilentlyContinue`,
+    `if ($sp -and $sp.PrinterStatus -eq 3) { Write-Output 'SPOOLER:READY'; exit }`,
 
     // ── Strategy 3: ANY printer already installed on a USB port ───────────────
-    // The common real case: the restaurant installed the printer with its own
-    // vendor driver, so it shows up as a normal Windows printer on a USB port.
-    // Use it directly instead of ignoring it. Skip obvious non-receipt devices
-    // (PDF/XPS/OneNote/Fax) so we don't grab a virtual printer.
-    `$ex = Get-Printer -ErrorAction SilentlyContinue | Where-Object { $_.PortName -match 'USB' -and $_.Name -ne $n -and $_.Name -notmatch 'PDF|XPS|OneNote|Fax|Microsoft' } | Select-Object -First 1`,
+    // Same status check: only pick it up when it is physically connected (status 3).
+    `$ex = Get-Printer -ErrorAction SilentlyContinue | Where-Object { $_.PortName -match 'USB' -and $_.Name -ne $n -and $_.Name -notmatch 'PDF|XPS|OneNote|Fax|Microsoft' -and $_.PrinterStatus -eq 3 } | Select-Object -First 1`,
     `if ($ex) { Write-Output ('SPOOLER:EXISTING:' + $ex.Name); exit }`,
 
     // ── Strategy 4: create our own on a USBxxx port (Generic/Text-Only) ───────
