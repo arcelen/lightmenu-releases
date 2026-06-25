@@ -133,6 +133,17 @@ async function scanUsb() {
     // Resolve which Windows printer name to spool to: an existing vendor
     // printer (Strategy 3) keeps its own name; ours uses LM_WIN_PRINTER.
     const name = r.startsWith('SPOOLER:EXISTING:') ? r.slice('SPOOLER:EXISTING:'.length) : LM_WIN_PRINTER;
+    // When an ETH printer IP is already configured, ignore the Windows spooler
+    // entirely. The spooler entry (e.g. "LightMenu USB") stays installed in
+    // Windows permanently — even after the cable is removed — and would shadow
+    // the ETH printer if we let usbWinPrinter be set. The direct-write path
+    // (DIRECT: above) is safe to keep because it opens the actual USB device
+    // file, which fails instantly when the device is physically absent.
+    if (PRINTER_IP) {
+      if (usbWinPrinter) { log('USB spooler ignored (ETH active at ' + PRINTER_IP + ')'); usbWinPrinter = null; }
+      usbDirectPort = null;
+      return;
+    }
     if (usbWinPrinter !== name) {
       log('USB printer ready via spooler: ' + name);
       usbWinPrinter = name;
