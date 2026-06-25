@@ -932,7 +932,11 @@ async function pollAndPrint() {
         const usbAvailable = !!(usbDirectPort || usbWinPrinter);
         const physicalPrinters = printersCache.filter(p => p.printer_type && p.printer_type !== 'scan');
         const singlePrinter = physicalPrinters.length <= 1;
-        const preferUsb = usbAvailable && singlePrinter;
+        // Only prefer USB when there is NO ETH IP configured. If an IP exists
+        // the operator switched to Ethernet — the Windows spooler (LightMenu USB)
+        // stays installed even after the cable is removed, so usbAvailable stays
+        // true even on ETH, which wrongly routed every job to a dead USB queue.
+        const preferUsb = usbAvailable && singlePrinter && !printerIp;
         const useNetwork = !!printerIp && !preferUsb;
         let transport = useNetwork ? 'network' : 'usb';
         for (let i = 0; i < Math.min(copies, 3); i++) {
