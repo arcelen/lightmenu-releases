@@ -2283,6 +2283,20 @@ http.createServer((req, res) => {
     return;
   }
 
+  // Remotely trigger an update: the agent process exits cleanly, and the
+  // runner loop (agent-runner.ps1) runs the auto-updater before relaunching —
+  // so the next boot is on the latest version. Without this, an update only
+  // lands on a manual restart/reboot, because main.js is a long-lived server.
+  if ((req.method === 'POST' || req.method === 'GET') && req.url === '/update') {
+    log('Update requested — exiting so the runner re-runs the updater and relaunches');
+    res.writeHead(200, { 'Content-Type': 'application/json' });
+    res.end(JSON.stringify({ ok: true, version: AGENT_VERSION, message: 'Restarting to apply updates…' }));
+    // Give the HTTP response time to flush before the process exits, otherwise
+    // the caller sees a dropped connection instead of the 200.
+    setTimeout(() => { try { res.end(); } catch {} process.exit(0); }, 600);
+    return;
+  }
+
   if (req.method === 'POST' && req.url === '/set-ip') {
     let body = '';
     req.on('data', c => body += c);
