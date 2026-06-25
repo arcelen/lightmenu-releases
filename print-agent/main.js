@@ -758,7 +758,10 @@ async function refreshPrinters() {
     const list = await supabaseGet('printer_configs', { restaurant_id: RESTAURANT_ID, is_active: 'true' });
     if (Array.isArray(list) && list.length) {
       printersCache = list;
-      const first = list[0];
+      // Prefer a printer that has an IP set (ETH) over one that doesn't (stale
+      // USB row). Without this, switching USB→ETH left PRINTER_IP empty because
+      // the old USB row (no IP) was list[0] and blocked the ETH row from loading.
+      const first = list.find(p => p.printer_ip) || list[0];
       if (first.printer_ip) PRINTER_IP = first.printer_ip;
       if (first.printer_port) PRINTER_PORT = Number(first.printer_port);
       log('Synced ' + list.length + ' printer(s) â€” default: ' + PRINTER_IP + ':' + PRINTER_PORT);
@@ -868,7 +871,12 @@ async function pollAndPrint() {
           );
         }
         if (!printerConfig) {
-          printerConfig = printersCache.find(p => p.printer_type === 'kitchen' && p.is_active)
+          // Prefer a config that has an IP set so ETH printers aren't skipped
+          // when a stale USB row (no IP) sorts first in the cache.
+          printerConfig = printersCache.find(p => p.printer_type === (job.printer_type || 'kitchen') && p.is_active && p.printer_ip)
+                       || printersCache.find(p => p.printer_type === 'kitchen' && p.is_active && p.printer_ip)
+                       || printersCache.find(p => p.printer_type === (job.printer_type || 'kitchen') && p.is_active)
+                       || printersCache.find(p => p.printer_type === 'kitchen' && p.is_active)
                        || printersCache.find(p => p.is_active);
         }
         if (printerConfig?.printer_ip) {
@@ -2293,8 +2301,10 @@ http.createServer((req, res) => {
         }
         if (!data) {
           switch (ticket.type) {
-            case 'check':    data = buildCheckTicket(ticket);   log('CHECK: Mesa ' + ticket.table_number); break;
-            default:         data = buildKitchenTicket(ticket); log('KITCHEN: Mesa ' + ticket.table_number);
+            case 'check':    data = buildCheckTicket(ticket);    log('CHECK: Mesa ' + ticket.table_number); break;
+            case 'cancel':   data = buildCancelTicket(ticket);   log('CANCEL: Mesa ' + ticket.table_number); break;
+            case 'transfer': data = buildTransferTicket(ticket); log('TRANSFER: Mesa ' + ticket.from_table + '->' + ticket.to_table); break;
+            default:         data = buildKitchenTicket(ticket);  log('KITCHEN: Mesa ' + ticket.table_number);
           }
         }
         const copies = (ticket.type === 'check' ? ticket.settings?.check_copies : ticket.settings?.order_copies) || 1;
