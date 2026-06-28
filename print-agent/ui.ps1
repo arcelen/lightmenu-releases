@@ -1832,8 +1832,10 @@ function Render-FloorTables([array]$tables) {
         $num.FontSize = 19; $num.FontWeight = 'Bold'; $num.HorizontalAlignment = 'Center'
         $seat = New-Object System.Windows.Controls.TextBlock
         $cap = if ($t.capacity) { $t.capacity } else { 4 }
-        $seat.Text = [char]0x1F465 + ' ' + [string]$cap
-        $seat.FontFamily = New-Object System.Windows.Media.FontFamily('Segoe UI')
+        # 0x1F465 (people glyph) is above the BMP, so it can't be a single [char];
+        # ConvertFromUtf32 builds the correct surrogate pair.
+        $seat.Text = [System.Char]::ConvertFromUtf32(0x1F465) + ' ' + [string]$cap
+        $seat.FontFamily = New-Object System.Windows.Media.FontFamily('Segoe UI Emoji')
         $seat.Foreground = SolidColor $fg; $seat.Opacity = 0.75
         $seat.FontSize = 11; $seat.HorizontalAlignment = 'Center'; $seat.Margin = New-Object System.Windows.Thickness(0,2,0,0)
         $stack.Children.Add($num)  | Out-Null
