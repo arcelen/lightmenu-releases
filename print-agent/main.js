@@ -2177,6 +2177,68 @@ http.createServer((req, res) => {
     return;
   }
 
+  // Delete every table on a floor/zone (POST so zone names need no URL encoding).
+  if (req.method === 'POST' && req.url === '/local/tables/delete-zone') {
+    let body = '';
+    req.on('data', c => body += c);
+    req.on('end', async () => {
+      try {
+        const { zone } = JSON.parse(body || '{}');
+        await stationDb('table.delete_zone', { zone: zone || null });
+        res.writeHead(200, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ ok: true }));
+      } catch(e) { res.writeHead(500); res.end(JSON.stringify({ error: e.message })); }
+    });
+    return;
+  }
+
+  // Create a table on a floor (server assigns the next number).
+  if (req.method === 'POST' && req.url === '/local/tables') {
+    let body = '';
+    req.on('data', c => body += c);
+    req.on('end', async () => {
+      try {
+        const b = JSON.parse(body || '{}');
+        const r = await stationDb('table.create', {
+          zone: b.zone || null, pos_x: b.pos_x, pos_y: b.pos_y,
+          capacity: b.capacity, shape: b.shape,
+        });
+        res.writeHead(200, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify(r || { ok: true }));
+      } catch(e) { res.writeHead(500); res.end(JSON.stringify({ error: e.message })); }
+    });
+    return;
+  }
+
+  // Update one table (move = patch pos_x/pos_y; edit = capacity/shape/zone/number).
+  if (req.method === 'PATCH' && req.url.startsWith('/local/tables/')) {
+    const id = decodeURIComponent(req.url.slice('/local/tables/'.length));
+    let body = '';
+    req.on('data', c => body += c);
+    req.on('end', async () => {
+      try {
+        const patch = JSON.parse(body || '{}');
+        await stationDb('table.update', { id, patch });
+        res.writeHead(200, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ ok: true }));
+      } catch(e) { res.writeHead(500); res.end(JSON.stringify({ error: e.message })); }
+    });
+    return;
+  }
+
+  // Delete one table.
+  if (req.method === 'DELETE' && req.url.startsWith('/local/tables/')) {
+    const id = decodeURIComponent(req.url.slice('/local/tables/'.length));
+    (async () => {
+      try {
+        await stationDb('table.delete', { id });
+        res.writeHead(200, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ ok: true }));
+      } catch(e) { res.writeHead(500); res.end(JSON.stringify({ error: e.message })); }
+    })();
+    return;
+  }
+
   if (req.method === 'GET' && req.url.startsWith('/local/report')) {
     const u = new URL(req.url, 'http://x');
     const date  = u.searchParams.get('date')  || new Date().toISOString().slice(0,10);

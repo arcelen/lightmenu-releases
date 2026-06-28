@@ -216,21 +216,36 @@ function Format-Money($amount) {
           <RowDefinition Height="Auto"/>
         </Grid.RowDefinitions>
 
-        <!-- Floor tabs + legend -->
+        <!-- Floor tabs + actions + legend -->
         <Grid Grid.Row="0" Margin="0,0,0,10">
           <Grid.ColumnDefinitions>
             <ColumnDefinition Width="*"/>
             <ColumnDefinition Width="Auto"/>
           </Grid.ColumnDefinitions>
-          <StackPanel x:Name="FloorTabs" Orientation="Horizontal" VerticalAlignment="Center"/>
-          <!-- legend -->
-          <StackPanel Grid.Column="1" Orientation="Horizontal" VerticalAlignment="Center">
-            <Ellipse Width="8" Height="8" Fill="#22C55E" VerticalAlignment="Center" Margin="0,0,5,0"/>
-            <TextBlock x:Name="LblFree"     Text="Free"     Foreground="#6B7280" FontSize="11" VerticalAlignment="Center" Margin="0,0,14,0"/>
-            <Ellipse Width="8" Height="8" Fill="#F59E0B" VerticalAlignment="Center" Margin="0,0,5,0"/>
-            <TextBlock x:Name="LblOccupied" Text="Occupied" Foreground="#6B7280" FontSize="11" VerticalAlignment="Center" Margin="0,0,14,0"/>
-            <Ellipse Width="8" Height="8" Fill="#A78BFA" VerticalAlignment="Center" Margin="0,0,5,0"/>
-            <TextBlock x:Name="LblReserved" Text="Reserved" Foreground="#6B7280" FontSize="11" VerticalAlignment="Center"/>
+          <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
+            <StackPanel x:Name="FloorTabs" Orientation="Horizontal" VerticalAlignment="Center"/>
+            <Button x:Name="AddFloorBtn"  Style="{StaticResource PeriodBtn}" Content="+ Floor"  Margin="6,0,0,0"/>
+            <Button x:Name="AddTableBtn"  Style="{StaticResource PeriodBtn}" Content="+ Table"  Margin="6,0,0,0" Foreground="#FFFFFF">
+              <Button.Background>
+                <LinearGradientBrush StartPoint="0,0" EndPoint="1,0">
+                  <GradientStop Color="#14B8A6" Offset="0"/>
+                  <GradientStop Color="#06B6D4" Offset="1"/>
+                </LinearGradientBrush>
+              </Button.Background>
+            </Button>
+            <Button x:Name="DelFloorBtn"  Style="{StaticResource PeriodBtn}" Content="Delete Floor" Margin="6,0,0,0" Foreground="#F87171"/>
+          </StackPanel>
+          <!-- hint + legend -->
+          <StackPanel Grid.Column="1" VerticalAlignment="Center">
+            <TextBlock x:Name="LblDragHint" Text="Drag to arrange · tap to edit" Foreground="#6B7280" FontSize="11" HorizontalAlignment="Right" Margin="0,0,0,4"/>
+            <StackPanel Orientation="Horizontal" HorizontalAlignment="Right">
+              <Ellipse Width="8" Height="8" Fill="#22C55E" VerticalAlignment="Center" Margin="0,0,5,0"/>
+              <TextBlock x:Name="LblFree"     Text="Free"     Foreground="#6B7280" FontSize="11" VerticalAlignment="Center" Margin="0,0,14,0"/>
+              <Ellipse Width="8" Height="8" Fill="#F59E0B" VerticalAlignment="Center" Margin="0,0,5,0"/>
+              <TextBlock x:Name="LblOccupied" Text="Occupied" Foreground="#6B7280" FontSize="11" VerticalAlignment="Center" Margin="0,0,14,0"/>
+              <Ellipse Width="8" Height="8" Fill="#A78BFA" VerticalAlignment="Center" Margin="0,0,5,0"/>
+              <TextBlock x:Name="LblReserved" Text="Reserved" Foreground="#6B7280" FontSize="11" VerticalAlignment="Center"/>
+            </StackPanel>
           </StackPanel>
         </Grid>
 
@@ -1180,6 +1195,7 @@ $script:i18n = @{
     en = @{
         nav_dashboard='Dashboard'; nav_analytics='Analytics'; nav_bills='Bills'; nav_report='Daily Report'; nav_staff='Staff'
         lbl_printer='PRINTER'; lbl_last_update='LAST UPDATE'; lbl_free='Free'; lbl_occupied='Occupied'; lbl_reserved='Reserved'
+        lbl_drag_hint='Drag to arrange · tap to edit'; btn_add_floor='+ Floor'; btn_add_table='+ Table'; btn_del_floor='Delete Floor'
         btn_rescan='Rescan Printers'; btn_restart='Restart Agent'
         period_today='Today'; period_week='This Week'; period_month='This Month'; period_all='All Time'; period_refresh='Refresh'
         lbl_total_revenue='TOTAL REVENUE'; lbl_total_orders='TOTAL ORDERS'; lbl_avg_ticket='AVG TICKET'; lbl_best_day='BEST DAY'
@@ -1498,6 +1514,10 @@ function Apply-Language {
     (ctl 'LblFree').Text        = T 'lbl_free'
     (ctl 'LblOccupied').Text    = T 'lbl_occupied'
     (ctl 'LblReserved').Text    = T 'lbl_reserved'
+    (ctl 'LblDragHint').Text    = T 'lbl_drag_hint'
+    (ctl 'AddFloorBtn').Content = T 'btn_add_floor'
+    (ctl 'AddTableBtn').Content = T 'btn_add_table'
+    (ctl 'DelFloorBtn').Content = T 'btn_del_floor'
     (ctl 'TestBtn').Content     = T 'btn_rescan'
     (ctl 'RestartBtn').Content  = T 'btn_restart'
 
@@ -1722,13 +1742,20 @@ function Update-Status {
     }
 }
 
-$script:floorBusy       = $false
-$script:activeFloor     = $null
-$script:floorTabBtns    = @{}
+$script:floorBusy     = $false
+$script:activeFloor   = 'Main'
+$script:pendingFloors = @()
+$script:lastFloorData = @()
+$script:FW = 1000.0; $script:FH = 620.0
+
+# Drag state (shared across the per-table mouse handlers)
+$script:dragId = $null
 
 function SolidColor([string]$hex) {
     [System.Windows.Media.SolidColorBrush]([System.Windows.Media.ColorConverter]::ConvertFromString($hex))
 }
+
+function TableZone($t) { if ($t.zone) { [string]$t.zone } else { 'Main' } }
 
 function Render-FloorTables([array]$tables) {
     $canvas    = ctl 'FloorCanvas'
@@ -1737,122 +1764,259 @@ function Render-FloorTables([array]$tables) {
     $canvas.Children.Clear()
     $tabsPanel.Children.Clear()
 
-    if (-not $tables -or $tables.Count -eq 0) {
-        $emptyMsg.Visibility = 'Visible'
-        return
-    }
-    $emptyMsg.Visibility = 'Collapsed'
+    if (-not $tables) { $tables = @() }
 
-    # Collect zones
-    $zones = @()
-    foreach ($t in $tables) {
-        $z = if ($t.zone) { $t.zone } else { 'Main' }
-        if ($zones -notcontains $z) { $zones += $z }
-    }
-    if (-not $script:activeFloor -or $zones -notcontains $script:activeFloor) {
-        $script:activeFloor = $zones[0]
-    }
+    # Zones = Main (always) + zones found on tables + pending (empty) floors
+    $zones = @('Main')
+    foreach ($t in $tables) { $z = TableZone $t; if ($zones -notcontains $z) { $zones += $z } }
+    foreach ($z in $script:pendingFloors) { if ($zones -notcontains $z) { $zones += $z } }
+    if ($zones -notcontains $script:activeFloor) { $script:activeFloor = 'Main' }
 
-    # Build floor tab buttons (only show if >1 zone)
-    $script:floorTabBtns = @{}
-    if ($zones.Count -gt 1) {
-        foreach ($z in $zones) {
-            $zCopy = $z
-            $btn = New-Object System.Windows.Controls.Button
-            $btn.Content    = $z
-            $btn.FontSize   = 12
-            $btn.FontWeight = 'SemiBold'
-            $btn.Padding    = New-Object System.Windows.Thickness(14,6,14,6)
-            $btn.Margin     = New-Object System.Windows.Thickness(0,0,6,0)
-            $btn.Cursor     = 'Hand'
-            $btn.BorderThickness = New-Object System.Windows.Thickness(0)
-            $btn.Template   = (ctl 'NavDashboard').Template
-            if ($z -eq $script:activeFloor) {
-                $btn.Background = SolidColor '#1A1D29'
-                $btn.Foreground = [System.Windows.Media.Brushes]::White
-            } else {
-                $btn.Background = [System.Windows.Media.Brushes]::Transparent
-                $btn.Foreground = SolidColor '#7A8295'
-            }
-            $btn.Add_Click({
-                $script:activeFloor = $zCopy
-                Render-FloorTables $script:lastFloorData
-            }.GetNewClosure())
-            $script:floorTabBtns[$z] = $btn
-            $tabsPanel.Children.Add($btn) | Out-Null
+    # Floor tabs (always shown, with a live table count per floor)
+    foreach ($z in $zones) {
+        $zCopy = $z
+        $count = ($tables | Where-Object { (TableZone $_) -eq $z }).Count
+        $btn = New-Object System.Windows.Controls.Button
+        $btn.Content    = "$z  $count"
+        $btn.FontSize   = 12; $btn.FontWeight = 'SemiBold'
+        $btn.Padding    = New-Object System.Windows.Thickness(14,6,14,6)
+        $btn.Margin     = New-Object System.Windows.Thickness(0,0,6,0)
+        $btn.Cursor     = 'Hand'
+        $btn.BorderThickness = New-Object System.Windows.Thickness(0)
+        $btn.Template   = (ctl 'NavDashboard').Template
+        if ($z -eq $script:activeFloor) {
+            $btn.Background = SolidColor '#1A1D29'; $btn.Foreground = [System.Windows.Media.Brushes]::White
+        } else {
+            $btn.Background = [System.Windows.Media.Brushes]::Transparent; $btn.Foreground = SolidColor '#7A8295'
         }
+        $btn.Add_Click({ $script:activeFloor = $zCopy; Render-FloorTables $script:lastFloorData }.GetNewClosure())
+        $tabsPanel.Children.Add($btn) | Out-Null
     }
 
-    # Draw tables for active floor
-    $W = 1000.0; $H = 620.0
-    $perRow = 5; $idx = 0
-    foreach ($t in $tables) {
-        $tz = if ($t.zone) { $t.zone } else { 'Main' }
-        if ($tz -ne $script:activeFloor) { continue }
+    $W = $script:FW; $H = $script:FH
+    $floorTables = @($tables | Where-Object { (TableZone $_) -eq $script:activeFloor })
+    $emptyMsg.Visibility = if ($floorTables.Count -eq 0) { 'Visible' } else { 'Collapsed' }
 
-        # Position — auto-grid if no saved coords
+    $perRow = 5; $idx = 0
+    foreach ($t in $floorTables) {
+        $tid = $t.id
         if ($null -ne $t.pos_x -and $null -ne $t.pos_y) {
-            $cx = [double]$t.pos_x * $W
-            $cy = [double]$t.pos_y * $H
+            $cx = [double]$t.pos_x * $W; $cy = [double]$t.pos_y * $H
         } else {
             $col = $idx % $perRow; $row = [Math]::Floor($idx / $perRow)
-            $cx = 120 + $col * 160
-            $cy = 100 + $row * 140
-            $idx++
+            $cx = 130 + $col * 165; $cy = 110 + $row * 150; $idx++
         }
 
-        # Colors by status
         $occ = $t.occupied -or $t.status -eq 'occupied'
         $res = $t.status -eq 'reserved'
-        if ($occ) {
-            $bg = '#2D2310'; $border = '#F59E0B'; $fg = '#FCD34D'
-        } elseif ($res) {
-            $bg = '#1E1529'; $border = '#A78BFA'; $fg = '#C4B5FD'
-        } else {
-            $bg = '#0D2318'; $border = '#22C55E'; $fg = '#86EFAC'
-        }
+        if     ($occ) { $bg = '#2D2310'; $bc = '#F59E0B'; $fg = '#FCD34D' }
+        elseif ($res) { $bg = '#1E1529'; $bc = '#A78BFA'; $fg = '#C4B5FD' }
+        else          { $bg = '#0D2318'; $bc = '#22C55E'; $fg = '#86EFAC' }
 
-        # Shape dimensions
-        $tw = if ($t.shape -eq 'rect') { 100.0 } else { 72.0 }
-        $th = 72.0
-        $left = $cx - $tw / 2; $top = $cy - $th / 2
+        $tw = if ($t.shape -eq 'rect') { 104.0 } else { 78.0 }
+        $th = 78.0
 
         $brd = New-Object System.Windows.Controls.Border
-        $brd.Width   = $tw; $brd.Height = $th
-        $brd.Background     = SolidColor $bg
-        $brd.BorderBrush    = SolidColor $border
+        $brd.Width = $tw; $brd.Height = $th
+        $brd.Background = SolidColor $bg
+        $brd.BorderBrush = SolidColor $bc
         $brd.BorderThickness = New-Object System.Windows.Thickness(2)
-        $brd.CornerRadius   = if ($t.shape -eq 'circle') {
-            New-Object System.Windows.CornerRadius(36)
-        } else { New-Object System.Windows.CornerRadius(10) }
+        $brd.Cursor = 'Hand'
+        $brd.CornerRadius = if ($t.shape -eq 'circle') { New-Object System.Windows.CornerRadius(39) } else { New-Object System.Windows.CornerRadius(12) }
 
-        $lbl = New-Object System.Windows.Controls.TextBlock
-        $lbl.Text       = [string]$t.table_number
-        $lbl.Foreground = SolidColor $fg
-        $lbl.FontSize   = 18; $lbl.FontWeight = 'Bold'
-        $lbl.HorizontalAlignment = 'Center'
-        $lbl.VerticalAlignment   = 'Center'
-        $brd.Child = $lbl
+        $stack = New-Object System.Windows.Controls.StackPanel
+        $stack.HorizontalAlignment = 'Center'; $stack.VerticalAlignment = 'Center'
+        $num = New-Object System.Windows.Controls.TextBlock
+        $num.Text = [string]$t.table_number
+        $num.Foreground = SolidColor $fg
+        $num.FontSize = 19; $num.FontWeight = 'Bold'; $num.HorizontalAlignment = 'Center'
+        $seat = New-Object System.Windows.Controls.TextBlock
+        $cap = if ($t.capacity) { $t.capacity } else { 4 }
+        $seat.Text = [char]0x1F465 + ' ' + [string]$cap
+        $seat.FontFamily = New-Object System.Windows.Media.FontFamily('Segoe UI')
+        $seat.Foreground = SolidColor $fg; $seat.Opacity = 0.75
+        $seat.FontSize = 11; $seat.HorizontalAlignment = 'Center'; $seat.Margin = New-Object System.Windows.Thickness(0,2,0,0)
+        $stack.Children.Add($num)  | Out-Null
+        $stack.Children.Add($seat) | Out-Null
+        $brd.Child = $stack
 
-        [System.Windows.Controls.Canvas]::SetLeft($brd, $left)
-        [System.Windows.Controls.Canvas]::SetTop($brd,  $top)
+        [System.Windows.Controls.Canvas]::SetLeft($brd, $cx - $tw/2.0)
+        [System.Windows.Controls.Canvas]::SetTop($brd,  $cy - $th/2.0)
+
+        # ── Drag to arrange · tap (no movement) to edit ──────────────────────
+        $brd.Add_MouseLeftButtonDown({
+            param($snd, $e)
+            $script:dragId = $tid; $script:dragBorder = $brd; $script:dragTable = $t
+            $script:dragTW = $tw; $script:dragTH = $th; $script:dragMoved = $false
+            $p = $e.GetPosition($canvas); $script:dragSX = $p.X; $script:dragSY = $p.Y
+            $script:dragNewX = $t.pos_x; $script:dragNewY = $t.pos_y
+            $brd.CaptureMouse() | Out-Null; $e.Handled = $true
+        }.GetNewClosure())
+        $brd.Add_MouseMove({
+            param($snd, $e)
+            if ($script:dragId -ne $tid) { return }
+            $p = $e.GetPosition($canvas)
+            $cxn = [Math]::Max($tw/2.0, [Math]::Min($W - $tw/2.0, $p.X))
+            $cyn = [Math]::Max($th/2.0, [Math]::Min($H - $th/2.0, $p.Y))
+            [System.Windows.Controls.Canvas]::SetLeft($brd, $cxn - $tw/2.0)
+            [System.Windows.Controls.Canvas]::SetTop($brd,  $cyn - $th/2.0)
+            $script:dragNewX = $cxn / $W; $script:dragNewY = $cyn / $H
+            if ([Math]::Abs($p.X - $script:dragSX) + [Math]::Abs($p.Y - $script:dragSY) -gt 3) { $script:dragMoved = $true }
+        }.GetNewClosure())
+        $brd.Add_MouseLeftButtonUp({
+            param($snd, $e)
+            if ($script:dragId -ne $tid) { return }
+            $brd.ReleaseMouseCapture(); $script:dragId = $null; $e.Handled = $true
+            if ($script:dragMoved) {
+                $t.pos_x = $script:dragNewX; $t.pos_y = $script:dragNewY
+                $body = (@{ pos_x = [Math]::Round([double]$script:dragNewX,4); pos_y = [Math]::Round([double]$script:dragNewY,4) } | ConvertTo-Json -Compress)
+                Invoke-AsyncPost "$base/local/tables/$tid" $body 'PATCH' { param($r,$bad,$em) }
+            } else {
+                Show-TableEditor $t
+            }
+        }.GetNewClosure())
+
         $canvas.Children.Add($brd) | Out-Null
     }
 }
 
-$script:lastFloorData = @()
+function Show-TableEditor($table) {
+    [xml]$dx = @"
+<Window xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Title="Edit Table" Height="372" Width="340" WindowStartupLocation="CenterOwner"
+        Background="#0F1117" TextElement.Foreground="#FFFFFF" ResizeMode="NoResize">
+  <StackPanel Margin="20">
+    <TextBlock Text="Table number" Foreground="#9CA3AF" FontSize="11" FontWeight="Bold"/>
+    <TextBox x:Name="EdNum" Background="#1A1D29" Foreground="#FFFFFF" BorderBrush="#2A2D3A" Padding="7,5" Margin="0,4,0,12"/>
+    <TextBlock Text="Seats" Foreground="#9CA3AF" FontSize="11" FontWeight="Bold"/>
+    <TextBox x:Name="EdCap" Background="#1A1D29" Foreground="#FFFFFF" BorderBrush="#2A2D3A" Padding="7,5" Margin="0,4,0,12"/>
+    <TextBlock Text="Shape" Foreground="#9CA3AF" FontSize="11" FontWeight="Bold"/>
+    <ComboBox x:Name="EdShape" Margin="0,4,0,12">
+      <ComboBoxItem Content="Square" Tag="square"/>
+      <ComboBoxItem Content="Round"  Tag="circle"/>
+      <ComboBoxItem Content="Long"   Tag="rect"/>
+    </ComboBox>
+    <TextBlock Text="Status" Foreground="#9CA3AF" FontSize="11" FontWeight="Bold"/>
+    <ComboBox x:Name="EdStatus" Margin="0,4,0,16">
+      <ComboBoxItem Content="Free"     Tag="available"/>
+      <ComboBoxItem Content="Reserved" Tag="reserved"/>
+    </ComboBox>
+    <Grid>
+      <Button x:Name="EdDelete" Content="Delete" HorizontalAlignment="Left" Background="#3A1518" Foreground="#F87171" BorderThickness="0" Padding="14,8" Cursor="Hand"/>
+      <StackPanel Orientation="Horizontal" HorizontalAlignment="Right">
+        <Button x:Name="EdCancel" Content="Cancel" Background="#2A2D3A" Foreground="#FFFFFF" BorderThickness="0" Padding="14,8" Margin="0,0,8,0" Cursor="Hand"/>
+        <Button x:Name="EdSave" Content="Save" Background="#14B8A6" Foreground="#FFFFFF" BorderThickness="0" Padding="16,8" Cursor="Hand"/>
+      </StackPanel>
+    </Grid>
+  </StackPanel>
+</Window>
+"@
+    $rd  = New-Object System.Xml.XmlNodeReader $dx
+    $dlg = [System.Windows.Markup.XamlReader]::Load($rd)
+    $dlg.Owner = $window
+    $edNum    = $dlg.FindName('EdNum')
+    $edCap    = $dlg.FindName('EdCap')
+    $edShape  = $dlg.FindName('EdShape')
+    $edStatus = $dlg.FindName('EdStatus')
+    $edNum.Text = [string]$table.table_number
+    $edCap.Text = if ($table.capacity) { [string]$table.capacity } else { '4' }
+    $shp = if ($table.shape) { $table.shape } else { 'square' }
+    foreach ($it in $edShape.Items)  { if ($it.Tag -eq $shp) { $edShape.SelectedItem = $it } }
+    if (-not $edShape.SelectedItem) { $edShape.SelectedIndex = 0 }
+    $stv = if ($table.status -eq 'reserved') { 'reserved' } else { 'available' }
+    foreach ($it in $edStatus.Items) { if ($it.Tag -eq $stv) { $edStatus.SelectedItem = $it } }
+    if (-not $edStatus.SelectedItem) { $edStatus.SelectedIndex = 0 }
+
+    $tid = $table.id
+    $dlg.FindName('EdSave').Add_Click({
+        $patch = @{
+            table_number = [int]($edNum.Text -replace '[^\d]','')
+            capacity     = [int]($edCap.Text -replace '[^\d]','')
+            shape        = [string]$edShape.SelectedItem.Tag
+            status       = [string]$edStatus.SelectedItem.Tag
+        }
+        $body = ($patch | ConvertTo-Json -Compress)
+        Invoke-AsyncPost "$base/local/tables/$tid" $body 'PATCH' { param($r,$bad,$em); Update-FloorPlan }
+        $dlg.Close()
+    }.GetNewClosure())
+    $dlg.FindName('EdDelete').Add_Click({
+        $ans = [System.Windows.MessageBox]::Show("Delete table $($table.table_number)?", 'LightMenu', 'YesNo', 'Warning')
+        if ($ans -eq 'Yes') {
+            Invoke-AsyncPost "$base/local/tables/$tid" '' 'DELETE' { param($r,$bad,$em); Update-FloorPlan }
+            $dlg.Close()
+        }
+    }.GetNewClosure())
+    $dlg.FindName('EdCancel').Add_Click({ $dlg.Close() }.GetNewClosure())
+    $dlg.ShowDialog() | Out-Null
+}
+
+function Add-Floor {
+    $name = [Microsoft.VisualBasic.Interaction]::InputBox('Name this floor / area (e.g. Terrace, Bar):', 'Add Floor', '')
+    $clean = ($name | Out-String).Trim()
+    if (-not $clean) { return }
+    if ($clean -eq 'Main') { return }
+    if ($script:pendingFloors -notcontains $clean) { $script:pendingFloors += $clean }
+    $script:activeFloor = $clean
+    Render-FloorTables $script:lastFloorData
+}
+
+function Add-Table {
+    $zone = if ($script:activeFloor -eq 'Main') { $null } else { $script:activeFloor }
+    $body = (@{ zone = $zone } | ConvertTo-Json -Compress)
+    Invoke-AsyncPost "$base/local/tables" $body 'POST' {
+        param($r, $bad, $em)
+        if (-not $bad) {
+            # Floor now has a table — drop it from the pending list.
+            $script:pendingFloors = @($script:pendingFloors | Where-Object { $_ -ne $script:activeFloor })
+            Update-FloorPlan
+        } else {
+            [System.Windows.MessageBox]::Show("Could not add table.`n$em", 'LightMenu', 'OK', 'Warning') | Out-Null
+        }
+    }
+}
+
+function Delete-Floor {
+    $f = $script:activeFloor
+    if ($f -eq 'Main') {
+        [System.Windows.MessageBox]::Show('The Main floor cannot be deleted.', 'LightMenu', 'OK', 'Info') | Out-Null
+        return
+    }
+    $hasTables = @($script:lastFloorData | Where-Object { (TableZone $_) -eq $f }).Count -gt 0
+    if (-not $hasTables) {
+        # Empty (pending) floor — just remove the tab.
+        $script:pendingFloors = @($script:pendingFloors | Where-Object { $_ -ne $f })
+        $script:activeFloor = 'Main'
+        Render-FloorTables $script:lastFloorData
+        return
+    }
+    $ans = [System.Windows.MessageBox]::Show("Delete floor '$f' and all its tables?", 'LightMenu', 'YesNo', 'Warning')
+    if ($ans -ne 'Yes') { return }
+    $body = (@{ zone = $f } | ConvertTo-Json -Compress)
+    Invoke-AsyncPost "$base/local/tables/delete-zone" $body 'POST' {
+        param($r, $bad, $em)
+        $script:pendingFloors = @($script:pendingFloors | Where-Object { $_ -ne $f })
+        $script:activeFloor = 'Main'
+        Update-FloorPlan
+    }.GetNewClosure()
+}
+
 function Update-FloorPlan {
     if ($script:floorBusy) { return }
     $script:floorBusy = $true
     Invoke-AsyncGet "$base/local/tables" {
         param($r, $bad)
         $script:floorBusy = $false
-        if ($bad -or -not $r) { return }
+        if ($bad -or $null -eq $r) { return }
         $tables = if ($r -is [array]) { $r } else { @($r) }
         $script:lastFloorData = $tables
         Render-FloorTables $tables
     }
 }
+
+(ctl 'AddFloorBtn').Add_Click({ Add-Floor })
+(ctl 'AddTableBtn').Add_Click({ Add-Table })
+(ctl 'DelFloorBtn').Add_Click({ Delete-Floor })
 
 # ─── ANALYTICS PAGE ─────────────────────────────────────────────────────────
 $script:activePeriod = 'today'
