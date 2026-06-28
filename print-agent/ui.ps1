@@ -212,40 +212,54 @@ function Format-Money($amount) {
       <Grid x:Name="PageDashboard" Visibility="Visible">
         <Grid.RowDefinitions>
           <RowDefinition Height="Auto"/>
+          <RowDefinition Height="Auto"/>
           <RowDefinition Height="*"/>
           <RowDefinition Height="Auto"/>
         </Grid.RowDefinitions>
 
+        <!-- Hero stats: Revenue | Orders | Tickets -->
         <Grid Grid.Row="0" Margin="0,0,0,12">
           <Grid.ColumnDefinitions>
             <ColumnDefinition Width="*"/>
             <ColumnDefinition Width="12"/>
             <ColumnDefinition Width="*"/>
+            <ColumnDefinition Width="12"/>
+            <ColumnDefinition Width="*"/>
           </Grid.ColumnDefinitions>
-          <Grid.RowDefinitions>
-            <RowDefinition/>
-            <RowDefinition Height="12"/>
-            <RowDefinition/>
-          </Grid.RowDefinitions>
-          <Border Style="{StaticResource CardStyle}" Grid.Row="0" Grid.Column="0">
+          <Border Style="{StaticResource CardStyle}" Grid.Column="0">
+            <StackPanel>
+              <TextBlock x:Name="LblTodayRevenue" Text="TODAY REVENUE" Style="{StaticResource CardLabel}"/>
+              <TextBlock x:Name="DashRevenue" Text="--" Style="{StaticResource BigValue}"/>
+            </StackPanel>
+          </Border>
+          <Border Style="{StaticResource CardStyle}" Grid.Column="2">
+            <StackPanel>
+              <TextBlock x:Name="LblTodayOrders" Text="TODAY ORDERS" Style="{StaticResource CardLabel}"/>
+              <TextBlock x:Name="DashOrders" Text="--" Foreground="#06B6D4" FontSize="24" FontWeight="Bold" Margin="0,6,0,0"/>
+            </StackPanel>
+          </Border>
+          <Border Style="{StaticResource CardStyle}" Grid.Column="4">
+            <StackPanel>
+              <TextBlock x:Name="LblTicketsPrinted" Text="TICKETS PRINTED" Style="{StaticResource CardLabel}"/>
+              <TextBlock x:Name="DashPrinted" Text="--" Foreground="#A78BFA" FontSize="24" FontWeight="Bold" Margin="0,6,0,0"/>
+            </StackPanel>
+          </Border>
+        </Grid>
+
+        <!-- Status row: Printer | Last update -->
+        <Grid Grid.Row="1" Margin="0,0,0,12">
+          <Grid.ColumnDefinitions>
+            <ColumnDefinition Width="*"/>
+            <ColumnDefinition Width="12"/>
+            <ColumnDefinition Width="*"/>
+          </Grid.ColumnDefinitions>
+          <Border Style="{StaticResource CardStyle}" Grid.Column="0">
             <StackPanel>
               <TextBlock x:Name="LblPrinter" Text="PRINTER" Style="{StaticResource CardLabel}"/>
               <TextBlock x:Name="PrinterText" Text="--" Style="{StaticResource CardValue}"/>
             </StackPanel>
           </Border>
-          <Border Style="{StaticResource CardStyle}" Grid.Row="0" Grid.Column="2">
-            <StackPanel>
-              <TextBlock x:Name="LblTunnel" Text="TUNNEL" Style="{StaticResource CardLabel}"/>
-              <TextBlock x:Name="TunnelText" Text="--" Style="{StaticResource CardValue}"/>
-            </StackPanel>
-          </Border>
-          <Border Style="{StaticResource CardStyle}" Grid.Row="2" Grid.Column="0">
-            <StackPanel>
-              <TextBlock x:Name="LblTodaySession" Text="TODAY (SESSION)" Style="{StaticResource CardLabel}"/>
-              <TextBlock x:Name="StatsText" Text="--" Style="{StaticResource CardValue}"/>
-            </StackPanel>
-          </Border>
-          <Border Style="{StaticResource CardStyle}" Grid.Row="2" Grid.Column="2">
+          <Border Style="{StaticResource CardStyle}" Grid.Column="2">
             <StackPanel>
               <TextBlock x:Name="LblLastUpdate" Text="LAST UPDATE" Style="{StaticResource CardLabel}"/>
               <TextBlock x:Name="UpdateText" Text="--" Style="{StaticResource CardValue}"/>
@@ -253,34 +267,22 @@ function Format-Money($amount) {
           </Border>
         </Grid>
 
-        <Border Style="{StaticResource CardStyle}" Grid.Row="1">
+        <!-- Recent Activity feed -->
+        <Border Style="{StaticResource CardStyle}" Grid.Row="2">
           <Grid>
             <Grid.RowDefinitions>
               <RowDefinition Height="Auto"/>
               <RowDefinition Height="*"/>
             </Grid.RowDefinitions>
-            <Grid Grid.Row="0" Margin="0,0,0,8">
-              <TextBlock x:Name="LblLiveLog" Text="LIVE LOG" Style="{StaticResource CardLabel}" VerticalAlignment="Center"/>
-              <Button x:Name="ClearBtn" Content="Clear" HorizontalAlignment="Right"
-                      Background="Transparent" BorderThickness="0" Foreground="#7A8295" FontSize="10" Cursor="Hand">
-                <Button.Template>
-                  <ControlTemplate TargetType="Button">
-                    <Border Padding="6,2"><ContentPresenter/></Border>
-                  </ControlTemplate>
-                </Button.Template>
-              </Button>
-            </Grid>
-            <Border Grid.Row="1" Background="#0F1117" BorderBrush="#2A2D3A" BorderThickness="1" CornerRadius="6">
-              <ScrollViewer x:Name="LogScroller" VerticalScrollBarVisibility="Auto">
-                <TextBox x:Name="LogBox" Background="Transparent" Foreground="#D1D5DB"
-                         BorderThickness="0" FontFamily="Consolas" FontSize="11"
-                         IsReadOnly="True" TextWrapping="NoWrap" Padding="8"/>
-              </ScrollViewer>
-            </Border>
+            <TextBlock x:Name="LblRecentActivity" Grid.Row="0" Text="RECENT ACTIVITY" Style="{StaticResource CardLabel}" Margin="0,0,0,10"/>
+            <ScrollViewer x:Name="ActivityScroller" Grid.Row="1" VerticalScrollBarVisibility="Auto">
+              <StackPanel x:Name="ActivityFeed"/>
+            </ScrollViewer>
           </Grid>
         </Border>
 
-        <Grid Grid.Row="2" Margin="0,12,0,0">
+        <!-- Action buttons -->
+        <Grid Grid.Row="3" Margin="0,12,0,0">
           <Grid.ColumnDefinitions>
             <ColumnDefinition Width="*"/>
             <ColumnDefinition Width="12"/>
@@ -1200,8 +1202,8 @@ function SolidBrush($hex) { New-Object System.Windows.Media.SolidColorBrush ([Sy
 $script:i18n = @{
     en = @{
         nav_dashboard='Dashboard'; nav_analytics='Analytics'; nav_bills='Bills'; nav_report='Daily Report'; nav_staff='Staff'
-        lbl_printer='PRINTER'; lbl_tunnel='TUNNEL'; lbl_today_session='TODAY (SESSION)'; lbl_last_update='LAST UPDATE'; lbl_live_log='LIVE LOG'
-        btn_rescan='Rescan Printers'; btn_restart='Restart Agent'; btn_clear='Clear'
+        lbl_printer='PRINTER'; lbl_last_update='LAST UPDATE'; lbl_today_revenue='TODAY REVENUE'; lbl_today_orders='TODAY ORDERS'; lbl_tickets_printed='TICKETS PRINTED'; lbl_recent_activity='RECENT ACTIVITY'
+        btn_rescan='Rescan Printers'; btn_restart='Restart Agent'
         period_today='Today'; period_week='This Week'; period_month='This Month'; period_all='All Time'; period_refresh='Refresh'
         lbl_total_revenue='TOTAL REVENUE'; lbl_total_orders='TOTAL ORDERS'; lbl_avg_ticket='AVG TICKET'; lbl_best_day='BEST DAY'
         lbl_payment_methods='PAYMENT METHODS'; lbl_cash='Cash'; lbl_card='Card'; lbl_mixed='Mixed'
@@ -1514,14 +1516,14 @@ function Apply-Language {
     (ctl 'CancelPrinterBtn').Content = T 'dlg_cancel'
 
     # Dashboard labels
-    (ctl 'LblPrinter').Text      = T 'lbl_printer'
-    (ctl 'LblTunnel').Text       = T 'lbl_tunnel'
-    (ctl 'LblTodaySession').Text = T 'lbl_today_session'
-    (ctl 'LblLastUpdate').Text   = T 'lbl_last_update'
-    (ctl 'LblLiveLog').Text      = T 'lbl_live_log'
-    (ctl 'ClearBtn').Content     = T 'btn_clear'
-    (ctl 'TestBtn').Content      = T 'btn_rescan'
-    (ctl 'RestartBtn').Content   = T 'btn_restart'
+    (ctl 'LblPrinter').Text         = T 'lbl_printer'
+    (ctl 'LblLastUpdate').Text      = T 'lbl_last_update'
+    (ctl 'LblTodayRevenue').Text    = T 'lbl_today_revenue'
+    (ctl 'LblTodayOrders').Text     = T 'lbl_today_orders'
+    (ctl 'LblTicketsPrinted').Text  = T 'lbl_tickets_printed'
+    (ctl 'LblRecentActivity').Text  = T 'lbl_recent_activity'
+    (ctl 'TestBtn').Content         = T 'btn_rescan'
+    (ctl 'RestartBtn').Content      = T 'btn_restart'
 
     # Analytics
     (ctl 'PeriodToday').Content   = T 'period_today'
@@ -1646,6 +1648,7 @@ function Switch-Page($name) {
     # Defer the (network-bound) page loads until AFTER the page has rendered, so
     # switching tabs is instant instead of freezing the UI while data loads.
     $loader = switch ($name) {
+        'Dashboard' { { Update-Dashboard-Stats } }
         'Analytics' { { Update-Analytics-Page } }
         'Bills'     { { Update-Bills-Page } }
         'Staff'     { { Update-Staff-Page } }
@@ -1668,25 +1671,130 @@ function Switch-Page($name) {
 (ctl 'NavStaff').Add_Click(    { Switch-Page 'Staff' })
 
 # ─── DASHBOARD: live log + status ───────────────────────────────────────────
-$logBox      = ctl 'LogBox'
-$logScroller = ctl 'LogScroller'
-$script:lastLogLines = ''
+$script:lastLogSize      = -1
+$script:lastActivityLines = ''
 
-function Update-Log {
-    if (-not (Test-Path $logPath)) { $logBox.Text = "(waiting for agent to start...)"; return }
-    $tail = Get-Content $logPath -Tail 200 -ErrorAction SilentlyContinue
+function Update-Activity {
+    if (-not (Test-Path $logPath)) { return }
+    try { $size = (Get-Item $logPath -ErrorAction Stop).Length } catch { return }
+    if ($size -eq $script:lastLogSize) { return }
+    $script:lastLogSize = $size
+    $tail = Get-Content $logPath -Tail 14 -ErrorAction SilentlyContinue
     if (-not $tail) { return }
     $text = ($tail -join "`n")
-    if ($text -ne $script:lastLogLines) {
-        $script:lastLogLines = $text
-        $logBox.Text = $text
-        $logScroller.ScrollToBottom()
+    if ($text -eq $script:lastActivityLines) { return }
+    $script:lastActivityLines = $text
+
+    $feed = ctl 'ActivityFeed'
+    $feed.Children.Clear()
+    foreach ($line in $tail) {
+        if ($line -notmatch '^\[') { continue }
+        $timeStr = ''; $level = 'INFO'; $msg = $line
+        if ($line -match '^\[[\d-]+ (\d{2}:\d{2}:\d{2})\] \[(\w+)\] (.+)$') {
+            $timeStr = $Matches[1]; $level = $Matches[2].ToUpper(); $msg = $Matches[3]
+        }
+        $dotColor = switch -Wildcard ($level) {
+            'ERROR*' { '#EF4444' }
+            'WARN*'  { '#F59E0B' }
+            'PRINT*' { '#14B8A6' }
+            'ORDER*' { '#06B6D4' }
+            default  { '#6B7280' }
+        }
+        $row = New-Object System.Windows.Controls.Grid
+        $row.Margin = New-Object System.Windows.Thickness(0,0,0,6)
+        $c0 = New-Object System.Windows.Controls.ColumnDefinition; $c0.Width = [System.Windows.GridLength]::Auto
+        $c1 = New-Object System.Windows.Controls.ColumnDefinition; $c1.Width = New-Object System.Windows.GridLength(1,[System.Windows.GridUnitType]::Star)
+        $c2 = New-Object System.Windows.Controls.ColumnDefinition; $c2.Width = [System.Windows.GridLength]::Auto
+        $row.ColumnDefinitions.Add($c0) | Out-Null
+        $row.ColumnDefinitions.Add($c1) | Out-Null
+        $row.ColumnDefinitions.Add($c2) | Out-Null
+
+        $dot = New-Object System.Windows.Shapes.Ellipse
+        $dot.Width = 6; $dot.Height = 6
+        $dot.Fill = [System.Windows.Media.SolidColorBrush]([System.Windows.Media.ColorConverter]::ConvertFromString($dotColor))
+        $dot.VerticalAlignment = 'Center'
+        $dot.Margin = New-Object System.Windows.Thickness(0,0,10,0)
+        [System.Windows.Controls.Grid]::SetColumn($dot, 0)
+
+        $msgBlock = New-Object System.Windows.Controls.TextBlock
+        $msgBlock.Text = $msg
+        $msgBlock.Foreground = [System.Windows.Media.Brushes]::White
+        $msgBlock.FontSize = 11; $msgBlock.VerticalAlignment = 'Center'
+        $msgBlock.TextTrimming = 'CharacterEllipsis'
+        [System.Windows.Controls.Grid]::SetColumn($msgBlock, 1)
+
+        $timeBlock = New-Object System.Windows.Controls.TextBlock
+        $timeBlock.Text = $timeStr
+        $timeBlock.Foreground = SolidBrush '#6B7280'
+        $timeBlock.FontSize = 10; $timeBlock.VerticalAlignment = 'Center'
+        $timeBlock.Margin = New-Object System.Windows.Thickness(10,0,0,0)
+        [System.Windows.Controls.Grid]::SetColumn($timeBlock, 2)
+
+        $row.Children.Add($dot)      | Out-Null
+        $row.Children.Add($msgBlock) | Out-Null
+        $row.Children.Add($timeBlock)| Out-Null
+        $feed.Children.Add($row)     | Out-Null
     }
+    try { (ctl 'ActivityScroller').ScrollToBottom() } catch {}
 }
 
+# ─── Async HTTP helpers (keep the WPF UI thread responsive) ──────────────────
+# Every Invoke-RestMethod call blocks the calling thread. When that thread is the
+# WPF UI thread (timer ticks + click handlers run there), the whole window freezes
+# for the duration of the request — felt constantly because of the 2s status poll.
+# WebClient's async ops run the network wait on a thread-pool thread and raise
+# their *Completed event back on the captured SynchronizationContext. We marshal
+# the callback onto the dispatcher explicitly so it's always safe to touch
+# controls, and the UI stays live while the request is in flight.
+function Invoke-AsyncGet {
+    param([string]$Url, [scriptblock]$OnDone)
+    $wc = New-Object System.Net.WebClient
+    $wc.Encoding = [System.Text.Encoding]::UTF8
+    $handler = {
+        param($s, $e)
+        try { $s.Dispose() } catch {}
+        if ($e.Cancelled) { return }
+        $res = $null; $bad = $true
+        if (-not $e.Error) { try { $res = $e.Result | ConvertFrom-Json; $bad = $false } catch { $bad = $true } }
+        try { $window.Dispatcher.Invoke([action]{ & $OnDone $res $bad }) | Out-Null } catch {}
+    }.GetNewClosure()
+    $wc.Add_DownloadStringCompleted($handler)
+    try { $wc.DownloadStringAsync([Uri]$Url) }
+    catch { try { $wc.Dispose() } catch {}; & $OnDone $null $true }
+}
+function Invoke-AsyncPost {
+    param([string]$Url, [string]$Body, [string]$Method = 'POST', [scriptblock]$OnDone)
+    $wc = New-Object System.Net.WebClient
+    $wc.Encoding = [System.Text.Encoding]::UTF8
+    $wc.Headers.Add('Content-Type', 'application/json')
+    $handler = {
+        param($s, $e)
+        try { $s.Dispose() } catch {}
+        if ($e.Cancelled) { return }
+        $res = $null; $bad = $true; $emsg = ''
+        if ($e.Error) { $emsg = $e.Error.Message }
+        else { $bad = $false; try { $res = $e.Result | ConvertFrom-Json } catch {} }
+        try { $window.Dispatcher.Invoke([action]{ & $OnDone $res $bad $emsg }) | Out-Null } catch {}
+    }.GetNewClosure()
+    $wc.Add_UploadStringCompleted($handler)
+    try { $wc.UploadStringAsync([Uri]$Url, $Method, $Body) }
+    catch { try { $wc.Dispose() } catch {}; & $OnDone $null $true $_.Exception.Message }
+}
+
+$script:statusBusy = $false
 function Update-Status {
-    try {
-        $r = Invoke-RestMethod -Uri $statusUrl -TimeoutSec 1 -ErrorAction Stop
+    if ($script:statusBusy) { return }
+    $script:statusBusy = $true
+    Invoke-AsyncGet $statusUrl {
+        param($r, $bad)
+        $script:statusBusy = $false
+        if ($bad -or -not $r) {
+            (ctl 'StatusDot').Fill  = [System.Windows.Media.Brushes]::Crimson
+            (ctl 'StatusText').Text = 'Disconnected'
+            (ctl 'PrinterText').Text = '-'
+            (ctl 'UpdateText').Text  = ('checked ' + (Get-Date -Format 'HH:mm'))
+            return
+        }
         (ctl 'StatusDot').Fill = [System.Windows.Media.Brushes]::LimeGreen
         (ctl 'StatusText').Text = 'Connected'
         (ctl 'VersionText').Text = "Print Agent v$($r.version)"
@@ -1700,19 +1808,27 @@ function Update-Status {
             else                                         { $printerInfo = 'Searching...' }
         }
         (ctl 'PrinterText').Text = $printerInfo
-        (ctl 'TunnelText').Text  = 'OK  print.lightmenu.app'
-
         $p = if ($r.printed) { $r.printed } else { 0 }
-        $f = if ($r.failed)  { $r.failed }  else { 0 }
-        (ctl 'StatsText').Text  = ($p.ToString() + ' printed   -   ' + $f.ToString() + ' failed')
-        (ctl 'UpdateText').Text = ('v' + $r.version + ' - checked ' + (Get-Date -Format 'HH:mm'))
-    } catch {
-        (ctl 'StatusDot').Fill  = [System.Windows.Media.Brushes]::Crimson
-        (ctl 'StatusText').Text = 'Disconnected'
-        (ctl 'PrinterText').Text = '-'
-        (ctl 'TunnelText').Text  = '-'
-        (ctl 'StatsText').Text   = '-'
-        (ctl 'UpdateText').Text  = ('checked ' + (Get-Date -Format 'HH:mm'))
+        (ctl 'DashPrinted').Text = [string]$p
+        (ctl 'UpdateText').Text  = ('v' + $r.version + ' - checked ' + (Get-Date -Format 'HH:mm'))
+    }
+}
+
+$script:dashStatsBusy = $false
+function Update-Dashboard-Stats {
+    if ($script:dashStatsBusy) { return }
+    $script:dashStatsBusy = $true
+    Invoke-AsyncGet "$base/local/stats?period=today" {
+        param($r, $bad)
+        $script:dashStatsBusy = $false
+        if ($bad -or -not $r) {
+            (ctl 'DashRevenue').Text = '--'
+            (ctl 'DashOrders').Text  = '--'
+            return
+        }
+        $script:currencySymbol = $r.currency
+        (ctl 'DashRevenue').Text = Format-Money $r.total_revenue
+        (ctl 'DashOrders').Text  = [string]$r.total_orders
     }
 }
 
@@ -1738,9 +1854,20 @@ function Set-Active-Period($period) {
     $script:activePeriod = $period
 }
 
+$script:analyticsBusy = $false
 function Update-Analytics-Page {
-    try {
-        $r = Invoke-RestMethod -Uri "$base/local/stats?period=$($script:activePeriod)" -TimeoutSec 3 -ErrorAction Stop
+    if ($script:analyticsBusy) { return }
+    $script:analyticsBusy = $true
+    Invoke-AsyncGet "$base/local/stats?period=$($script:activePeriod)" {
+        param($r, $bad)
+        $script:analyticsBusy = $false
+        if ($bad -or -not $r) {
+            (ctl 'AnaRevenue').Text = '--'
+            (ctl 'AnaOrders').Text  = '--'
+            (ctl 'AnaAvg').Text     = '--'
+            (ctl 'AnaBest').Text    = '--'
+            return
+        }
         $script:currencySymbol = $r.currency
         (ctl 'AnaRevenue').Text = Format-Money $r.total_revenue
         (ctl 'AnaOrders').Text  = [string]$r.total_orders
@@ -1755,11 +1882,6 @@ function Update-Analytics-Page {
         (ctl 'PayMixedTotal').Text = Format-Money $r.payment.mixed.total
 
         Draw-Chart $r.daily
-    } catch {
-        (ctl 'AnaRevenue').Text = '--'
-        (ctl 'AnaOrders').Text  = '--'
-        (ctl 'AnaAvg').Text     = '--'
-        (ctl 'AnaBest').Text    = '--'
     }
 }
 
@@ -2497,7 +2619,6 @@ function Show-AddStaffDialog {
     }
 })
 
-(ctl 'ClearBtn').Add_Click({ $logBox.Text = ''; $script:lastLogLines = '' })
 
 # ─── MENU PAGE ──────────────────────────────────────────────────────────────
 $script:menuData      = $null
@@ -3727,9 +3848,15 @@ function Convert-LogoToGray($path, $targetWidth) {
     try {
         $r = Convert-LogoToGray $dlg.FileName $tw
         $body = @{ width = $r.w; height = $r.h; gray_b64 = $r.gray_b64; size = $sizeName; enabled = $true } | ConvertTo-Json
-        Invoke-RestMethod -Uri "$base/local/logo" -Method Post -Body $body -ContentType 'application/json' -TimeoutSec 25 -ErrorAction Stop | Out-Null
-        (ctl 'TsLogoText').Text = 'Logo set - click to replace'
-        (ctl 'TsLogoEnabled').IsChecked = $true
+        # Async upload so the (heavy, server-round-trip) store doesn't freeze the UI.
+        Invoke-AsyncPost "$base/local/logo" $body 'POST' {
+            param($resp, $bad, $emsg)
+            if ($bad) { (ctl 'TsLogoText').Text = 'Upload failed - try a smaller image.' }
+            else {
+                (ctl 'TsLogoText').Text = 'Logo set - click to replace'
+                (ctl 'TsLogoEnabled').IsChecked = $true
+            }
+        }
     } catch {
         (ctl 'TsLogoText').Text = 'Upload failed - try a smaller image.'
     }
@@ -3824,46 +3951,53 @@ function Send-AiMessage {
     $script:aiBusy = $true
     (ctl 'AiSendText').Text = '...'
     $thinking = Add-AiBubble 'assistant' 'Thinking...'
-    # Defer the (blocking) network call so the user bubble + "Thinking..." render first.
-    $window.Dispatcher.BeginInvoke([System.Windows.Threading.DispatcherPriority]::Background, [action]{
+    # Fully async: the user bubble + "Thinking..." render immediately and the UI
+    # stays responsive while the (up to 90s) AI request runs on a pool thread.
+    $body = @{ message = $msg; history = $script:aiHistory } | ConvertTo-Json -Depth 5
+    Invoke-AsyncPost "$base/local/ai" $body 'POST' {
+        param($r, $bad, $emsg)
         try {
-            $body = @{ message = $msg; history = $script:aiHistory } | ConvertTo-Json -Depth 5
-            $r = Invoke-RestMethod -Uri "$base/local/ai" -Method Post -Body $body -ContentType 'application/json' -TimeoutSec 90 -ErrorAction Stop
-            $reply = if ($r.reply) { [string]$r.reply } else { 'Done.' }
-            $thinking.Text = $reply
-            if ($r.actions -and @($r.actions).Count -gt 0) {
-                Add-AiBubble 'system' ('actions: ' + (@($r.actions) -join ', ')) | Out-Null
+            if ($bad) {
+                if ($emsg -match 'quota') { $thinking.Text = "You've hit your monthly AI limit. Upgrade your plan for more." }
+                elseif ($emsg -match '401|Invalid station') { $thinking.Text = 'The Station could not authenticate with the AI service. Make sure the agent is set up for this restaurant.' }
+                else { $thinking.Text = "Sorry, I couldn't reach the AI service. Check the internet connection and try again." }
+            } else {
+                $reply = if ($r.reply) { [string]$r.reply } else { 'Done.' }
+                $thinking.Text = $reply
+                if ($r.actions -and @($r.actions).Count -gt 0) {
+                    Add-AiBubble 'system' ('actions: ' + (@($r.actions) -join ', ')) | Out-Null
+                }
+                $script:aiHistory += @{ role = 'user'; text = $msg }
+                $script:aiHistory += @{ role = 'assistant'; text = $reply }
+                if (@($script:aiHistory).Count -gt 12) { $script:aiHistory = @($script:aiHistory)[-12..-1] }
+                # If the AI changed the menu, refresh the Menu page data next time it opens.
+                $script:menuData = $null
             }
-            $script:aiHistory += @{ role = 'user'; text = $msg }
-            $script:aiHistory += @{ role = 'assistant'; text = $reply }
-            if (@($script:aiHistory).Count -gt 12) { $script:aiHistory = @($script:aiHistory)[-12..-1] }
-            # If the AI changed the menu, refresh the Menu page data next time it opens.
-            $script:menuData = $null
-        } catch {
-            $emsg = $_.Exception.Message
-            if ($emsg -match 'quota') { $thinking.Text = "You've hit your monthly AI limit. Upgrade your plan for more." }
-            elseif ($emsg -match '401|Invalid station') { $thinking.Text = 'The Station could not authenticate with the AI service. Make sure the agent is set up for this restaurant.' }
-            else { $thinking.Text = "Sorry, I couldn't reach the AI service. Check the internet connection and try again." }
         } finally {
             $script:aiBusy = $false
             (ctl 'AiSendText').Text = 'Send'
             (ctl 'AiScroller').ScrollToBottom()
         }
-    }) | Out-Null
+    }
 }
 (ctl 'AiSend').Add_Click({ Send-AiMessage })
 (ctl 'AiInput').Add_KeyDown({ if ($_.Key -eq 'Return') { Send-AiMessage } })
 
 # ─── Timers ─────────────────────────────────────────────────────────────────
 $statusTimer = New-Object System.Windows.Threading.DispatcherTimer
-$statusTimer.Interval = [TimeSpan]::FromSeconds(2)
+$statusTimer.Interval = [TimeSpan]::FromSeconds(4)
 $statusTimer.Add_Tick({ Update-Status })
 $statusTimer.Start()
 
 $logTimer = New-Object System.Windows.Threading.DispatcherTimer
-$logTimer.Interval = [TimeSpan]::FromMilliseconds(800)
-$logTimer.Add_Tick({ Update-Log })
+$logTimer.Interval = [TimeSpan]::FromMilliseconds(1500)
+$logTimer.Add_Tick({ Update-Activity })
 $logTimer.Start()
+
+$dashStatsTimer = New-Object System.Windows.Threading.DispatcherTimer
+$dashStatsTimer.Interval = [TimeSpan]::FromSeconds(20)
+$dashStatsTimer.Add_Tick({ if ($script:activePage -eq 'Dashboard') { Update-Dashboard-Stats } })
+$dashStatsTimer.Start()
 
 $analyticsTimer = New-Object System.Windows.Threading.DispatcherTimer
 $analyticsTimer.Interval = [TimeSpan]::FromSeconds(10)
@@ -3874,7 +4008,12 @@ $analyticsTimer.Start()
 Apply-Language
 Switch-Page 'Dashboard'
 Set-Active-Period 'today'
-Update-Status
-Update-Log
+# The first status refresh must run only AFTER ShowDialog starts the dispatcher.
+# Calling the async Update-Status before the message loop is pumping makes the
+# WebClient completion fire on a thread-pool thread with no PowerShell runspace,
+# which crashes the process silently (window opens then closes, no trap log).
+# ContentRendered fires under the running dispatcher, so the async callback
+# marshals safely back to the UI thread. Update-Log is synchronous and safe.
+$window.Add_ContentRendered({ Update-Status; Update-Activity; Update-Dashboard-Stats })
 
 $window.ShowDialog() | Out-Null

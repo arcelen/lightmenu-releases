@@ -2720,13 +2720,17 @@ http.createServer((req, res) => {
       const local = store.getStaff();
       let members = [], tokens = [], staffRoles = [], rolesTable = [];
       try {
-        [members, tokens, staffRoles, rolesTable] = await Promise.all([
-          supabaseGet('staff_members', { restaurant_id: RESTAURANT_ID }, 200).catch(() => []),
-          supabaseGet('waiter_tokens', { restaurant_id: RESTAURANT_ID }, 200).catch(() => []),
-          supabaseGet('staff_roles',   { restaurant_id: RESTAURANT_ID }, 200).catch(() => []),
-          supabaseGet('roles',         { restaurant_id: RESTAURANT_ID }, 100).catch(() => []),
-        ]);
-      } catch { /* offline */ }
+        // staff_members + waiter_tokens are no longer anon-readable (migration
+        // 0022) — fetch the whole Staff tab through the token-authed server,
+        // scoped server-side to this restaurant.
+        const r = await stationDb('staff.list', {});
+        if (r) {
+          members    = Array.isArray(r.members)    ? r.members    : [];
+          tokens     = Array.isArray(r.tokens)     ? r.tokens     : [];
+          staffRoles = Array.isArray(r.staffRoles) ? r.staffRoles : [];
+          rolesTable = Array.isArray(r.rolesTable) ? r.rolesTable : [];
+        }
+      } catch { /* offline or pre-deploy server — fall back to local store only */ }
       if (!Array.isArray(members))    members = [];
       if (!Array.isArray(tokens))     tokens = [];
       if (!Array.isArray(staffRoles)) staffRoles = [];
