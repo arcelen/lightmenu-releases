@@ -1748,8 +1748,9 @@ $script:pendingFloors = @()
 $script:lastFloorData = @()
 $script:FW = 1000.0; $script:FH = 620.0
 
-# Drag state (shared across the per-table mouse handlers)
-$script:dragId = $null
+# Drag state (shared across the per-table mousedown + canvas-level move/up handlers)
+$script:dragBorder = $null
+$script:dragStarted = $false
 $script:editorOpen = $false
 
 function SolidColor([string]$hex) {
@@ -1846,37 +1847,14 @@ function Render-FloorTables([array]$tables) {
         [System.Windows.Controls.Canvas]::SetLeft($brd, $cx - $tw/2.0)
         [System.Windows.Controls.Canvas]::SetTop($brd,  $cy - $th/2.0)
 
-        # ── Drag to arrange · tap (no movement) to edit ──────────────────────
+        # ── Grab → record which table; the canvas-level handlers (wired once)
+        #    do the move + save/tap. No event args needed here, so GetNewClosure
+        #    safely captures just this table's border + metadata.
         $brd.Add_MouseLeftButtonDown({
-            param($snd, $e)
-            $script:dragId = $tid; $script:dragBorder = $brd; $script:dragTable = $t
-            $script:dragTW = $tw; $script:dragTH = $th; $script:dragMoved = $false
-            $p = $e.GetPosition($canvas); $script:dragSX = $p.X; $script:dragSY = $p.Y
-            $script:dragNewX = $t.pos_x; $script:dragNewY = $t.pos_y
-            $brd.CaptureMouse() | Out-Null; $e.Handled = $true
-        }.GetNewClosure())
-        $brd.Add_MouseMove({
-            param($snd, $e)
-            if ($script:dragId -ne $tid) { return }
-            $p = $e.GetPosition($canvas)
-            $cxn = [Math]::Max($tw/2.0, [Math]::Min($W - $tw/2.0, $p.X))
-            $cyn = [Math]::Max($th/2.0, [Math]::Min($H - $th/2.0, $p.Y))
-            [System.Windows.Controls.Canvas]::SetLeft($brd, $cxn - $tw/2.0)
-            [System.Windows.Controls.Canvas]::SetTop($brd,  $cyn - $th/2.0)
-            $script:dragNewX = $cxn / $W; $script:dragNewY = $cyn / $H
-            if ([Math]::Abs($p.X - $script:dragSX) + [Math]::Abs($p.Y - $script:dragSY) -gt 3) { $script:dragMoved = $true }
-        }.GetNewClosure())
-        $brd.Add_MouseLeftButtonUp({
-            param($snd, $e)
-            if ($script:dragId -ne $tid) { return }
-            $brd.ReleaseMouseCapture(); $script:dragId = $null; $e.Handled = $true
-            if ($script:dragMoved) {
-                $t.pos_x = $script:dragNewX; $t.pos_y = $script:dragNewY
-                $body = (@{ pos_x = [Math]::Round([double]$script:dragNewX,4); pos_y = [Math]::Round([double]$script:dragNewY,4) } | ConvertTo-Json -Compress)
-                Invoke-AsyncPost "$base/local/tables/$tid" $body 'PATCH' { param($r,$bad,$em) }
-            } else {
-                Show-TableEditor $t
-            }
+            $script:dragBorder = $brd; $script:dragTable = $t
+            $script:dragTW = $tw; $script:dragTH = $th
+            $script:dragMoved = $false; $script:dragStarted = $false
+            $script:floorCanvas.CaptureMouse() | Out-Null
         }.GetNewClosure())
 
         $canvas.Children.Add($brd) | Out-Null
@@ -2059,7 +2037,7 @@ function Update-FloorPlan {
     if ($script:floorBusy) { return }
     # Never re-render mid-drag or while the editor is open — it would destroy the
     # element being manipulated and cause the "freezy" feel.
-    if ($script:dragId -or $script:editorOpen) { return }
+    if ($script:dragBorder -or $script:editorOpen) { return }
     $script:floorBusy = $true
     Invoke-AsyncGet "$base/local/tables" {
         param($r, $bad)
@@ -2081,6 +2059,39 @@ function Update-FloorPlan {
 (ctl 'AddFloorBtn').Add_Click({ Add-Floor })
 (ctl 'AddTableBtn').Add_Click({ Add-Table })
 (ctl 'DelFloorBtn').Add_Click({ Delete-Floor })
+
+# Canvas-level drag handlers — wired ONCE (the canvas object outlives every
+# re-render; only its children get rebuilt). Plain scriptblocks, so $args holds
+# the real event invocation args (sender, MouseEventArgs) — unlike a closure,
+# which would shadow $args with a captured snapshot.
+$script:floorCanvas = ctl 'FloorCanvas'
+$script:floorCanvas.Add_MouseMove({
+    if (-not $script:dragBorder) { return }
+    $e  = $args[1]
+    $W  = $script:FW; $H = $script:FH; $tw = $script:dragTW; $th = $script:dragTH
+    $p  = $e.GetPosition($script:floorCanvas)
+    if (-not $script:dragStarted) { $script:dragStarted = $true; $script:dragSX = $p.X; $script:dragSY = $p.Y }
+    $cxn = [Math]::Max($tw/2.0, [Math]::Min($W - $tw/2.0, $p.X))
+    $cyn = [Math]::Max($th/2.0, [Math]::Min($H - $th/2.0, $p.Y))
+    [System.Windows.Controls.Canvas]::SetLeft($script:dragBorder, $cxn - $tw/2.0)
+    [System.Windows.Controls.Canvas]::SetTop($script:dragBorder,  $cyn - $th/2.0)
+    $script:dragNewX = $cxn / $W; $script:dragNewY = $cyn / $H
+    if ([Math]::Abs($p.X - $script:dragSX) + [Math]::Abs($p.Y - $script:dragSY) -gt 3) { $script:dragMoved = $true }
+})
+$script:floorCanvas.Add_MouseLeftButtonUp({
+    if (-not $script:dragBorder) { return }
+    try { $script:floorCanvas.ReleaseMouseCapture() } catch {}
+    $tbl = $script:dragTable; $moved = $script:dragMoved
+    $nx = $script:dragNewX; $ny = $script:dragNewY
+    $script:dragBorder = $null; $script:dragTable = $null; $script:dragStarted = $false
+    if ($moved -and $tbl) {
+        $tbl.pos_x = $nx; $tbl.pos_y = $ny
+        $body = (@{ pos_x = [Math]::Round([double]$nx,4); pos_y = [Math]::Round([double]$ny,4) } | ConvertTo-Json -Compress)
+        Invoke-AsyncPost "$base/local/tables/$($tbl.id)" $body 'PATCH' { param($r,$bad,$em) }
+    } elseif ($tbl) {
+        Show-TableEditor $tbl
+    }
+})
 
 # ─── ANALYTICS PAGE ─────────────────────────────────────────────────────────
 $script:activePeriod = 'today'
