@@ -1750,6 +1750,7 @@ $script:FW = 1000.0; $script:FH = 620.0
 
 # Drag state (shared across the per-table mouse handlers)
 $script:dragId = $null
+$script:editorOpen = $false
 
 function SolidColor([string]$hex) {
     [System.Windows.Media.SolidColorBrush]([System.Windows.Media.ColorConverter]::ConvertFromString($hex))
@@ -1789,7 +1790,7 @@ function Render-FloorTables([array]$tables) {
         } else {
             $btn.Background = [System.Windows.Media.Brushes]::Transparent; $btn.Foreground = SolidColor '#7A8295'
         }
-        $btn.Add_Click({ $script:activeFloor = $zCopy; Render-FloorTables $script:lastFloorData }.GetNewClosure())
+        $btn.Add_Click({ $script:activeFloor = $zCopy; $script:lastFloorSig = ''; Render-FloorTables $script:lastFloorData }.GetNewClosure())
         $tabsPanel.Children.Add($btn) | Out-Null
     }
 
@@ -1950,6 +1951,8 @@ function Show-TableEditor($table) {
         }
     }.GetNewClosure())
     $dlg.FindName('EdCancel').Add_Click({ $dlg.Close() }.GetNewClosure())
+    $dlg.Add_Closed({ $script:editorOpen = $false })
+    $script:editorOpen = $true
     $dlg.ShowDialog() | Out-Null
 }
 
@@ -2003,8 +2006,12 @@ function Delete-Floor {
     }.GetNewClosure()
 }
 
+$script:lastFloorSig = ''
 function Update-FloorPlan {
     if ($script:floorBusy) { return }
+    # Never re-render mid-drag or while the editor is open — it would destroy the
+    # element being manipulated and cause the "freezy" feel.
+    if ($script:dragId -or $script:editorOpen) { return }
     $script:floorBusy = $true
     Invoke-AsyncGet "$base/local/tables" {
         param($r, $bad)
@@ -2012,6 +2019,13 @@ function Update-FloorPlan {
         if ($bad -or $null -eq $r) { return }
         $tables = if ($r -is [array]) { $r } else { @($r) }
         $script:lastFloorData = $tables
+        # Skip the (heavy) full canvas rebuild when nothing visible changed. Most
+        # 5s ticks hit this early-out, so the UI no longer churns 39 closures/tick.
+        $sig = "$($script:activeFloor)||" + (($tables | ForEach-Object {
+            "$($_.id):$($_.table_number):$($_.pos_x):$($_.pos_y):$($_.status):$($_.zone):$($_.occupied)"
+        }) -join '|')
+        if ($sig -eq $script:lastFloorSig) { return }
+        $script:lastFloorSig = $sig
         Render-FloorTables $tables
     }
 }
