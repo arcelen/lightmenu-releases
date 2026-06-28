@@ -20,6 +20,7 @@ trap {
 [System.Reflection.Assembly]::LoadWithPartialName('PresentationFramework') | Out-Null
 [System.Reflection.Assembly]::LoadWithPartialName('PresentationCore')      | Out-Null
 [System.Reflection.Assembly]::LoadWithPartialName('WindowsBase')           | Out-Null
+[System.Reflection.Assembly]::LoadWithPartialName('Microsoft.VisualBasic') | Out-Null  # InputBox for quick prompts
 
 $appDir   = Resolve-Path "$scriptDir\..\app"
 $logoPath = Join-Path $appDir 'lightmenu.png'
@@ -161,6 +162,9 @@ function Format-Money($amount) {
       <Grid>
         <StackPanel Orientation="Horizontal">
           <Button x:Name="NavDashboard"  Style="{StaticResource NavBtn}" Content="Dashboard"/>
+          <Button x:Name="NavAssistant"  Style="{StaticResource NavBtn}" Content="Assistant"    Margin="4,0,0,0"/>
+          <Button x:Name="NavMenu"       Style="{StaticResource NavBtn}" Content="Menu"         Margin="4,0,0,0"/>
+          <Button x:Name="NavKitchen"    Style="{StaticResource NavBtn}" Content="Kitchen"      Margin="4,0,0,0"/>
           <Button x:Name="NavStaff"      Style="{StaticResource NavBtn}" Content="Staff"        Margin="4,0,0,0"/>
           <Button x:Name="NavAnalytics"  Style="{StaticResource NavBtn}" Content="Analytics"    Margin="4,0,0,0"/>
           <Button x:Name="NavBills"      Style="{StaticResource NavBtn}" Content="Bills"        Margin="4,0,0,0"/>
@@ -617,6 +621,522 @@ function Format-Money($amount) {
         </ScrollViewer>
       </Grid>
 
+      <!-- ════════ PAGE 6: MENU ════════ -->
+      <Grid x:Name="PageMenu" Visibility="Collapsed">
+        <Grid.RowDefinitions>
+          <RowDefinition Height="Auto"/>
+          <RowDefinition Height="*"/>
+        </Grid.RowDefinitions>
+
+        <Grid Grid.Row="0" Margin="0,0,0,12">
+          <Grid.ColumnDefinitions>
+            <ColumnDefinition Width="*"/>
+            <ColumnDefinition Width="Auto"/>
+            <ColumnDefinition Width="Auto"/>
+            <ColumnDefinition Width="Auto"/>
+            <ColumnDefinition Width="Auto"/>
+          </Grid.ColumnDefinitions>
+          <TextBox x:Name="MenuSearch" Grid.Column="0" Background="#0F1117" Foreground="#FFFFFF"
+                   BorderBrush="#2A2D3A" BorderThickness="1" Padding="10,8" VerticalContentAlignment="Center"
+                   FontSize="13"/>
+          <TextBlock x:Name="MenuSyncBadge" Grid.Column="1" Text="--" Foreground="#7A8295" FontSize="11"
+                     VerticalAlignment="Center" Margin="14,0,12,0"/>
+          <Button x:Name="AddCategoryBtn" Grid.Column="2" Style="{StaticResource PeriodBtn}" Content="+ Category" Margin="0,0,8,0"/>
+          <Button x:Name="AddItemBtn" Grid.Column="3" Style="{StaticResource PeriodBtn}" Content="+ Item" Foreground="#FFFFFF" Margin="0,0,8,0">
+            <Button.Background>
+              <LinearGradientBrush StartPoint="0,0" EndPoint="1,0">
+                <GradientStop Color="#14B8A6" Offset="0"/>
+                <GradientStop Color="#06B6D4" Offset="1"/>
+              </LinearGradientBrush>
+            </Button.Background>
+          </Button>
+          <Button x:Name="MenuRefresh" Grid.Column="4" Style="{StaticResource PeriodBtn}" Content="Refresh"/>
+        </Grid>
+
+        <Grid Grid.Row="1">
+          <Grid.ColumnDefinitions>
+            <ColumnDefinition Width="200"/>
+            <ColumnDefinition Width="12"/>
+            <ColumnDefinition Width="*"/>
+          </Grid.ColumnDefinitions>
+
+          <!-- Category sidebar -->
+          <Border Grid.Column="0" Style="{StaticResource CardStyle}" Padding="6">
+            <ScrollViewer VerticalScrollBarVisibility="Auto">
+              <StackPanel x:Name="MenuCategoryList"/>
+            </ScrollViewer>
+          </Border>
+
+          <!-- Item list -->
+          <Border Grid.Column="2" Style="{StaticResource CardStyle}">
+            <Grid>
+              <Grid.RowDefinitions>
+                <RowDefinition Height="Auto"/>
+                <RowDefinition Height="*"/>
+              </Grid.RowDefinitions>
+              <Grid Grid.Row="0" Margin="4,2,4,8">
+                <Grid.ColumnDefinitions>
+                  <ColumnDefinition Width="*"/>
+                  <ColumnDefinition Width="Auto"/>
+                  <ColumnDefinition Width="Auto"/>
+                </Grid.ColumnDefinitions>
+                <TextBlock x:Name="MenuColName"  Grid.Column="0" Text="ITEM"   Style="{StaticResource CardLabel}"/>
+                <TextBlock x:Name="MenuColAvail" Grid.Column="1" Text="STATUS" Style="{StaticResource CardLabel}" Margin="0,0,24,0"/>
+                <TextBlock x:Name="MenuColPrice" Grid.Column="2" Text="PRICE"  Style="{StaticResource CardLabel}"/>
+              </Grid>
+              <ScrollViewer Grid.Row="1" VerticalScrollBarVisibility="Auto">
+                <StackPanel x:Name="MenuItemList"/>
+              </ScrollViewer>
+            </Grid>
+          </Border>
+        </Grid>
+      </Grid>
+
+      <!-- ════════ PAGE 7: PRINTER SETUP ════════ -->
+      <Grid x:Name="PageKitchen" Visibility="Collapsed">
+        <Grid.RowDefinitions>
+          <RowDefinition Height="Auto"/>
+          <RowDefinition Height="*"/>
+        </Grid.RowDefinitions>
+
+        <Grid Grid.Row="0" Margin="0,0,0,12">
+          <TextBlock x:Name="KitchenTitle" Text="Printer Setup" Foreground="#FFFFFF" FontSize="18" FontWeight="Bold" VerticalAlignment="Center"/>
+          <StackPanel Orientation="Horizontal" HorizontalAlignment="Right">
+            <Button x:Name="KitchenRefresh" Style="{StaticResource PeriodBtn}" Content="Refresh" Margin="0,0,8,0"/>
+            <Button x:Name="AddPrinterBtn" Padding="16,8" BorderThickness="0" Foreground="#FFFFFF" Cursor="Hand" FontSize="13" FontWeight="SemiBold">
+              <Button.Background>
+                <LinearGradientBrush StartPoint="0,0" EndPoint="1,0">
+                  <GradientStop Color="#14B8A6" Offset="0"/>
+                  <GradientStop Color="#06B6D4" Offset="1"/>
+                </LinearGradientBrush>
+              </Button.Background>
+              <Button.Template>
+                <ControlTemplate TargetType="Button">
+                  <Border Background="{TemplateBinding Background}" CornerRadius="8" Padding="{TemplateBinding Padding}">
+                    <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                  </Border>
+                </ControlTemplate>
+              </Button.Template>
+            </Button>
+          </StackPanel>
+        </Grid>
+
+        <ScrollViewer Grid.Row="1" VerticalScrollBarVisibility="Auto">
+          <StackPanel>
+            <!-- Live USB / transport status -->
+            <Border Style="{StaticResource CardStyle}" Margin="0,0,0,12">
+              <StackPanel>
+                <TextBlock x:Name="LblLivePrinter" Text="THIS STATION" Style="{StaticResource CardLabel}" Margin="0,0,0,6"/>
+                <TextBlock x:Name="KitchenLiveText" Text="--" Style="{StaticResource CardValue}"/>
+              </StackPanel>
+            </Border>
+
+            <StackPanel x:Name="PrinterCards"/>
+
+            <!-- Inline add-printer form (hidden until Add is clicked) -->
+            <Border x:Name="AddPrinterPanel" Style="{StaticResource CardStyle}" Margin="0,2,0,0" Visibility="Collapsed">
+              <Grid>
+                <Grid.ColumnDefinitions>
+                  <ColumnDefinition Width="*"/>
+                  <ColumnDefinition Width="8"/>
+                  <ColumnDefinition Width="Auto"/>
+                  <ColumnDefinition Width="8"/>
+                  <ColumnDefinition Width="Auto"/>
+                  <ColumnDefinition Width="8"/>
+                  <ColumnDefinition Width="Auto"/>
+                  <ColumnDefinition Width="8"/>
+                  <ColumnDefinition Width="Auto"/>
+                </Grid.ColumnDefinitions>
+                <TextBox  x:Name="NewPrinterName" Grid.Column="0" Background="#0F1117" Foreground="#FFFFFF" BorderBrush="#2A2D3A" BorderThickness="1" Padding="8,6" VerticalContentAlignment="Center"/>
+                <TextBox  x:Name="NewPrinterIp"   Grid.Column="2" Width="130" Background="#0F1117" Foreground="#FFFFFF" BorderBrush="#2A2D3A" BorderThickness="1" Padding="8,6" VerticalContentAlignment="Center"/>
+                <ComboBox x:Name="NewPrinterType" Grid.Column="4" Width="110" SelectedIndex="0">
+                  <ComboBoxItem Content="kitchen"/>
+                  <ComboBoxItem Content="bar"/>
+                  <ComboBoxItem Content="check"/>
+                </ComboBox>
+                <Button x:Name="SavePrinterBtn"   Grid.Column="6" Style="{StaticResource PeriodBtn}" Content="Save" Foreground="#FFFFFF">
+                  <Button.Background>
+                    <LinearGradientBrush StartPoint="0,0" EndPoint="1,0">
+                      <GradientStop Color="#14B8A6" Offset="0"/>
+                      <GradientStop Color="#06B6D4" Offset="1"/>
+                    </LinearGradientBrush>
+                  </Button.Background>
+                </Button>
+                <Button x:Name="CancelPrinterBtn" Grid.Column="8" Style="{StaticResource PeriodBtn}" Content="Cancel"/>
+              </Grid>
+            </Border>
+
+            <!-- ── TICKET SETTINGS ──────────────────────────────────────── -->
+            <Border Style="{StaticResource CardStyle}" Margin="0,14,0,0">
+              <StackPanel>
+                <!-- Dark-themed ComboBox + CheckBox, scoped to this panel only -->
+                <StackPanel.Resources>
+                  <Style TargetType="ComboBox">
+                    <Setter Property="Foreground" Value="#FFFFFF"/>
+                    <Setter Property="Background" Value="#0F1117"/>
+                    <Setter Property="Height" Value="34"/>
+                    <Setter Property="FontSize" Value="12"/>
+                    <Setter Property="VerticalContentAlignment" Value="Center"/>
+                    <Setter Property="Template">
+                      <Setter.Value>
+                        <ControlTemplate TargetType="ComboBox">
+                          <Grid>
+                            <ToggleButton Focusable="false" ClickMode="Press"
+                                          IsChecked="{Binding IsDropDownOpen, Mode=TwoWay, RelativeSource={RelativeSource TemplatedParent}}">
+                              <ToggleButton.Template>
+                                <ControlTemplate TargetType="ToggleButton">
+                                  <Border x:Name="bd" Background="#0F1117" BorderBrush="#2A2D3A" BorderThickness="1" CornerRadius="7">
+                                    <Grid>
+                                      <Grid.ColumnDefinitions>
+                                        <ColumnDefinition Width="*"/>
+                                        <ColumnDefinition Width="22"/>
+                                      </Grid.ColumnDefinitions>
+                                      <Path Grid.Column="1" Data="M 0 0 L 4 4 L 8 0 Z" Fill="#9CA3AF"
+                                            HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                                    </Grid>
+                                  </Border>
+                                  <ControlTemplate.Triggers>
+                                    <Trigger Property="IsMouseOver" Value="True">
+                                      <Setter TargetName="bd" Property="BorderBrush" Value="#14B8A6"/>
+                                    </Trigger>
+                                  </ControlTemplate.Triggers>
+                                </ControlTemplate>
+                              </ToggleButton.Template>
+                            </ToggleButton>
+                            <ContentPresenter Content="{TemplateBinding SelectionBoxItem}"
+                                              Margin="11,0,24,0" VerticalAlignment="Center" IsHitTestVisible="False"/>
+                            <Popup Placement="Bottom" IsOpen="{TemplateBinding IsDropDownOpen}"
+                                   AllowsTransparency="True" Focusable="False" PopupAnimation="Slide">
+                              <Border Background="#1A1D29" BorderBrush="#2A2D3A" BorderThickness="1" CornerRadius="7" Margin="0,4,0,0"
+                                      MinWidth="{Binding ActualWidth, RelativeSource={RelativeSource TemplatedParent}}">
+                                <ScrollViewer MaxHeight="240">
+                                  <ItemsPresenter/>
+                                </ScrollViewer>
+                              </Border>
+                            </Popup>
+                          </Grid>
+                        </ControlTemplate>
+                      </Setter.Value>
+                    </Setter>
+                  </Style>
+                  <Style TargetType="ComboBoxItem">
+                    <Setter Property="Foreground" Value="#FFFFFF"/>
+                    <Setter Property="Padding" Value="11,8"/>
+                    <Setter Property="FontSize" Value="12"/>
+                    <Setter Property="Template">
+                      <Setter.Value>
+                        <ControlTemplate TargetType="ComboBoxItem">
+                          <Border x:Name="ib" Background="Transparent" Padding="{TemplateBinding Padding}" CornerRadius="4">
+                            <ContentPresenter/>
+                          </Border>
+                          <ControlTemplate.Triggers>
+                            <Trigger Property="IsMouseOver" Value="True"><Setter TargetName="ib" Property="Background" Value="#2A2D3A"/></Trigger>
+                            <Trigger Property="IsSelected" Value="True"><Setter TargetName="ib" Property="Background" Value="#14B8A6"/></Trigger>
+                          </ControlTemplate.Triggers>
+                        </ControlTemplate>
+                      </Setter.Value>
+                    </Setter>
+                  </Style>
+                  <!-- iOS-style toggle switch -->
+                  <Style TargetType="CheckBox">
+                    <Setter Property="Foreground" Value="#D1D5DB"/>
+                    <Setter Property="FontSize" Value="12"/>
+                    <Setter Property="Cursor" Value="Hand"/>
+                    <Setter Property="Template">
+                      <Setter.Value>
+                        <ControlTemplate TargetType="CheckBox">
+                          <StackPanel Orientation="Horizontal" Background="Transparent">
+                            <ContentPresenter VerticalAlignment="Center"/>
+                            <Border x:Name="track" Width="38" Height="21" CornerRadius="11" Background="#2A2D3A"
+                                    Margin="9,0,0,0" VerticalAlignment="Center">
+                              <Ellipse x:Name="knob" Width="15" Height="15" Fill="#9CA3AF"
+                                       HorizontalAlignment="Left" Margin="3,0,0,0"/>
+                            </Border>
+                          </StackPanel>
+                          <ControlTemplate.Triggers>
+                            <Trigger Property="IsChecked" Value="True">
+                              <Setter TargetName="track" Property="Background" Value="#14B8A6"/>
+                              <Setter TargetName="knob" Property="Fill" Value="#FFFFFF"/>
+                              <Setter TargetName="knob" Property="HorizontalAlignment" Value="Right"/>
+                              <Setter TargetName="knob" Property="Margin" Value="0,0,3,0"/>
+                            </Trigger>
+                          </ControlTemplate.Triggers>
+                        </ControlTemplate>
+                      </Setter.Value>
+                    </Setter>
+                  </Style>
+                </StackPanel.Resources>
+                <Grid Margin="0,0,0,16">
+                  <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
+                    <TextBlock x:Name="TsTitle" Text="TICKET SETTINGS" Style="{StaticResource CardLabel}" VerticalAlignment="Center"/>
+                  </StackPanel>
+                  <StackPanel Orientation="Horizontal" HorizontalAlignment="Right">
+                    <Button x:Name="TsTest" Style="{StaticResource PeriodBtn}" Content="Test Print" Margin="0,0,8,0"/>
+                    <Button x:Name="TsSave" Style="{StaticResource PeriodBtn}" Content="Save" Foreground="#FFFFFF">
+                      <Button.Background>
+                        <LinearGradientBrush StartPoint="0,0" EndPoint="1,0">
+                          <GradientStop Color="#14B8A6" Offset="0"/>
+                          <GradientStop Color="#06B6D4" Offset="1"/>
+                        </LinearGradientBrush>
+                      </Button.Background>
+                    </Button>
+                  </StackPanel>
+                </Grid>
+
+                <Border Height="1" Background="#2A2D3A" Margin="0,0,0,16"/>
+
+                <!-- Two columns: settings (left) + live preview (right) -->
+                <Grid>
+                  <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="*"/>
+                    <ColumnDefinition Width="16"/>
+                    <ColumnDefinition Width="290"/>
+                  </Grid.ColumnDefinitions>
+                  <StackPanel Grid.Column="0">
+
+                <!-- Global -->
+                <Border Background="#13161F" BorderBrush="#2A2D3A" BorderThickness="1" CornerRadius="9" Padding="14" Margin="0,0,0,16">
+                  <StackPanel>
+                    <TextBlock x:Name="TsGlobalLbl" Text="GLOBAL SETTINGS  (apply to all tickets)" Foreground="#7A8295" FontSize="10" FontWeight="Bold" Margin="0,0,0,10"/>
+                    <TextBlock Text="Language" Foreground="#9CA3AF" FontSize="11" Margin="0,0,0,6"/>
+                    <TextBlock Text="Sets the printed labels (Table, Waiter, TOTAL, …) for every ticket." Foreground="#6B7280" FontSize="10" Margin="0,0,0,8"/>
+                    <WrapPanel x:Name="TsLangGrid" Margin="0,0,0,14"/>
+                    <Grid>
+                      <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="Auto"/><ColumnDefinition Width="Auto"/>
+                        <ColumnDefinition Width="40"/>
+                        <ColumnDefinition Width="Auto"/><ColumnDefinition Width="Auto"/>
+                        <ColumnDefinition Width="*"/>
+                      </Grid.ColumnDefinitions>
+                      <TextBlock x:Name="TsDateLbl" Grid.Column="0" Text="Date" Foreground="#9CA3AF" FontSize="12" VerticalAlignment="Center" Margin="0,0,8,0"/>
+                      <ComboBox x:Name="TsDateFormat" Grid.Column="1" Width="140">
+                        <ComboBoxItem Content="DD/MM/YYYY"/><ComboBoxItem Content="MM/DD/YYYY"/><ComboBoxItem Content="YYYY-MM-DD"/>
+                      </ComboBox>
+                      <TextBlock x:Name="TsTimeLbl" Grid.Column="3" Text="Time" Foreground="#9CA3AF" FontSize="12" VerticalAlignment="Center" Margin="0,0,8,0"/>
+                      <ComboBox x:Name="TsTimeFormat" Grid.Column="4" Width="90">
+                        <ComboBoxItem Content="24h"/><ComboBoxItem Content="12h"/>
+                      </ComboBox>
+                    </Grid>
+
+                    <!-- Custom labels (expandable) -->
+                    <Border Background="#0F1117" BorderBrush="#2A2D3A" BorderThickness="1" CornerRadius="7" Margin="0,14,0,0">
+                      <StackPanel>
+                        <Grid x:Name="TsLabelsToggle" Background="Transparent" Margin="12,10,12,10">
+                          <TextBlock Text="Custom labels" Foreground="#FFFFFF" FontSize="12" VerticalAlignment="Center"/>
+                          <TextBlock x:Name="TsLabelsChevron" Text="show" Foreground="#9CA3AF" FontSize="11" HorizontalAlignment="Right" VerticalAlignment="Center"/>
+                        </Grid>
+                        <Border x:Name="TsLabelsBody" Visibility="Collapsed" Padding="12,0,12,12">
+                          <StackPanel>
+                            <TextBlock Text="Override individual words. Leave blank to use the language default." Foreground="#6B7280" FontSize="10" Margin="0,0,0,10" TextWrapping="Wrap"/>
+                            <WrapPanel x:Name="TsLabelGrid"/>
+                          </StackPanel>
+                        </Border>
+                      </StackPanel>
+                    </Border>
+
+                    <!-- Logo -->
+                    <TextBlock Text="Logo" Foreground="#9CA3AF" FontSize="11" Margin="0,14,0,6"/>
+                    <Border x:Name="TsLogoDrop" Background="#0F1117" BorderBrush="#2A2D3A" BorderThickness="1" CornerRadius="7" Padding="14" Cursor="Hand">
+                      <StackPanel HorizontalAlignment="Center">
+                        <TextBlock x:Name="TsLogoText" Text="Upload logo (PNG/JPG)" Foreground="#9CA3AF" FontSize="12" HorizontalAlignment="Center"/>
+                      </StackPanel>
+                    </Border>
+                    <TextBlock Text="Printed in black &amp; white at the top of every ticket. Floyd–Steinberg dithered for smooth gradients." Foreground="#6B7280" FontSize="10" Margin="0,6,0,0" TextWrapping="Wrap"/>
+                    <Grid Margin="0,10,0,0">
+                      <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="Auto"/><ColumnDefinition Width="Auto"/><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/>
+                      </Grid.ColumnDefinitions>
+                      <TextBlock Grid.Column="0" Text="Size" Foreground="#9CA3AF" FontSize="12" VerticalAlignment="Center" Margin="0,0,8,0"/>
+                      <ComboBox x:Name="TsLogoSize" Grid.Column="1" Width="100"><ComboBoxItem Content="small"/><ComboBoxItem Content="medium"/><ComboBoxItem Content="large"/></ComboBox>
+                      <CheckBox x:Name="TsLogoEnabled" Grid.Column="2" Content="Print logo" Margin="16,0,0,0" VerticalAlignment="Center"/>
+                      <Button x:Name="TsLogoRemove" Grid.Column="3" Style="{StaticResource PeriodBtn}" Content="Remove"/>
+                    </Grid>
+                  </StackPanel>
+                </Border>
+
+                <!-- Sub-tabs (4 ticket types) -->
+                <StackPanel Orientation="Horizontal" Margin="0,0,0,14">
+                  <Button x:Name="TsTabOrder" Style="{StaticResource PeriodBtn}" Content="Order" Padding="18,8"/>
+                  <Button x:Name="TsTabCheck" Style="{StaticResource PeriodBtn}" Content="Check" Padding="18,8" Margin="8,0,0,0"/>
+                  <Button x:Name="TsTabCancel" Style="{StaticResource PeriodBtn}" Content="Cancel" Padding="18,8" Margin="8,0,0,0"/>
+                  <Button x:Name="TsTabTransfer" Style="{StaticResource PeriodBtn}" Content="Transfer" Padding="18,8" Margin="8,0,0,0"/>
+                </StackPanel>
+
+                <!-- Settings sub-card (holds whichever sub-tab is active) -->
+                <Border Background="#13161F" BorderBrush="#2A2D3A" BorderThickness="1" CornerRadius="9" Padding="14">
+                 <Grid>
+                <!-- ORDER panel -->
+                <StackPanel x:Name="TsOrderPanel">
+                  <Grid Margin="0,0,0,12">
+                    <Grid.ColumnDefinitions>
+                      <ColumnDefinition Width="Auto"/><ColumnDefinition Width="Auto"/><ColumnDefinition Width="28"/>
+                      <ColumnDefinition Width="Auto"/><ColumnDefinition Width="Auto"/><ColumnDefinition Width="*"/>
+                    </Grid.ColumnDefinitions>
+                    <TextBlock Grid.Column="0" Text="Copies" Foreground="#9CA3AF" FontSize="12" VerticalAlignment="Center" Margin="0,0,8,0"/>
+                    <StackPanel x:Name="TsOrderCopiesSeg" Grid.Column="1" Orientation="Horizontal"/>
+                    <TextBlock Grid.Column="3" Text="Font" Foreground="#9CA3AF" FontSize="12" VerticalAlignment="Center" Margin="0,0,8,0"/>
+                    <ComboBox x:Name="TsOrderFont" Grid.Column="4" Width="100"><ComboBoxItem Content="small"/><ComboBoxItem Content="normal"/><ComboBoxItem Content="large"/></ComboBox>
+                  </Grid>
+                  <TextBlock Text="TICKET MODE" Foreground="#7A8295" FontSize="10" FontWeight="Bold" Margin="0,4,0,6"/>
+                  <UniformGrid x:Name="TsModeSeg" Columns="3" Margin="0,0,0,12"/>
+                  <TextBlock Text="SEPARATOR STYLE" Foreground="#7A8295" FontSize="10" FontWeight="Bold" Margin="0,0,0,6"/>
+                  <StackPanel x:Name="TsSepSeg" Orientation="Horizontal" Margin="0,0,0,12"/>
+                  <TextBlock Text="CONTENT" Foreground="#7A8295" FontSize="10" FontWeight="Bold" Margin="0,0,0,8"/>
+                  <StackPanel Margin="0,0,0,12">
+                    <CheckBox x:Name="TsOrderRestHeader" Content="Show restaurant name" Margin="0,0,0,10"/>
+                    <CheckBox x:Name="TsOrderWaiter" Content="Show waiter name" Margin="0,0,0,10"/>
+                    <CheckBox x:Name="TsOrderPrice" Content="Show item prices" Margin="0,0,0,10"/>
+                    <CheckBox x:Name="TsOrderBold" Content="Bold item names"/>
+                  </StackPanel>
+                  <TextBlock Text="LAYOUT (PER ZONE)" Foreground="#7A8295" FontSize="10" FontWeight="Bold" Margin="0,0,0,4"/>
+                  <TextBlock Text="Override font size, weight, and alignment for each part of the ticket." Foreground="#6B7280" FontSize="10" Margin="0,0,0,8" TextWrapping="Wrap"/>
+                  <StackPanel x:Name="TsZoneMatrix" Margin="0,0,0,6"/>
+                  <TextBlock Text="Footer text" Foreground="#9CA3AF" FontSize="11" Margin="0,0,0,4"/>
+                  <Border Background="#0F1117" BorderBrush="#2A2D3A" BorderThickness="1" CornerRadius="6">
+                    <TextBox x:Name="TsOrderFooter" Background="Transparent" BorderThickness="0" Foreground="#FFFFFF" Padding="10,7" FontSize="12" CaretBrush="#FFFFFF"/>
+                  </Border>
+                </StackPanel>
+
+                <!-- CHECK panel -->
+                <StackPanel x:Name="TsCheckPanel" Visibility="Collapsed">
+                  <Grid Margin="0,0,0,12">
+                    <Grid.ColumnDefinitions>
+                      <ColumnDefinition Width="Auto"/><ColumnDefinition Width="Auto"/><ColumnDefinition Width="28"/>
+                      <ColumnDefinition Width="Auto"/><ColumnDefinition Width="Auto"/><ColumnDefinition Width="*"/>
+                    </Grid.ColumnDefinitions>
+                    <TextBlock Grid.Column="0" Text="Copies" Foreground="#9CA3AF" FontSize="12" VerticalAlignment="Center" Margin="0,0,8,0"/>
+                    <StackPanel x:Name="TsCheckCopiesSeg" Grid.Column="1" Orientation="Horizontal"/>
+                    <TextBlock Grid.Column="3" Text="Item size" Foreground="#9CA3AF" FontSize="12" VerticalAlignment="Center" Margin="0,0,8,0"/>
+                    <ComboBox x:Name="TsCheckItemSize" Grid.Column="4" Width="100"><ComboBoxItem Content="small"/><ComboBoxItem Content="normal"/><ComboBoxItem Content="large"/></ComboBox>
+                  </Grid>
+                  <TextBlock Text="CONTENT" Foreground="#7A8295" FontSize="10" FontWeight="Bold" Margin="0,0,0,8"/>
+                  <StackPanel Margin="0,0,0,12">
+                    <CheckBox x:Name="TsCheckAddress" Content="Show address" Margin="0,0,0,10"/>
+                    <CheckBox x:Name="TsCheckPhone" Content="Show phone" Margin="0,0,0,10"/>
+                    <CheckBox x:Name="TsCheckInstagram" Content="Show Instagram" Margin="0,0,0,10"/>
+                    <CheckBox x:Name="TsCheckWaiter" Content="Show waiter" Margin="0,0,0,10"/>
+                    <CheckBox x:Name="TsCheckBoldTotal" Content="Bold total"/>
+                  </StackPanel>
+                  <TextBlock Text="LAYOUT (PER ZONE)" Foreground="#7A8295" FontSize="10" FontWeight="Bold" Margin="0,0,0,4"/>
+                  <TextBlock Text="Override font size, weight, and alignment for the info and items zones." Foreground="#6B7280" FontSize="10" Margin="0,0,0,8" TextWrapping="Wrap"/>
+                  <StackPanel x:Name="TsCheckZoneMatrix" Margin="0,0,0,8"/>
+                  <TextBlock Text="Footer text" Foreground="#9CA3AF" FontSize="11" Margin="0,0,0,4"/>
+                  <Border Background="#0F1117" BorderBrush="#2A2D3A" BorderThickness="1" CornerRadius="6">
+                    <TextBox x:Name="TsCheckFooter" Background="Transparent" BorderThickness="0" Foreground="#FFFFFF" Padding="10,7" FontSize="12" CaretBrush="#FFFFFF"/>
+                  </Border>
+                </StackPanel>
+
+                <!-- CANCEL panel -->
+                <StackPanel x:Name="TsCancelPanel" Visibility="Collapsed">
+                  <Grid Margin="0,0,0,10">
+                    <Grid.ColumnDefinitions>
+                      <ColumnDefinition Width="Auto"/><ColumnDefinition Width="Auto"/><ColumnDefinition Width="24"/>
+                      <ColumnDefinition Width="Auto"/><ColumnDefinition Width="Auto"/><ColumnDefinition Width="*"/>
+                    </Grid.ColumnDefinitions>
+                    <TextBlock Grid.Column="0" Text="Header" Foreground="#9CA3AF" FontSize="12" VerticalAlignment="Center" Margin="0,0,8,0"/>
+                    <ComboBox x:Name="TsCancelAlign" Grid.Column="1" Width="90"><ComboBoxItem Content="left"/><ComboBoxItem Content="center"/><ComboBoxItem Content="right"/></ComboBox>
+                    <TextBlock Grid.Column="3" Text="Item size" Foreground="#9CA3AF" FontSize="12" VerticalAlignment="Center" Margin="0,0,8,0"/>
+                    <ComboBox x:Name="TsCancelItemSize" Grid.Column="4" Width="90"><ComboBoxItem Content="small"/><ComboBoxItem Content="normal"/><ComboBoxItem Content="large"/></ComboBox>
+                  </Grid>
+                  <WrapPanel Margin="0,0,0,10">
+                    <CheckBox x:Name="TsCancelEnabled" Content="Print cancel tickets" Margin="0,0,18,6"/>
+                    <CheckBox x:Name="TsCancelRestName" Content="Restaurant name" Margin="0,0,18,6"/>
+                    <CheckBox x:Name="TsCancelBy" Content="Show cancelled-by" Margin="0,0,18,6"/>
+                  </WrapPanel>
+                  <TextBlock Text="Footer text" Foreground="#9CA3AF" FontSize="11" Margin="0,0,0,4"/>
+                  <Border Background="#0F1117" BorderBrush="#2A2D3A" BorderThickness="1" CornerRadius="6">
+                    <TextBox x:Name="TsCancelFooter" Background="Transparent" BorderThickness="0" Foreground="#FFFFFF" Padding="10,7" FontSize="12" CaretBrush="#FFFFFF"/>
+                  </Border>
+                </StackPanel>
+
+                <!-- TRANSFER panel -->
+                <StackPanel x:Name="TsTransferPanel" Visibility="Collapsed">
+                  <Grid Margin="0,0,0,10">
+                    <Grid.ColumnDefinitions>
+                      <ColumnDefinition Width="Auto"/><ColumnDefinition Width="Auto"/><ColumnDefinition Width="24"/>
+                      <ColumnDefinition Width="Auto"/><ColumnDefinition Width="Auto"/><ColumnDefinition Width="*"/>
+                    </Grid.ColumnDefinitions>
+                    <TextBlock Grid.Column="0" Text="Header" Foreground="#9CA3AF" FontSize="12" VerticalAlignment="Center" Margin="0,0,8,0"/>
+                    <ComboBox x:Name="TsTransferAlign" Grid.Column="1" Width="90"><ComboBoxItem Content="left"/><ComboBoxItem Content="center"/><ComboBoxItem Content="right"/></ComboBox>
+                    <TextBlock Grid.Column="3" Text="Item size" Foreground="#9CA3AF" FontSize="12" VerticalAlignment="Center" Margin="0,0,8,0"/>
+                    <ComboBox x:Name="TsTransferItemSize" Grid.Column="4" Width="90"><ComboBoxItem Content="small"/><ComboBoxItem Content="normal"/><ComboBoxItem Content="large"/></ComboBox>
+                  </Grid>
+                  <WrapPanel Margin="0,0,0,10">
+                    <CheckBox x:Name="TsTransferEnabled" Content="Print transfer tickets" Margin="0,0,18,6"/>
+                    <CheckBox x:Name="TsTransferRestName" Content="Restaurant name" Margin="0,0,18,6"/>
+                  </WrapPanel>
+                  <TextBlock Text="Footer text" Foreground="#9CA3AF" FontSize="11" Margin="0,0,0,4"/>
+                  <Border Background="#0F1117" BorderBrush="#2A2D3A" BorderThickness="1" CornerRadius="6">
+                    <TextBox x:Name="TsTransferFooter" Background="Transparent" BorderThickness="0" Foreground="#FFFFFF" Padding="10,7" FontSize="12" CaretBrush="#FFFFFF"/>
+                  </Border>
+                </StackPanel>
+                 </Grid>
+                </Border>
+                  </StackPanel>
+
+                  <!-- LIVE PREVIEW (right column) -->
+                  <Border Grid.Column="2" Background="#13161F" BorderBrush="#2A2D3A" BorderThickness="1" CornerRadius="9" Padding="12" VerticalAlignment="Top">
+                    <StackPanel>
+                      <TextBlock Text="LIVE PREVIEW" Foreground="#7A8295" FontSize="10" FontWeight="Bold" Margin="0,0,0,8" HorizontalAlignment="Center"/>
+                      <Border Background="#F5F0E8" CornerRadius="4" Padding="12">
+                        <TextBlock x:Name="TsPreview" FontFamily="Consolas" FontSize="11" Foreground="#1A1A1A" TextWrapping="NoWrap"/>
+                      </Border>
+                    </StackPanel>
+                  </Border>
+                </Grid>
+
+                <TextBlock x:Name="TsHint" Foreground="#6B7280" FontSize="10" TextWrapping="Wrap" Margin="0,12,0,0"
+                           Text="These settings apply to every ticket printed for this restaurant — from the Station, the web dashboard, or the waiter app."/>
+              </StackPanel>
+            </Border>
+          </StackPanel>
+        </ScrollViewer>
+      </Grid>
+
+      <!-- ════════ PAGE 8: ASSISTANT (AI) ════════ -->
+      <Grid x:Name="PageAssistant" Visibility="Collapsed">
+        <Grid.RowDefinitions>
+          <RowDefinition Height="Auto"/>
+          <RowDefinition Height="*"/>
+          <RowDefinition Height="Auto"/>
+        </Grid.RowDefinitions>
+        <StackPanel Grid.Row="0" Margin="0,0,0,12">
+          <TextBlock Text="Assistant" Foreground="#FFFFFF" FontSize="18" FontWeight="Bold"/>
+          <TextBlock Text="Ask me to add items, change prices, reorganise the menu, or answer questions about it." Foreground="#7A8295" FontSize="11" Margin="0,3,0,0"/>
+        </StackPanel>
+        <Border Grid.Row="1" Style="{StaticResource CardStyle}" Padding="6">
+          <ScrollViewer x:Name="AiScroller" VerticalScrollBarVisibility="Auto">
+            <StackPanel x:Name="AiMessages" Margin="6"/>
+          </ScrollViewer>
+        </Border>
+        <Grid Grid.Row="2" Margin="0,12,0,0">
+          <Grid.ColumnDefinitions>
+            <ColumnDefinition Width="*"/>
+            <ColumnDefinition Width="10"/>
+            <ColumnDefinition Width="Auto"/>
+          </Grid.ColumnDefinitions>
+          <Border Grid.Column="0" Background="#0F1117" BorderBrush="#2A2D3A" BorderThickness="1" CornerRadius="8">
+            <TextBox x:Name="AiInput" Background="Transparent" BorderThickness="0" Foreground="#FFFFFF" CaretBrush="#FFFFFF" Padding="12,10" FontSize="13" VerticalContentAlignment="Center"/>
+          </Border>
+          <Button x:Name="AiSend" Grid.Column="2" Padding="22,10" BorderThickness="0" Foreground="#FFFFFF" Cursor="Hand" FontSize="13" FontWeight="SemiBold">
+            <Button.Background>
+              <LinearGradientBrush StartPoint="0,0" EndPoint="1,0">
+                <GradientStop Color="#14B8A6" Offset="0"/>
+                <GradientStop Color="#06B6D4" Offset="1"/>
+              </LinearGradientBrush>
+            </Button.Background>
+            <Button.Template>
+              <ControlTemplate TargetType="Button">
+                <Border Background="{TemplateBinding Background}" CornerRadius="8" Padding="{TemplateBinding Padding}">
+                  <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                </Border>
+              </ControlTemplate>
+            </Button.Template>
+            <TextBlock x:Name="AiSendText" Text="Send"/>
+          </Button>
+        </Grid>
+      </Grid>
+
     </Grid>
   </Grid>
 </Window>
@@ -698,6 +1218,32 @@ $script:i18n = @{
         rescan_info='Rescan started. Check the live log for results.'
         no_staff='No staff added yet. Click "+ Add Staff" to get started.'
         dlg_add_staff_title='Add Staff Member'; dlg_ok='Add'; dlg_cancel='Cancel'
+        nav_menu='Menu'; nav_kitchen='Printer'
+        menu_search='Search items...'; menu_refresh='Refresh'; menu_all_items='All items'
+        menu_col_item='ITEM'; menu_col_status='STATUS'; menu_col_price='PRICE'
+        menu_available='Available'; menu_unavailable='Unavailable'; menu_empty='No items to show.'
+        menu_synced='synced'; menu_offline_cache='offline (cached)'
+        kitchen_title='Printer Setup'; lbl_this_station='THIS STATION'
+        btn_add_printer='+ Add Printer'; btn_test_print='Test Print'; btn_save='Save'
+        printer_type='Type'; printer_no_ip='no IP'; printer_searching='Searching for printer...'
+        no_printers='No printers configured. Click "+ Add Printer" to set one up.'
+        printers_offline='Cannot reach Supabase. Showing nothing while offline.'
+        test_print_sent='Test ticket sent to the printer.'; test_print_fail='Could not reach that printer.'
+        confirm_remove_printer='Remove this printer?'; printer_remove_fail='Could not remove the printer.'
+        printer_add_fail='Could not add the printer.'; invalid_ip='Enter a valid IP address (e.g. 192.168.1.50).'
+        new_printer_name='Printer name'; new_printer_ip='IP (optional)'
+        btn_edit='Edit'; btn_rename='Rename'; btn_delete='Delete'
+        menu_add_item='Add Item'; menu_edit_item='Edit Item'; menu_add_category='Add Category'; menu_rename_category='Rename Category'
+        menu_f_name='Name'; menu_f_desc='Description'; menu_f_price='Price'; menu_f_category='Category'
+        menu_f_section='Section'; menu_section_hint='Groups categories on your public menu (e.g. menu, drinks). Pick one or type a new name.'
+        menu_move_to_section='Move to section'; menu_move_to_category='Move to category'
+        menu_new_section='New section...'; menu_new_section_prompt='Name of the new section:'
+        menu_f_available='Item is available'; menu_f_addon='Mark as paid add-on'; menu_uncategorized='Uncategorized'
+        menu_name_req='Name is required.'; menu_name_price_req='Name and price are required.'
+        menu_save_fail='Could not save. Check your connection and try again.'
+        confirm_delete_item='Delete'; confirm_delete_category='Delete category and all its items:'
+        printer_edit='Edit Printer'; printer_save_fail='Could not save the printer.'
+        ts_saved='Ticket settings saved. They apply to every future ticket.'
     }
     fr = @{
         nav_dashboard='Tableau de bord'; nav_analytics='Analytiques'; nav_bills='Factures'; nav_report='Rapport du jour'; nav_staff='Equipe'
@@ -719,6 +1265,9 @@ $script:i18n = @{
         rescan_info='Recherche lancee. Verifiez le journal pour les resultats.'
         no_staff='Aucun personnel. Cliquez sur "+ Ajouter" pour commencer.'
         dlg_add_staff_title='Ajouter un membre'; dlg_ok='Ajouter'; dlg_cancel='Annuler'
+        nav_menu='Menu'; nav_kitchen='Cuisine'; menu_all_items='Tous les articles'; menu_available='Disponible'; menu_unavailable='Indisponible'
+        kitchen_title='Cuisine et impression'; btn_add_printer='+ Ajouter imprimante'; btn_test_print='Test impression'
+        no_printers='Aucune imprimante. Cliquez sur "+ Ajouter imprimante".'; printer_type='Type'
     }
     ar = @{
         nav_dashboard='لوحة التحكم'; nav_analytics='التحليلات'; nav_bills='الفواتير'; nav_report='تقرير اليوم'; nav_staff='الموظفون'
@@ -740,6 +1289,9 @@ $script:i18n = @{
         rescan_info='بدأ البحث. تحقق من السجل للنتائج.'
         no_staff='لا يوجد موظفون. اضغط على "+ إضافة موظف" للبدء.'
         dlg_add_staff_title='إضافة موظف'; dlg_ok='إضافة'; dlg_cancel='إلغاء'
+        nav_menu='القائمة'; nav_kitchen='المطبخ'; menu_all_items='كل الأصناف'; menu_available='متوفر'; menu_unavailable='غير متوفر'
+        kitchen_title='المطبخ والطباعة'; btn_add_printer='+ إضافة طابعة'; btn_test_print='طباعة تجريبية'
+        no_printers='لا توجد طابعات. اضغط على "+ إضافة طابعة".'; printer_type='النوع'
     }
 }
 $script:langCycle = @('en','fr','es','it','de','pt','nl','ru','ar','zh')
@@ -777,6 +1329,9 @@ $script:i18n['es'] = @{
     rescan_info='Búsqueda iniciada. Revisa el registro.'
     no_staff='Sin personal. Haz clic en "+ Añadir" para empezar.'
     dlg_add_staff_title='Añadir Miembro'; dlg_ok='Añadir'; dlg_cancel='Cancelar'
+    nav_menu='Menú'; nav_kitchen='Cocina'; menu_all_items='Todos'; menu_available='Disponible'; menu_unavailable='No disponible'
+    kitchen_title='Cocina e impresión'; btn_add_printer='+ Añadir impresora'; btn_test_print='Prueba'
+    no_printers='Sin impresoras. Haz clic en "+ Añadir impresora".'; printer_type='Tipo'
 }
 $script:i18n['it'] = @{
     nav_dashboard='Cruscotto'; nav_analytics='Analisi'; nav_bills='Conti'; nav_report='Rapporto Giornaliero'; nav_staff='Personale'
@@ -798,6 +1353,9 @@ $script:i18n['it'] = @{
     rescan_info='Scansione avviata. Controlla il log.'
     no_staff='Nessun personale. Clicca "+ Aggiungi" per iniziare.'
     dlg_add_staff_title='Aggiungi Membro'; dlg_ok='Aggiungi'; dlg_cancel='Annulla'
+    nav_menu='Menu'; nav_kitchen='Cucina'; menu_all_items='Tutti'; menu_available='Disponibile'; menu_unavailable='Non disponibile'
+    kitchen_title='Cucina e stampa'; btn_add_printer='+ Aggiungi stampante'; btn_test_print='Prova'
+    no_printers='Nessuna stampante. Clicca "+ Aggiungi stampante".'; printer_type='Tipo'
 }
 $script:i18n['de'] = @{
     nav_dashboard='Übersicht'; nav_analytics='Analyse'; nav_bills='Rechnungen'; nav_report='Tagesbericht'; nav_staff='Personal'
@@ -819,6 +1377,9 @@ $script:i18n['de'] = @{
     rescan_info='Scan gestartet. Siehe Protokoll.'
     no_staff='Kein Personal. Klicke "+ Hinzufügen" zum Starten.'
     dlg_add_staff_title='Mitglied hinzufügen'; dlg_ok='Hinzufügen'; dlg_cancel='Abbrechen'
+    nav_menu='Menü'; nav_kitchen='Küche'; menu_all_items='Alle'; menu_available='Verfügbar'; menu_unavailable='Nicht verfügbar'
+    kitchen_title='Küche & Druck'; btn_add_printer='+ Drucker hinzufügen'; btn_test_print='Testdruck'
+    no_printers='Keine Drucker. Klicke "+ Drucker hinzufügen".'; printer_type='Typ'
 }
 $script:i18n['pt'] = @{
     nav_dashboard='Painel'; nav_analytics='Análises'; nav_bills='Faturas'; nav_report='Relatório Diário'; nav_staff='Equipe'
@@ -840,6 +1401,9 @@ $script:i18n['pt'] = @{
     rescan_info='Busca iniciada. Veja o registo.'
     no_staff='Sem equipe. Clique "+ Adicionar" para começar.'
     dlg_add_staff_title='Adicionar Membro'; dlg_ok='Adicionar'; dlg_cancel='Cancelar'
+    nav_menu='Menu'; nav_kitchen='Cozinha'; menu_all_items='Todos'; menu_available='Disponível'; menu_unavailable='Indisponível'
+    kitchen_title='Cozinha e impressão'; btn_add_printer='+ Adicionar impressora'; btn_test_print='Teste'
+    no_printers='Sem impressoras. Clique "+ Adicionar impressora".'; printer_type='Tipo'
 }
 $script:i18n['nl'] = @{
     nav_dashboard='Dashboard'; nav_analytics='Analyse'; nav_bills='Rekeningen'; nav_report='Dagrapport'; nav_staff='Personeel'
@@ -861,6 +1425,9 @@ $script:i18n['nl'] = @{
     rescan_info='Scan gestart. Zie log.'
     no_staff='Geen personeel. Klik "+ Toevoegen" om te beginnen.'
     dlg_add_staff_title='Lid toevoegen'; dlg_ok='Toevoegen'; dlg_cancel='Annuleren'
+    nav_menu='Menu'; nav_kitchen='Keuken'; menu_all_items='Alle'; menu_available='Beschikbaar'; menu_unavailable='Niet beschikbaar'
+    kitchen_title='Keuken & printen'; btn_add_printer='+ Printer toevoegen'; btn_test_print='Test'
+    no_printers='Geen printers. Klik "+ Printer toevoegen".'; printer_type='Type'
 }
 $script:i18n['ru'] = @{
     nav_dashboard='Панель'; nav_analytics='Аналитика'; nav_bills='Счета'; nav_report='Дневной Отчет'; nav_staff='Персонал'
@@ -882,6 +1449,9 @@ $script:i18n['ru'] = @{
     rescan_info='Сканирование начато. Смотрите журнал.'
     no_staff='Нет персонала. Нажмите "+ Добавить" чтобы начать.'
     dlg_add_staff_title='Добавить сотрудника'; dlg_ok='Добавить'; dlg_cancel='Отмена'
+    nav_menu='Меню'; nav_kitchen='Кухня'; menu_all_items='Все'; menu_available='Доступно'; menu_unavailable='Недоступно'
+    kitchen_title='Кухня и печать'; btn_add_printer='+ Добавить принтер'; btn_test_print='Тест'
+    no_printers='Нет принтеров. Нажмите "+ Добавить принтер".'; printer_type='Тип'
 }
 $script:i18n['zh'] = @{
     nav_dashboard='仪表盘'; nav_analytics='分析'; nav_bills='账单'; nav_report='日报'; nav_staff='员工'
@@ -903,6 +1473,9 @@ $script:i18n['zh'] = @{
     rescan_info='扫描已开始。查看日志。'
     no_staff='暂无员工。点击"+ 添加员工"开始。'
     dlg_add_staff_title='添加员工'; dlg_ok='添加'; dlg_cancel='取消'
+    nav_menu='菜单'; nav_kitchen='厨房'; menu_all_items='全部'; menu_available='可用'; menu_unavailable='不可用'
+    kitchen_title='厨房与打印'; btn_add_printer='+ 添加打印机'; btn_test_print='测试打印'
+    no_printers='无打印机。点击"+ 添加打印机"。'; printer_type='类型'
 }
 
 function T($key) {
@@ -919,10 +1492,26 @@ function Apply-Language {
 
     # Nav
     (ctl 'NavDashboard').Content = T 'nav_dashboard'
+    (ctl 'NavMenu').Content      = T 'nav_menu'
+    (ctl 'NavKitchen').Content   = T 'nav_kitchen'
     (ctl 'NavAnalytics').Content = T 'nav_analytics'
     (ctl 'NavBills').Content     = T 'nav_bills'
     (ctl 'NavReport').Content    = T 'nav_report'
     (ctl 'NavStaff').Content     = T 'nav_staff'
+
+    # Menu page
+    (ctl 'MenuRefresh').Content = T 'menu_refresh'
+    (ctl 'MenuColName').Text    = T 'menu_col_item'
+    (ctl 'MenuColAvail').Text   = T 'menu_col_status'
+    (ctl 'MenuColPrice').Text   = T 'menu_col_price'
+
+    # Kitchen page
+    (ctl 'KitchenTitle').Text    = T 'kitchen_title'
+    (ctl 'KitchenRefresh').Content = T 'menu_refresh'
+    (ctl 'LblLivePrinter').Text  = T 'lbl_this_station'
+    (ctl 'AddPrinterBtn').Content = T 'btn_add_printer'
+    (ctl 'SavePrinterBtn').Content = T 'btn_save'
+    (ctl 'CancelPrinterBtn').Content = T 'dlg_cancel'
 
     # Dashboard labels
     (ctl 'LblPrinter').Text      = T 'lbl_printer'
@@ -1022,6 +1611,9 @@ if ($initText) { $initText.Text = $script:langMeta[$script:lang].name }
 $script:activePage  = 'Dashboard'
 $script:navButtons  = @{
     'Dashboard' = (ctl 'NavDashboard')
+    'Assistant' = (ctl 'NavAssistant')
+    'Menu'      = (ctl 'NavMenu')
+    'Kitchen'   = (ctl 'NavKitchen')
     'Analytics' = (ctl 'NavAnalytics')
     'Bills'     = (ctl 'NavBills')
     'Report'    = (ctl 'NavReport')
@@ -1029,6 +1621,9 @@ $script:navButtons  = @{
 }
 $script:pages = @{
     'Dashboard' = (ctl 'PageDashboard')
+    'Assistant' = (ctl 'PageAssistant')
+    'Menu'      = (ctl 'PageMenu')
+    'Kitchen'   = (ctl 'PageKitchen')
     'Analytics' = (ctl 'PageAnalytics')
     'Bills'     = (ctl 'PageBills')
     'Report'    = (ctl 'PageReport')
@@ -1048,15 +1643,25 @@ function Switch-Page($name) {
         }
     }
     $script:activePage = $name
-    switch ($name) {
-        'Analytics' { Update-Analytics-Page }
-        'Bills'     { Update-Bills-Page }
-        'Staff'     { Update-Staff-Page }
-        'Report'    { }
+    # Defer the (network-bound) page loads until AFTER the page has rendered, so
+    # switching tabs is instant instead of freezing the UI while data loads.
+    $loader = switch ($name) {
+        'Analytics' { { Update-Analytics-Page } }
+        'Bills'     { { Update-Bills-Page } }
+        'Staff'     { { Update-Staff-Page } }
+        'Menu'      { { Update-Menu-Page } }
+        'Kitchen'   { { Update-Kitchen-Page } }
+        default     { $null }
+    }
+    if ($loader) {
+        $window.Dispatcher.BeginInvoke([System.Windows.Threading.DispatcherPriority]::Background, [action]$loader) | Out-Null
     }
 }
 
 (ctl 'NavDashboard').Add_Click({ Switch-Page 'Dashboard' })
+(ctl 'NavAssistant').Add_Click({ Switch-Page 'Assistant'; Init-Assistant })
+(ctl 'NavMenu').Add_Click(     { Switch-Page 'Menu' })
+(ctl 'NavKitchen').Add_Click(  { Switch-Page 'Kitchen' })
 (ctl 'NavAnalytics').Add_Click({ Switch-Page 'Analytics' })
 (ctl 'NavBills').Add_Click(    { Switch-Page 'Bills' })
 (ctl 'NavReport').Add_Click(   { Switch-Page 'Report' })
@@ -1893,6 +2498,1361 @@ function Show-AddStaffDialog {
 })
 
 (ctl 'ClearBtn').Add_Click({ $logBox.Text = ''; $script:lastLogLines = '' })
+
+# ─── MENU PAGE ──────────────────────────────────────────────────────────────
+$script:menuData      = $null
+$script:menuActiveCat = '__all__'
+
+# A small uppercase divider above the categories that belong to a section
+# (e.g. MENU, DRINKS). Mirrors the web SectionsPanel grouping.
+function New-SectionHeader($sectionName) {
+    $tb = New-Object System.Windows.Controls.TextBlock
+    $tb.Text = $sectionName.ToUpper()
+    $tb.FontSize = 10; $tb.FontWeight = 'Bold'
+    $tb.Foreground = SolidBrush '#7A8295'
+    $tb.Margin = New-Object System.Windows.Thickness(10,12,0,4)
+    return $tb
+}
+
+function New-MenuCatButton($id, $label, $count) {
+    $active = ($id -eq $script:menuActiveCat)
+    $bd = New-Object System.Windows.Controls.Border
+    $bd.Tag = $id
+    $bd.Cursor = 'Hand'
+    $bd.CornerRadius = New-Object System.Windows.CornerRadius(6)
+    $bd.Padding = New-Object System.Windows.Thickness(10,8,10,8)
+    $bd.Margin = New-Object System.Windows.Thickness(0,0,0,2)
+    $bd.Background = if ($active) { SolidBrush '#14B8A6' } else { [System.Windows.Media.Brushes]::Transparent }
+    $g = New-Object System.Windows.Controls.Grid
+    $c0 = New-Object System.Windows.Controls.ColumnDefinition; $c0.Width = '*'
+    $c1 = New-Object System.Windows.Controls.ColumnDefinition; $c1.Width = 'Auto'
+    $g.ColumnDefinitions.Add($c0); $g.ColumnDefinitions.Add($c1)
+    $name = New-Object System.Windows.Controls.TextBlock
+    $name.Text = $label; $name.FontSize = 13
+    $name.Foreground = if ($active) { [System.Windows.Media.Brushes]::White } else { SolidBrush '#D1D5DB' }
+    $name.TextTrimming = 'CharacterEllipsis'
+    [System.Windows.Controls.Grid]::SetColumn($name, 0)
+    $cnt = New-Object System.Windows.Controls.TextBlock
+    $cnt.Text = [string]$count; $cnt.FontSize = 11; $cnt.VerticalAlignment = 'Center'
+    $cnt.Foreground = if ($active) { [System.Windows.Media.Brushes]::White } else { SolidBrush '#7A8295' }
+    [System.Windows.Controls.Grid]::SetColumn($cnt, 1)
+    $g.Children.Add($name) | Out-Null; $g.Children.Add($cnt) | Out-Null
+    $bd.Child = $g
+    $bd.Add_MouseLeftButtonUp({ $script:menuActiveCat = $this.Tag; Render-Menu }) | Out-Null
+    # Real categories get a right-click menu to rename / delete. "All items" doesn't.
+    if ($id -ne '__all__') {
+        $cm = New-Object System.Windows.Controls.ContextMenu
+        $cm.Background = SolidBrush '#1A1D29'; $cm.Foreground = [System.Windows.Media.Brushes]::White
+        $miRename = New-Object System.Windows.Controls.MenuItem
+        $miRename.Header = T 'btn_rename'; $miRename.Tag = @{ id = $id; name = $label }
+        $miRename.Add_Click({ Show-CategoryDialog $this.Tag }) | Out-Null
+        # Move-to-section submenu — lists every existing section plus "New section…".
+        $miMove = New-Object System.Windows.Controls.MenuItem
+        $miMove.Header = T 'menu_move_to_section'
+        $curSec = 'menu'
+        if ($script:menuData) {
+            $cc = @($script:menuData.categories | Where-Object { $_.id -eq $id })[0]
+            if ($cc -and $cc.section) { $curSec = $cc.section }
+        }
+        $secList = @()
+        if ($script:menuData) {
+            $secList = @($script:menuData.categories | ForEach-Object { if ($_.section) { $_.section } else { 'menu' } } | Select-Object -Unique)
+        }
+        if ($secList -notcontains 'menu') { $secList = @('menu') + $secList }
+        foreach ($s in $secList) {
+            $smi = New-Object System.Windows.Controls.MenuItem
+            $smi.Header = $s.ToUpper()
+            $smi.IsCheckable = $false
+            if ($s -eq $curSec) { $smi.IsEnabled = $false; $smi.Header = $s.ToUpper() + '  (current)' }
+            $smi.Tag = @{ id = $id; section = $s }
+            $smi.Add_Click({ Move-CategoryToSection $this.Tag.id $this.Tag.section }) | Out-Null
+            $miMove.Items.Add($smi) | Out-Null
+        }
+        $sep = New-Object System.Windows.Controls.Separator
+        $miMove.Items.Add($sep) | Out-Null
+        $smiNew = New-Object System.Windows.Controls.MenuItem
+        $smiNew.Header = T 'menu_new_section'; $smiNew.Tag = $id
+        $smiNew.Add_Click({
+            $cid = $this.Tag
+            $ns = [Microsoft.VisualBasic.Interaction]::InputBox((T 'menu_new_section_prompt'), 'LightMenu', '')
+            if ($ns) { Move-CategoryToSection $cid ($ns.Trim().ToLower()) }
+        }) | Out-Null
+        $miMove.Items.Add($smiNew) | Out-Null
+
+        $miDelete = New-Object System.Windows.Controls.MenuItem
+        $miDelete.Header = T 'btn_delete'; $miDelete.Tag = @{ id = $id; name = $label }
+        $miDelete.Add_Click({
+            $cat = $this.Tag
+            $ok = [System.Windows.MessageBox]::Show(((T 'confirm_delete_category') + " `"$($cat.name)`"?"), 'LightMenu', 'YesNo', 'Warning')
+            if ($ok -ne 'Yes') { return }
+            try {
+                Invoke-RestMethod -Uri "$base/local/menu/category/$($cat.id)" -Method Delete -TimeoutSec 12 -ErrorAction Stop | Out-Null
+                if ($script:menuActiveCat -eq $cat.id) { $script:menuActiveCat = '__all__' }
+                Update-Menu-Page
+            } catch {
+                [System.Windows.MessageBox]::Show((T 'menu_save_fail'), 'LightMenu', 'OK', 'Warning') | Out-Null
+            }
+        }) | Out-Null
+        $cm.Items.Add($miRename) | Out-Null
+        $cm.Items.Add($miMove) | Out-Null
+        $cm.Items.Add((New-Object System.Windows.Controls.Separator)) | Out-Null
+        $cm.Items.Add($miDelete) | Out-Null
+        $bd.ContextMenu = $cm
+    }
+    return $bd
+}
+
+# PATCH a category's section, then refresh.
+function Move-CategoryToSection($categoryId, $section) {
+    if (-not $section) { return }
+    try {
+        Invoke-RestMethod -Uri "$base/local/menu/category/$categoryId" -Method Patch -Body (@{ section = $section } | ConvertTo-Json) -ContentType 'application/json' -TimeoutSec 10 -ErrorAction Stop | Out-Null
+        Update-Menu-Page
+    } catch {
+        [System.Windows.MessageBox]::Show((T 'menu_save_fail'), 'LightMenu', 'OK', 'Warning') | Out-Null
+    }
+}
+
+# PATCH an item's category, then refresh.
+function Move-ItemToCategory($itemId, $categoryId) {
+    try {
+        Invoke-RestMethod -Uri "$base/local/menu/item/$itemId" -Method Patch -Body (@{ menu_category_id = $categoryId } | ConvertTo-Json) -ContentType 'application/json' -TimeoutSec 10 -ErrorAction Stop | Out-Null
+        Update-Menu-Page
+    } catch {
+        [System.Windows.MessageBox]::Show((T 'menu_save_fail'), 'LightMenu', 'OK', 'Warning') | Out-Null
+    }
+}
+
+function New-MenuItemRow($item) {
+    $bd = New-Object System.Windows.Controls.Border
+    $bd.BorderBrush = SolidBrush '#2A2D3A'
+    $bd.BorderThickness = New-Object System.Windows.Thickness(0,0,0,1)
+    $bd.Padding = New-Object System.Windows.Thickness(4,8,4,8)
+    $g = New-Object System.Windows.Controls.Grid
+    $c0 = New-Object System.Windows.Controls.ColumnDefinition; $c0.Width = '*'
+    $c1 = New-Object System.Windows.Controls.ColumnDefinition; $c1.Width = 'Auto'
+    $c2 = New-Object System.Windows.Controls.ColumnDefinition; $c2.Width = '70'
+    $c3 = New-Object System.Windows.Controls.ColumnDefinition; $c3.Width = 'Auto'
+    $c4 = New-Object System.Windows.Controls.ColumnDefinition; $c4.Width = 'Auto'
+    $g.ColumnDefinitions.Add($c0); $g.ColumnDefinitions.Add($c1); $g.ColumnDefinitions.Add($c2)
+    $g.ColumnDefinitions.Add($c3); $g.ColumnDefinitions.Add($c4)
+    $name = New-Object System.Windows.Controls.TextBlock
+    $name.Text = $item.name; $name.FontSize = 13; $name.Foreground = SolidBrush '#FFFFFF'
+    $name.VerticalAlignment = 'Center'; $name.TextTrimming = 'CharacterEllipsis'
+    [System.Windows.Controls.Grid]::SetColumn($name, 0)
+    # Availability badge — clicking it flips is_available in Supabase.
+    $status = New-Object System.Windows.Controls.TextBlock
+    if ($item.available) { $status.Text = T 'menu_available';   $status.Foreground = SolidBrush '#14B8A6' }
+    else                 { $status.Text = T 'menu_unavailable'; $status.Foreground = SolidBrush '#F59E0B' }
+    $status.FontSize = 11; $status.VerticalAlignment = 'Center'; $status.Cursor = 'Hand'
+    $status.Margin = New-Object System.Windows.Thickness(0,0,16,0)
+    $status.Tag = $item
+    $status.Add_MouseLeftButtonUp({
+        $it = $this.Tag
+        try {
+            $body = @{ is_available = (-not $it.available) } | ConvertTo-Json
+            Invoke-RestMethod -Uri "$base/local/menu/item/$($it.id)" -Method Patch -Body $body -ContentType 'application/json' -TimeoutSec 8 -ErrorAction Stop | Out-Null
+            Update-Menu-Page
+        } catch {
+            [System.Windows.MessageBox]::Show((T 'menu_save_fail'), 'LightMenu', 'OK', 'Warning') | Out-Null
+        }
+    }) | Out-Null
+    [System.Windows.Controls.Grid]::SetColumn($status, 1)
+    $price = New-Object System.Windows.Controls.TextBlock
+    $price.Text = Format-Money $item.price; $price.FontSize = 13; $price.FontWeight = 'SemiBold'
+    $price.Foreground = SolidBrush '#D1D5DB'; $price.VerticalAlignment = 'Center'; $price.TextAlignment = 'Right'
+    [System.Windows.Controls.Grid]::SetColumn($price, 2)
+    $edit = New-Object System.Windows.Controls.Button
+    $edit.Content = T 'btn_edit'; $edit.Style = (ctl 'MenuRefresh').Style
+    $edit.Margin = New-Object System.Windows.Thickness(10,0,0,0); $edit.Tag = $item
+    $edit.Add_Click({ Show-MenuItemDialog $this.Tag }) | Out-Null
+    [System.Windows.Controls.Grid]::SetColumn($edit, 3)
+    $del = New-Object System.Windows.Controls.Button
+    $del.Content = 'X'; $del.Style = (ctl 'MenuRefresh').Style
+    $del.Margin = New-Object System.Windows.Thickness(6,0,0,0); $del.Tag = $item
+    $del.Add_Click({
+        $it = $this.Tag
+        $ok = [System.Windows.MessageBox]::Show(((T 'confirm_delete_item') + " `"$($it.name)`"?"), 'LightMenu', 'YesNo', 'Question')
+        if ($ok -ne 'Yes') { return }
+        try {
+            Invoke-RestMethod -Uri "$base/local/menu/item/$($it.id)" -Method Delete -TimeoutSec 8 -ErrorAction Stop | Out-Null
+            Update-Menu-Page
+        } catch {
+            [System.Windows.MessageBox]::Show((T 'menu_save_fail'), 'LightMenu', 'OK', 'Warning') | Out-Null
+        }
+    }) | Out-Null
+    [System.Windows.Controls.Grid]::SetColumn($del, 4)
+    $g.Children.Add($name) | Out-Null; $g.Children.Add($status) | Out-Null; $g.Children.Add($price) | Out-Null
+    $g.Children.Add($edit) | Out-Null; $g.Children.Add($del) | Out-Null
+    $bd.Child = $g
+
+    # Right-click → Move to category (every category + Uncategorized).
+    $cm = New-Object System.Windows.Controls.ContextMenu
+    $cm.Background = SolidBrush '#1A1D29'; $cm.Foreground = [System.Windows.Media.Brushes]::White
+    $miMove = New-Object System.Windows.Controls.MenuItem
+    $miMove.Header = T 'menu_move_to_category'
+    $unc = New-Object System.Windows.Controls.MenuItem
+    $unc.Header = T 'menu_uncategorized'; $unc.Tag = @{ item = $item.id; cat = '' }
+    if (-not $item.category_id) { $unc.IsEnabled = $false }
+    $unc.Add_Click({ Move-ItemToCategory $this.Tag.item $this.Tag.cat }) | Out-Null
+    $miMove.Items.Add($unc) | Out-Null
+    $miMove.Items.Add((New-Object System.Windows.Controls.Separator)) | Out-Null
+    if ($script:menuData) {
+        foreach ($c in @($script:menuData.categories)) {
+            $cmi = New-Object System.Windows.Controls.MenuItem
+            $cmi.Header = $c.name; $cmi.Tag = @{ item = $item.id; cat = $c.id }
+            if ($c.id -eq $item.category_id) { $cmi.IsEnabled = $false; $cmi.Header = $c.name + '  (current)' }
+            $cmi.Add_Click({ Move-ItemToCategory $this.Tag.item $this.Tag.cat }) | Out-Null
+            $miMove.Items.Add($cmi) | Out-Null
+        }
+    }
+    $miEdit2 = New-Object System.Windows.Controls.MenuItem
+    $miEdit2.Header = T 'btn_edit'; $miEdit2.Tag = $item
+    $miEdit2.Add_Click({ Show-MenuItemDialog $this.Tag }) | Out-Null
+    $cm.Items.Add($miEdit2) | Out-Null
+    $cm.Items.Add($miMove) | Out-Null
+    $bd.ContextMenu = $cm
+    return $bd
+}
+
+function Render-Menu {
+    if (-not $script:menuData) { return }
+    $cats  = @($script:menuData.categories)
+    $items = @($script:menuData.items)
+    $search = ((ctl 'MenuSearch').Text).Trim().ToLower()
+
+    # Category sidebar — grouped by section (mirrors the web SectionsPanel).
+    # Each category carries a `section` ('menu' by default). We list a header
+    # per section, then the categories that belong to it.
+    $catPanel = ctl 'MenuCategoryList'
+    $catPanel.Children.Clear()
+    $catPanel.Children.Add((New-MenuCatButton '__all__' (T 'menu_all_items') $items.Count)) | Out-Null
+
+    # Unique section names — 'menu' always first, the rest alphabetical.
+    $sections = @($cats | ForEach-Object { if ($_.section) { $_.section } else { 'menu' } } | Select-Object -Unique)
+    $sections = @($sections | Sort-Object @{ Expression = { if ($_ -eq 'menu') { 0 } else { 1 } } }, @{ Expression = { $_ } })
+
+    foreach ($sec in $sections) {
+        $secCats = @($cats | Where-Object { $cs = $(if ($_.section) { $_.section } else { 'menu' }); $cs -eq $sec })
+        if ($secCats.Count -eq 0) { continue }
+        # Only show a section header when there's more than one section, so a
+        # simple single-section menu stays clean.
+        if ($sections.Count -gt 1) {
+            $catPanel.Children.Add((New-SectionHeader $sec)) | Out-Null
+        }
+        foreach ($c in $secCats) {
+            $cnt = (@($items | Where-Object { $_.category_id -eq $c.id })).Count
+            $catPanel.Children.Add((New-MenuCatButton $c.id $c.name $cnt)) | Out-Null
+        }
+    }
+
+    # Item list (filter by active category + search)
+    $list = $items
+    if ($script:menuActiveCat -ne '__all__') {
+        $list = @($list | Where-Object { $_.category_id -eq $script:menuActiveCat })
+    }
+    if ($search) {
+        $list = @($list | Where-Object { $_.name.ToLower().Contains($search) })
+    }
+    $itemPanel = ctl 'MenuItemList'
+    $itemPanel.Children.Clear()
+    if (@($list).Count -eq 0) {
+        $empty = New-Object System.Windows.Controls.TextBlock
+        $empty.Text = T 'menu_empty'; $empty.Foreground = SolidBrush '#6B7280'
+        $empty.FontSize = 13; $empty.Margin = New-Object System.Windows.Thickness(4,30,0,0)
+        $itemPanel.Children.Add($empty) | Out-Null
+    } else {
+        foreach ($it in $list) { $itemPanel.Children.Add((New-MenuItemRow $it)) | Out-Null }
+    }
+}
+
+function Update-Menu-Page {
+    try {
+        $r = Invoke-RestMethod -Uri "$base/local/menu" -TimeoutSec 6 -ErrorAction Stop
+        $script:menuData = $r
+        $badge = ctl 'MenuSyncBadge'
+        if ($r.source -eq 'cache') {
+            $badge.Text = (T 'menu_offline_cache'); $badge.Foreground = SolidBrush '#F59E0B'
+        } elseif ($r.synced_at) {
+            $badge.Text = (T 'menu_synced') + ' ' + (Get-Date -Format 'HH:mm'); $badge.Foreground = SolidBrush '#7A8295'
+        } else {
+            $badge.Text = '--'; $badge.Foreground = SolidBrush '#7A8295'
+        }
+    } catch {
+        $script:menuData = @{ categories = @(); items = @() }
+        (ctl 'MenuSyncBadge').Text = (T 'menu_offline_cache')
+    }
+    Render-Menu
+}
+
+(ctl 'MenuRefresh').Add_Click({ Update-Menu-Page })
+(ctl 'MenuSearch').Add_TextChanged({ Render-Menu })
+
+# Add/Edit item dialog. Pass $null to add a new item, or an item object to edit.
+function Show-MenuItemDialog($item) {
+    $isEdit = ($null -ne $item)
+    $cats = if ($script:menuData) { @($script:menuData.categories) } else { @() }
+
+    [xml]$dx = @"
+<Window xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Height="560" Width="440" ResizeMode="NoResize"
+        WindowStartupLocation="CenterOwner" Background="#0F1117" TextElement.Foreground="#FFFFFF">
+  <Border Background="#161922" CornerRadius="12">
+    <StackPanel Margin="28,24,28,24">
+      <TextBlock x:Name="DTitle" FontSize="17" FontWeight="Bold" Foreground="#FFFFFF" Margin="0,0,0,18"/>
+      <TextBlock x:Name="LName" Foreground="#9CA3AF" FontSize="11" FontWeight="Bold" Margin="0,0,0,6"/>
+      <Border Background="#0F1117" BorderBrush="#2A2D3A" BorderThickness="1" CornerRadius="6">
+        <TextBox x:Name="FName" Background="Transparent" BorderThickness="0" Foreground="#FFFFFF" Padding="10,8" FontSize="13" CaretBrush="#FFFFFF"/>
+      </Border>
+      <TextBlock x:Name="LDesc" Foreground="#9CA3AF" FontSize="11" FontWeight="Bold" Margin="0,14,0,6"/>
+      <Border Background="#0F1117" BorderBrush="#2A2D3A" BorderThickness="1" CornerRadius="6">
+        <TextBox x:Name="FDesc" Background="Transparent" BorderThickness="0" Foreground="#FFFFFF" Padding="10,8" FontSize="13" CaretBrush="#FFFFFF" TextWrapping="Wrap" AcceptsReturn="True" Height="60" VerticalScrollBarVisibility="Auto"/>
+      </Border>
+      <Grid Margin="0,14,0,0">
+        <Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="14"/><ColumnDefinition Width="*"/></Grid.ColumnDefinitions>
+        <StackPanel Grid.Column="0">
+          <TextBlock x:Name="LPrice" Foreground="#9CA3AF" FontSize="11" FontWeight="Bold" Margin="0,0,0,6"/>
+          <Border Background="#0F1117" BorderBrush="#2A2D3A" BorderThickness="1" CornerRadius="6">
+            <TextBox x:Name="FPrice" Background="Transparent" BorderThickness="0" Foreground="#FFFFFF" Padding="10,8" FontSize="13" CaretBrush="#FFFFFF"/>
+          </Border>
+        </StackPanel>
+        <StackPanel Grid.Column="2">
+          <TextBlock x:Name="LCat" Foreground="#9CA3AF" FontSize="11" FontWeight="Bold" Margin="0,0,0,6"/>
+          <ComboBox x:Name="FCat" Height="34" FontSize="13"/>
+        </StackPanel>
+      </Grid>
+      <CheckBox x:Name="FAvail" Foreground="#D1D5DB" FontSize="13" Margin="0,18,0,0" IsChecked="True"/>
+      <CheckBox x:Name="FAddon" Foreground="#D1D5DB" FontSize="13" Margin="0,12,0,0"/>
+      <StackPanel Orientation="Horizontal" HorizontalAlignment="Right" Margin="0,24,0,0">
+        <Button x:Name="DCancel" Padding="18,9" Background="#2A2D3A" Foreground="#FFFFFF" BorderThickness="0" Cursor="Hand" Margin="0,0,10,0" FontSize="13">
+          <Button.Template><ControlTemplate TargetType="Button"><Border Background="{TemplateBinding Background}" CornerRadius="8" Padding="{TemplateBinding Padding}"><ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center"/></Border></ControlTemplate></Button.Template>
+        </Button>
+        <Button x:Name="DSave" Padding="18,9" Foreground="#FFFFFF" BorderThickness="0" Cursor="Hand" FontSize="13">
+          <Button.Background><LinearGradientBrush StartPoint="0,0" EndPoint="1,0"><GradientStop Color="#14B8A6" Offset="0"/><GradientStop Color="#06B6D4" Offset="1"/></LinearGradientBrush></Button.Background>
+          <Button.Template><ControlTemplate TargetType="Button"><Border Background="{TemplateBinding Background}" CornerRadius="8" Padding="{TemplateBinding Padding}"><ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center"/></Border></ControlTemplate></Button.Template>
+        </Button>
+      </StackPanel>
+    </StackPanel>
+  </Border>
+</Window>
+"@
+    $dlg = [Windows.Markup.XamlReader]::Load((New-Object System.Xml.XmlNodeReader $dx))
+    $dlg.Owner = $window
+    function dctl($n) { $dlg.FindName($n) }
+    (dctl 'DTitle').Text  = if ($isEdit) { T 'menu_edit_item' } else { T 'menu_add_item' }
+    (dctl 'LName').Text   = (T 'menu_f_name') + ' *'
+    (dctl 'LDesc').Text   = T 'menu_f_desc'
+    (dctl 'LPrice').Text  = (T 'menu_f_price') + ' *'
+    (dctl 'LCat').Text    = T 'menu_f_category'
+    (dctl 'FAvail').Content = T 'menu_f_available'
+    (dctl 'FAddon').Content = T 'menu_f_addon'
+    (dctl 'DCancel').Content = T 'dlg_cancel'
+    (dctl 'DSave').Content   = if ($isEdit) { T 'btn_save' } else { T 'menu_add_item' }
+
+    # Populate category dropdown — first entry = uncategorized.
+    $combo = dctl 'FCat'
+    $none = New-Object System.Windows.Controls.ComboBoxItem; $none.Content = (T 'menu_uncategorized'); $none.Tag = ''
+    $combo.Items.Add($none) | Out-Null
+    foreach ($c in $cats) {
+        $ci = New-Object System.Windows.Controls.ComboBoxItem; $ci.Content = $c.name; $ci.Tag = $c.id
+        $combo.Items.Add($ci) | Out-Null
+    }
+    if ($isEdit) {
+        (dctl 'FName').Text  = [string]$item.name
+        (dctl 'FDesc').Text  = [string]$item.description
+        (dctl 'FPrice').Text = [string]$item.price
+        (dctl 'FAvail').IsChecked = [bool]$item.available
+        $sel = $null
+        foreach ($ci in $combo.Items) { if ($ci.Tag -eq $item.category_id) { $sel = $ci; break } }
+        $combo.SelectedItem = if ($sel) { $sel } else { $none }
+    } else {
+        $combo.SelectedItem = $none
+        if ($script:menuActiveCat -ne '__all__') {
+            foreach ($ci in $combo.Items) { if ($ci.Tag -eq $script:menuActiveCat) { $combo.SelectedItem = $ci; break } }
+        }
+    }
+
+    (dctl 'DCancel').Add_Click({ $dlg.DialogResult = $false }) | Out-Null
+    (dctl 'DSave').Add_Click({
+        $nm = ((dctl 'FName').Text).Trim()
+        $pr = ((dctl 'FPrice').Text).Trim()
+        if (-not $nm -or -not $pr) {
+            [System.Windows.MessageBox]::Show((T 'menu_name_price_req'), 'LightMenu', 'OK', 'Warning') | Out-Null
+            return
+        }
+        $catTag = if ($combo.SelectedItem) { $combo.SelectedItem.Tag } else { '' }
+        $payload = @{
+            name             = $nm
+            description      = (dctl 'FDesc').Text
+            price            = ([double]($pr -replace ',', '.'))
+            menu_category_id = $catTag
+            is_available     = [bool](dctl 'FAvail').IsChecked
+            is_addon         = [bool](dctl 'FAddon').IsChecked
+        }
+        try {
+            if ($isEdit) {
+                Invoke-RestMethod -Uri "$base/local/menu/item/$($item.id)" -Method Patch -Body ($payload | ConvertTo-Json) -ContentType 'application/json' -TimeoutSec 10 -ErrorAction Stop | Out-Null
+            } else {
+                Invoke-RestMethod -Uri "$base/local/menu/item" -Method Post -Body ($payload | ConvertTo-Json) -ContentType 'application/json' -TimeoutSec 10 -ErrorAction Stop | Out-Null
+            }
+            $dlg.DialogResult = $true
+        } catch {
+            [System.Windows.MessageBox]::Show((T 'menu_save_fail'), 'LightMenu', 'OK', 'Warning') | Out-Null
+        }
+    }) | Out-Null
+
+    if ($dlg.ShowDialog()) { Update-Menu-Page }
+}
+
+# Add/Rename category dialog. Pass $null to add, or @{id;name} to rename.
+function Show-CategoryDialog($cat) {
+    $isEdit = ($null -ne $cat)
+    [xml]$dx = @"
+<Window xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Height="320" Width="400" ResizeMode="NoResize"
+        WindowStartupLocation="CenterOwner" Background="#0F1117" TextElement.Foreground="#FFFFFF">
+  <Border Background="#161922" CornerRadius="12">
+    <StackPanel Margin="28,24,28,24">
+      <TextBlock x:Name="DTitle" FontSize="17" FontWeight="Bold" Foreground="#FFFFFF" Margin="0,0,0,18"/>
+      <TextBlock x:Name="LName" Foreground="#9CA3AF" FontSize="11" FontWeight="Bold" Margin="0,0,0,6"/>
+      <Border Background="#0F1117" BorderBrush="#2A2D3A" BorderThickness="1" CornerRadius="6">
+        <TextBox x:Name="FName" Background="Transparent" BorderThickness="0" Foreground="#FFFFFF" Padding="10,8" FontSize="13" CaretBrush="#FFFFFF"/>
+      </Border>
+      <TextBlock x:Name="LSection" Foreground="#9CA3AF" FontSize="11" FontWeight="Bold" Margin="0,16,0,6"/>
+      <ComboBox x:Name="FSection" Height="34" FontSize="13" IsEditable="True"/>
+      <TextBlock x:Name="HSection" Foreground="#6B7280" FontSize="10" TextWrapping="Wrap" Margin="0,6,0,0"/>
+      <StackPanel Orientation="Horizontal" HorizontalAlignment="Right" Margin="0,22,0,0">
+        <Button x:Name="DCancel" Padding="18,9" Background="#2A2D3A" Foreground="#FFFFFF" BorderThickness="0" Cursor="Hand" Margin="0,0,10,0" FontSize="13">
+          <Button.Template><ControlTemplate TargetType="Button"><Border Background="{TemplateBinding Background}" CornerRadius="8" Padding="{TemplateBinding Padding}"><ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center"/></Border></ControlTemplate></Button.Template>
+        </Button>
+        <Button x:Name="DSave" Padding="18,9" Foreground="#FFFFFF" BorderThickness="0" Cursor="Hand" FontSize="13">
+          <Button.Background><LinearGradientBrush StartPoint="0,0" EndPoint="1,0"><GradientStop Color="#14B8A6" Offset="0"/><GradientStop Color="#06B6D4" Offset="1"/></LinearGradientBrush></Button.Background>
+          <Button.Template><ControlTemplate TargetType="Button"><Border Background="{TemplateBinding Background}" CornerRadius="8" Padding="{TemplateBinding Padding}"><ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center"/></Border></ControlTemplate></Button.Template>
+        </Button>
+      </StackPanel>
+    </StackPanel>
+  </Border>
+</Window>
+"@
+    $dlg = [Windows.Markup.XamlReader]::Load((New-Object System.Xml.XmlNodeReader $dx))
+    $dlg.Owner = $window
+    function dctl2($n) { $dlg.FindName($n) }
+    (dctl2 'DTitle').Text = if ($isEdit) { T 'menu_rename_category' } else { T 'menu_add_category' }
+    (dctl2 'LName').Text  = (T 'menu_f_name') + ' *'
+    (dctl2 'LSection').Text = T 'menu_f_section'
+    (dctl2 'HSection').Text = T 'menu_section_hint'
+    (dctl2 'DCancel').Content = T 'dlg_cancel'
+    (dctl2 'DSave').Content   = T 'btn_save'
+
+    # Populate the section dropdown with the sections already in use, so the
+    # owner can drop the category into an existing group or type a new one.
+    $secBox = dctl2 'FSection'
+    $existing = @()
+    if ($script:menuData) {
+        $existing = @($script:menuData.categories | ForEach-Object { if ($_.section) { $_.section } else { 'menu' } } | Select-Object -Unique)
+    }
+    if ($existing -notcontains 'menu') { $secBox.Items.Add('menu') | Out-Null }
+    foreach ($s in $existing) { $secBox.Items.Add($s) | Out-Null }
+
+    if ($isEdit) {
+        (dctl2 'FName').Text = [string]$cat.name
+        # The context-menu tag only carries id+name; look up the live section.
+        $cur = $null
+        if ($script:menuData) { $cur = @($script:menuData.categories | Where-Object { $_.id -eq $cat.id })[0] }
+        $secBox.Text = if ($cur -and $cur.section) { $cur.section } else { 'menu' }
+    } else {
+        $secBox.Text = 'menu'
+    }
+
+    (dctl2 'DCancel').Add_Click({ $dlg.DialogResult = $false }) | Out-Null
+    (dctl2 'DSave').Add_Click({
+        $nm = ((dctl2 'FName').Text).Trim()
+        if (-not $nm) { [System.Windows.MessageBox]::Show((T 'menu_name_req'), 'LightMenu', 'OK', 'Warning') | Out-Null; return }
+        $sec = ((dctl2 'FSection').Text).Trim().ToLower()
+        if (-not $sec) { $sec = 'menu' }
+        try {
+            if ($isEdit) {
+                Invoke-RestMethod -Uri "$base/local/menu/category/$($cat.id)" -Method Patch -Body (@{ name = $nm; section = $sec } | ConvertTo-Json) -ContentType 'application/json' -TimeoutSec 10 -ErrorAction Stop | Out-Null
+            } else {
+                Invoke-RestMethod -Uri "$base/local/menu/category" -Method Post -Body (@{ name = $nm; section = $sec } | ConvertTo-Json) -ContentType 'application/json' -TimeoutSec 10 -ErrorAction Stop | Out-Null
+            }
+            $dlg.DialogResult = $true
+        } catch {
+            [System.Windows.MessageBox]::Show((T 'menu_save_fail'), 'LightMenu', 'OK', 'Warning') | Out-Null
+        }
+    }) | Out-Null
+
+    if ($dlg.ShowDialog()) { Update-Menu-Page }
+}
+
+(ctl 'AddItemBtn').Add_Click({ Show-MenuItemDialog $null })
+(ctl 'AddCategoryBtn').Add_Click({ Show-CategoryDialog $null })
+
+# ─── KITCHEN & PRINTING PAGE ────────────────────────────────────────────────
+function New-PrinterCard($p) {
+    $card = New-Object System.Windows.Controls.Border
+    $card.Background = SolidBrush '#1A1D29'
+    $card.BorderBrush = SolidBrush '#2A2D3A'
+    $card.BorderThickness = New-Object System.Windows.Thickness(1)
+    $card.CornerRadius = New-Object System.Windows.CornerRadius(10)
+    $card.Padding = New-Object System.Windows.Thickness(14)
+    $card.Margin = New-Object System.Windows.Thickness(0,0,0,10)
+
+    $g = New-Object System.Windows.Controls.Grid
+    $cL = New-Object System.Windows.Controls.ColumnDefinition; $cL.Width = '*'
+    $cR = New-Object System.Windows.Controls.ColumnDefinition; $cR.Width = 'Auto'
+    $g.ColumnDefinitions.Add($cL); $g.ColumnDefinitions.Add($cR)
+
+    $info = New-Object System.Windows.Controls.StackPanel
+    [System.Windows.Controls.Grid]::SetColumn($info, 0)
+    $title = New-Object System.Windows.Controls.TextBlock
+    $title.Text = $p.name; $title.FontSize = 14; $title.FontWeight = 'SemiBold'; $title.Foreground = SolidBrush '#FFFFFF'
+    $sub = New-Object System.Windows.Controls.TextBlock
+    $ipTxt = if ($p.ip) { $p.ip + ':' + $p.port } else { (T 'printer_no_ip') }
+    $sub.Text = (T 'printer_type') + ': ' + $p.type + '   ' + $ipTxt
+    $sub.FontSize = 11; $sub.Foreground = SolidBrush '#9CA3AF'; $sub.Margin = New-Object System.Windows.Thickness(0,4,0,0)
+    $info.Children.Add($title) | Out-Null; $info.Children.Add($sub) | Out-Null
+
+    $actions = New-Object System.Windows.Controls.StackPanel
+    $actions.Orientation = 'Horizontal'; $actions.VerticalAlignment = 'Center'
+    [System.Windows.Controls.Grid]::SetColumn($actions, 1)
+
+    $editP = New-Object System.Windows.Controls.Button
+    $editP.Content = T 'btn_edit'; $editP.Style = (ctl 'MenuRefresh').Style
+    $editP.Tag = $p
+    $editP.Add_Click({ Show-PrinterDialog $this.Tag }) | Out-Null
+
+    $test = New-Object System.Windows.Controls.Button
+    $test.Content = T 'btn_test_print'; $test.Style = (ctl 'MenuRefresh').Style
+    $test.Margin = New-Object System.Windows.Thickness(8,0,0,0)
+    $test.Tag = $p
+    $test.Add_Click({
+        $pp = $this.Tag
+        try {
+            $body = @{ name = $pp.name; ip = $pp.ip; port = $pp.port } | ConvertTo-Json
+            Invoke-RestMethod -Uri "$base/local/printers/test" -Method Post -Body $body -ContentType 'application/json' -TimeoutSec 8 -ErrorAction Stop | Out-Null
+            [System.Windows.MessageBox]::Show((T 'test_print_sent'), 'LightMenu', 'OK', 'Information') | Out-Null
+        } catch {
+            [System.Windows.MessageBox]::Show((T 'test_print_fail'), 'LightMenu', 'OK', 'Warning') | Out-Null
+        }
+    })
+
+    $del = New-Object System.Windows.Controls.Button
+    $del.Content = T 'btn_remove'; $del.Style = (ctl 'MenuRefresh').Style
+    $del.Margin = New-Object System.Windows.Thickness(8,0,0,0)
+    $del.Tag = $p
+    $del.Add_Click({
+        $pp = $this.Tag
+        $ok = [System.Windows.MessageBox]::Show((T 'confirm_remove_printer'), 'LightMenu', 'YesNo', 'Question')
+        if ($ok -ne 'Yes') { return }
+        try {
+            Invoke-RestMethod -Uri "$base/local/printers/$($pp.id)" -Method Delete -TimeoutSec 8 -ErrorAction Stop | Out-Null
+            Update-Kitchen-Page
+        } catch {
+            [System.Windows.MessageBox]::Show((T 'printer_remove_fail'), 'LightMenu', 'OK', 'Warning') | Out-Null
+        }
+    })
+
+    $actions.Children.Add($editP) | Out-Null; $actions.Children.Add($test) | Out-Null; $actions.Children.Add($del) | Out-Null
+    $g.Children.Add($info) | Out-Null; $g.Children.Add($actions) | Out-Null
+    $card.Child = $g
+    return $card
+}
+
+# Edit an existing printer (name / IP / type).
+function Show-PrinterDialog($p) {
+    [xml]$dx = @"
+<Window xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Height="340" Width="400" ResizeMode="NoResize"
+        WindowStartupLocation="CenterOwner" Background="#0F1117" TextElement.Foreground="#FFFFFF">
+  <Border Background="#161922" CornerRadius="12">
+    <StackPanel Margin="28,24,28,24">
+      <TextBlock x:Name="DTitle" FontSize="17" FontWeight="Bold" Foreground="#FFFFFF" Margin="0,0,0,18"/>
+      <TextBlock x:Name="LName" Foreground="#9CA3AF" FontSize="11" FontWeight="Bold" Margin="0,0,0,6"/>
+      <Border Background="#0F1117" BorderBrush="#2A2D3A" BorderThickness="1" CornerRadius="6">
+        <TextBox x:Name="FName" Background="Transparent" BorderThickness="0" Foreground="#FFFFFF" Padding="10,8" FontSize="13" CaretBrush="#FFFFFF"/>
+      </Border>
+      <Grid Margin="0,14,0,0">
+        <Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="14"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions>
+        <StackPanel Grid.Column="0">
+          <TextBlock x:Name="LIp" Foreground="#9CA3AF" FontSize="11" FontWeight="Bold" Margin="0,0,0,6"/>
+          <Border Background="#0F1117" BorderBrush="#2A2D3A" BorderThickness="1" CornerRadius="6">
+            <TextBox x:Name="FIp" Background="Transparent" BorderThickness="0" Foreground="#FFFFFF" Padding="10,8" FontSize="13" CaretBrush="#FFFFFF"/>
+          </Border>
+        </StackPanel>
+        <StackPanel Grid.Column="2">
+          <TextBlock x:Name="LType" Foreground="#9CA3AF" FontSize="11" FontWeight="Bold" Margin="0,0,0,6"/>
+          <ComboBox x:Name="FType" Width="110" Height="34" FontSize="13">
+            <ComboBoxItem Content="kitchen"/><ComboBoxItem Content="bar"/><ComboBoxItem Content="check"/>
+          </ComboBox>
+        </StackPanel>
+      </Grid>
+      <StackPanel Orientation="Horizontal" HorizontalAlignment="Right" Margin="0,24,0,0">
+        <Button x:Name="DCancel" Padding="18,9" Background="#2A2D3A" Foreground="#FFFFFF" BorderThickness="0" Cursor="Hand" Margin="0,0,10,0" FontSize="13">
+          <Button.Template><ControlTemplate TargetType="Button"><Border Background="{TemplateBinding Background}" CornerRadius="8" Padding="{TemplateBinding Padding}"><ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center"/></Border></ControlTemplate></Button.Template>
+        </Button>
+        <Button x:Name="DSave" Padding="18,9" Foreground="#FFFFFF" BorderThickness="0" Cursor="Hand" FontSize="13">
+          <Button.Background><LinearGradientBrush StartPoint="0,0" EndPoint="1,0"><GradientStop Color="#14B8A6" Offset="0"/><GradientStop Color="#06B6D4" Offset="1"/></LinearGradientBrush></Button.Background>
+          <Button.Template><ControlTemplate TargetType="Button"><Border Background="{TemplateBinding Background}" CornerRadius="8" Padding="{TemplateBinding Padding}"><ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center"/></Border></ControlTemplate></Button.Template>
+        </Button>
+      </StackPanel>
+    </StackPanel>
+  </Border>
+</Window>
+"@
+    $dlg = [Windows.Markup.XamlReader]::Load((New-Object System.Xml.XmlNodeReader $dx))
+    $dlg.Owner = $window
+    function dctl3($n) { $dlg.FindName($n) }
+    (dctl3 'DTitle').Text = T 'printer_edit'
+    (dctl3 'LName').Text  = T 'menu_f_name'
+    (dctl3 'LIp').Text    = 'IP'
+    (dctl3 'LType').Text  = T 'printer_type'
+    (dctl3 'DCancel').Content = T 'dlg_cancel'
+    (dctl3 'DSave').Content   = T 'btn_save'
+    (dctl3 'FName').Text = [string]$p.name
+    (dctl3 'FIp').Text   = [string]$p.ip
+    $ftype = dctl3 'FType'
+    foreach ($ti in $ftype.Items) { if ($ti.Content -eq $p.type) { $ftype.SelectedItem = $ti; break } }
+    if (-not $ftype.SelectedItem) { $ftype.SelectedIndex = 0 }
+
+    (dctl3 'DCancel').Add_Click({ $dlg.DialogResult = $false }) | Out-Null
+    (dctl3 'DSave').Add_Click({
+        $nm = ((dctl3 'FName').Text).Trim()
+        $ip = ((dctl3 'FIp').Text).Trim()
+        if ($ip -and $ip -notmatch '^\d+\.\d+\.\d+\.\d+$') {
+            [System.Windows.MessageBox]::Show((T 'invalid_ip'), 'LightMenu', 'OK', 'Warning') | Out-Null
+            return
+        }
+        $tp = if ($ftype.SelectedItem) { $ftype.SelectedItem.Content } else { 'kitchen' }
+        try {
+            $body = @{ name = $nm; ip = $ip; type = $tp } | ConvertTo-Json
+            Invoke-RestMethod -Uri "$base/local/printers/$($p.id)" -Method Patch -Body $body -ContentType 'application/json' -TimeoutSec 8 -ErrorAction Stop | Out-Null
+            $dlg.DialogResult = $true
+        } catch {
+            [System.Windows.MessageBox]::Show((T 'printer_save_fail'), 'LightMenu', 'OK', 'Warning') | Out-Null
+        }
+    }) | Out-Null
+
+    if ($dlg.ShowDialog()) { Update-Kitchen-Page }
+}
+
+function Update-Kitchen-Page {
+    # Live transport status from /status
+    try {
+        $st = Invoke-RestMethod -Uri "$statusUrl" -TimeoutSec 2 -ErrorAction Stop
+        $liveTxt = '-'
+        if ($st.printer) {
+            switch ($st.printer.mode) {
+                'usb-direct'  { $liveTxt = 'USB direct: ' + $st.printer.usb }
+                'usb-spooler' { $liveTxt = 'USB spooler: ' + $st.printer.usb }
+                'network'     { $liveTxt = 'Network: ' + $st.printer.ip + ':' + $st.printer.port }
+                default       { $liveTxt = T 'printer_searching' }
+            }
+        }
+        (ctl 'KitchenLiveText').Text = $liveTxt
+    } catch {
+        (ctl 'KitchenLiveText').Text = T 'printer_searching'
+    }
+
+    $panel = ctl 'PrinterCards'
+    $panel.Children.Clear()
+    try {
+        $r = Invoke-RestMethod -Uri "$base/local/printers" -TimeoutSec 3 -ErrorAction Stop
+        $list = @($r.printers)
+        if ($list.Count -eq 0) {
+            $empty = New-Object System.Windows.Controls.TextBlock
+            $empty.Text = T 'no_printers'; $empty.Foreground = SolidBrush '#6B7280'
+            $empty.FontSize = 13; $empty.Margin = New-Object System.Windows.Thickness(0,30,0,0)
+            $panel.Children.Add($empty) | Out-Null
+        } else {
+            foreach ($p in $list) { $panel.Children.Add((New-PrinterCard $p)) | Out-Null }
+        }
+    } catch {
+        $empty = New-Object System.Windows.Controls.TextBlock
+        $empty.Text = T 'printers_offline'; $empty.Foreground = SolidBrush '#F59E0B'
+        $empty.FontSize = 13; $empty.Margin = New-Object System.Windows.Thickness(0,30,0,0)
+        $panel.Children.Add($empty) | Out-Null
+    }
+    Load-TicketSettings
+}
+
+# ── Ticket settings helpers ──────────────────────────────────────────────────
+function Set-ComboByContent($combo, $value) {
+    foreach ($it in $combo.Items) { if ([string]$it.Content -eq [string]$value) { $combo.SelectedItem = $it; return } }
+    if ($combo.Items.Count -gt 0) { $combo.SelectedIndex = 0 }
+}
+function Get-ComboContent($combo) {
+    if ($combo.SelectedItem) { return [string]$combo.SelectedItem.Content }
+    return ''
+}
+
+# ── Language grid ────────────────────────────────────────────────────────────
+$script:tsLang = 'en'
+$script:tsLangMeta = @(
+    @{ code='en'; flag='US'; name='English' }, @{ code='fr'; flag='FR'; name='Français' },
+    @{ code='es'; flag='ES'; name='Español' }, @{ code='it'; flag='IT'; name='Italiano' },
+    @{ code='de'; flag='DE'; name='Deutsch' }, @{ code='nl'; flag='NL'; name='Nederlands' },
+    @{ code='ru'; flag='RU'; name='Русский' }, @{ code='ar'; flag='SA'; name='العربية' },
+    @{ code='zh'; flag='CN'; name='中文' },    @{ code='pt'; flag='PT'; name='Português' }
+)
+$script:tsLangBtns = @{}
+function Build-LangGrid {
+    $grid = ctl 'TsLangGrid'; $grid.Children.Clear(); $script:tsLangBtns = @{}
+    foreach ($m in $script:tsLangMeta) {
+        $b = New-Object System.Windows.Controls.Border
+        $b.Tag = $m.code; $b.Cursor = 'Hand'; $b.Width = 132; $b.Height = 38
+        $b.CornerRadius = New-Object System.Windows.CornerRadius(7)
+        $b.BorderThickness = New-Object System.Windows.Thickness(1)
+        $b.Margin = New-Object System.Windows.Thickness(0,0,8,8)
+        $sp = New-Object System.Windows.Controls.StackPanel
+        $sp.Orientation = 'Horizontal'; $sp.VerticalAlignment = 'Center'
+        $sp.Margin = New-Object System.Windows.Thickness(10,0,0,0)
+        $fl = New-Object System.Windows.Controls.TextBlock
+        $fl.Text = $m.flag; $fl.FontSize = 10; $fl.FontWeight = 'Bold'; $fl.Foreground = SolidBrush '#7A8295'
+        $fl.VerticalAlignment = 'Center'; $fl.Margin = New-Object System.Windows.Thickness(0,0,8,0)
+        $nm = New-Object System.Windows.Controls.TextBlock
+        $nm.Text = $m.name; $nm.FontSize = 12; $nm.Foreground = SolidBrush '#FFFFFF'; $nm.VerticalAlignment = 'Center'
+        $sp.Children.Add($fl) | Out-Null; $sp.Children.Add($nm) | Out-Null
+        $b.Child = $sp
+        $b.Add_MouseLeftButtonUp({ $script:tsLang = $this.Tag; Refresh-LangGrid; Update-TsPreview }) | Out-Null
+        $grid.Children.Add($b) | Out-Null
+        $script:tsLangBtns[$m.code] = $b
+    }
+    Refresh-LangGrid
+}
+function Refresh-LangGrid {
+    foreach ($code in $script:tsLangBtns.Keys) {
+        $b = $script:tsLangBtns[$code]
+        if ($code -eq $script:tsLang) { $b.Background = SolidBrush '#0F2A26'; $b.BorderBrush = SolidBrush '#14B8A6' }
+        else { $b.Background = SolidBrush '#0F1117'; $b.BorderBrush = SolidBrush '#2A2D3A' }
+    }
+}
+
+# ── Custom labels ────────────────────────────────────────────────────────────
+# Editable subset of the printed-label keys. Blank = use the language default.
+$script:tsLabelKeys = @(
+    @{ key='table'; name='Table' },        @{ key='waiter'; name='Waiter' },
+    @{ key='covers'; name='Covers' },       @{ key='total'; name='Total' },
+    @{ key='thank_you'; name='Thank-you' }, @{ key='tel'; name='Tel' },
+    @{ key='cash'; name='Cash' },           @{ key='card'; name='Card' },
+    @{ key='mixed'; name='Cash + Card' },   @{ key='invitation'; name='Invitation' },
+    @{ key='gratis'; name='Gratis' },       @{ key='drinks'; name='Drinks title' },
+    @{ key='food'; name='Food title' }
+)
+$script:tsLabelBoxes = @{}
+function Build-LabelGrid {
+    $grid = ctl 'TsLabelGrid'; $grid.Children.Clear(); $script:tsLabelBoxes = @{}
+    foreach ($lk in $script:tsLabelKeys) {
+        $col = New-Object System.Windows.Controls.StackPanel
+        $col.Width = 150; $col.Margin = New-Object System.Windows.Thickness(0,0,12,10)
+        $lbl = New-Object System.Windows.Controls.TextBlock
+        $lbl.Text = $lk.name; $lbl.Foreground = SolidBrush '#9CA3AF'; $lbl.FontSize = 10; $lbl.Margin = New-Object System.Windows.Thickness(0,0,0,3)
+        $bd = New-Object System.Windows.Controls.Border
+        $bd.Background = SolidBrush '#161922'; $bd.BorderBrush = SolidBrush '#2A2D3A'
+        $bd.BorderThickness = New-Object System.Windows.Thickness(1); $bd.CornerRadius = New-Object System.Windows.CornerRadius(5)
+        $tx = New-Object System.Windows.Controls.TextBox
+        $tx.Background = [System.Windows.Media.Brushes]::Transparent; $tx.BorderThickness = New-Object System.Windows.Thickness(0)
+        $tx.Foreground = SolidBrush '#FFFFFF'; $tx.CaretBrush = SolidBrush '#FFFFFF'
+        $tx.Padding = New-Object System.Windows.Thickness(8,6,8,6); $tx.FontSize = 12
+        $tx.Add_TextChanged({ Update-TsPreview }) | Out-Null
+        $bd.Child = $tx
+        $col.Children.Add($lbl) | Out-Null; $col.Children.Add($bd) | Out-Null
+        $grid.Children.Add($col) | Out-Null
+        $script:tsLabelBoxes[$lk.key] = $tx
+    }
+}
+function Get-LabelOverrides {
+    $ov = @{}
+    foreach ($k in $script:tsLabelBoxes.Keys) {
+        $v = ($script:tsLabelBoxes[$k].Text).Trim()
+        if ($v) { $ov[$k] = $v }
+    }
+    return $ov
+}
+(ctl 'TsLabelsToggle').Add_MouseLeftButtonUp({
+    $body = ctl 'TsLabelsBody'
+    if ($body.Visibility -eq 'Visible') { $body.Visibility = 'Collapsed'; (ctl 'TsLabelsChevron').Text = 'show' }
+    else { $body.Visibility = 'Visible'; (ctl 'TsLabelsChevron').Text = 'hide' }
+}) | Out-Null
+
+# ── Segmented controls (Ticket mode cards + Separator style) ─────────────────
+$script:tsSeg = @{}          # key -> selected value
+$script:tsSegBtns = @{}      # key -> @{ value = Border }
+function Set-Seg($key, $val) { $script:tsSeg[$key] = $val; Refresh-Seg $key }
+function Get-Seg($key) { return $script:tsSeg[$key] }
+function Refresh-Seg($key) {
+    $cur = $script:tsSeg[$key]
+    if (-not $script:tsSegBtns[$key]) { return }
+    foreach ($val in $script:tsSegBtns[$key].Keys) {
+        $b = $script:tsSegBtns[$key][$val]
+        if ($val -eq $cur) { $b.Background = SolidBrush '#0F2A26'; $b.BorderBrush = SolidBrush '#14B8A6' }
+        else { $b.Background = SolidBrush '#0F1117'; $b.BorderBrush = SolidBrush '#2A2D3A' }
+    }
+}
+# Big card-style segment (used for Ticket Mode).
+function Build-ModeSeg {
+    $host_ = ctl 'TsModeSeg'; $host_.Children.Clear(); $script:tsSegBtns['ticket_mode'] = @{}
+    $opts = @(
+        @{ v='per_item';    t='Per Item';    d='One ticket per item' },
+        @{ v='per_table';   t='Per Table';   d='All items on one ticket' },
+        @{ v='per_section'; t='Per Section'; d='Split by Drinks / Food' }
+    )
+    foreach ($o in $opts) {
+        $b = New-Object System.Windows.Controls.Border
+        $b.Tag = $o.v; $b.Cursor = 'Hand'; $b.CornerRadius = New-Object System.Windows.CornerRadius(8)
+        $b.BorderThickness = New-Object System.Windows.Thickness(1); $b.Padding = New-Object System.Windows.Thickness(12,10,12,10)
+        $b.Margin = New-Object System.Windows.Thickness(0,0,8,0)
+        $sp = New-Object System.Windows.Controls.StackPanel
+        $t = New-Object System.Windows.Controls.TextBlock
+        $t.Text = $o.t; $t.Foreground = SolidBrush '#FFFFFF'; $t.FontSize = 12; $t.FontWeight = 'SemiBold'
+        $d = New-Object System.Windows.Controls.TextBlock
+        $d.Text = $o.d; $d.Foreground = SolidBrush '#7A8295'; $d.FontSize = 10; $d.TextWrapping = 'Wrap'
+        $d.Margin = New-Object System.Windows.Thickness(0,3,0,0)
+        $sp.Children.Add($t) | Out-Null; $sp.Children.Add($d) | Out-Null
+        $b.Child = $sp
+        $b.Add_MouseLeftButtonUp({ Set-Seg 'ticket_mode' $this.Tag; Update-TsPreview }) | Out-Null
+        $host_.Children.Add($b) | Out-Null
+        $script:tsSegBtns['ticket_mode'][$o.v] = $b
+    }
+}
+# Compact segmented bar (used for Separator style).
+function Build-SepSeg {
+    $host_ = ctl 'TsSepSeg'; $host_.Children.Clear(); $script:tsSegBtns['separator_style'] = @{}
+    $opts = @(@{ v='lines'; t='===' }, @{ v='dashes'; t='---' }, @{ v='stars'; t='***' }, @{ v='dots'; t='...' })
+    foreach ($o in $opts) {
+        $b = New-Object System.Windows.Controls.Border
+        $b.Tag = $o.v; $b.Cursor = 'Hand'; $b.Width = 80; $b.Height = 32
+        $b.CornerRadius = New-Object System.Windows.CornerRadius(6); $b.BorderThickness = New-Object System.Windows.Thickness(1)
+        $b.Margin = New-Object System.Windows.Thickness(0,0,8,0)
+        $t = New-Object System.Windows.Controls.TextBlock
+        $t.Text = $o.t; $t.Foreground = SolidBrush '#FFFFFF'; $t.FontFamily = 'Consolas'; $t.FontSize = 13
+        $t.HorizontalAlignment = 'Center'; $t.VerticalAlignment = 'Center'
+        $b.Child = $t
+        $b.Add_MouseLeftButtonUp({ Set-Seg 'separator_style' $this.Tag; Update-TsPreview }) | Out-Null
+        $host_.Children.Add($b) | Out-Null
+        $script:tsSegBtns['separator_style'][$o.v] = $b
+    }
+}
+
+# A small self-contained segment button. $tagObj travels with the button so the
+# click handler never depends on captured loop variables.
+function New-SegBtn($label, $w, $tagObj, $onClick) {
+    $b = New-Object System.Windows.Controls.Border
+    $b.Tag = $tagObj; $b.Cursor = 'Hand'; $b.Width = $w; $b.Height = 28
+    $b.CornerRadius = New-Object System.Windows.CornerRadius(5); $b.BorderThickness = New-Object System.Windows.Thickness(1)
+    $b.BorderBrush = SolidBrush '#2A2D3A'; $b.Background = SolidBrush '#0F1117'
+    $b.Margin = New-Object System.Windows.Thickness(0,0,5,0)
+    $t = New-Object System.Windows.Controls.TextBlock
+    $t.Text = $label; $t.Foreground = SolidBrush '#D1D5DB'; $t.FontSize = 11
+    $t.HorizontalAlignment = 'Center'; $t.VerticalAlignment = 'Center'
+    $b.Child = $t
+    $b.Add_MouseLeftButtonUp($onClick) | Out-Null
+    return $b
+}
+# Copies 1|2|3 segmented (uses the tsSeg store, key 'order_copies' / 'check_copies').
+function Build-CopiesSeg($containerName, $key) {
+    $host_ = ctl $containerName; $host_.Children.Clear(); $script:tsSegBtns[$key] = @{}
+    foreach ($v in @('1','2','3')) {
+        $b = New-SegBtn $v 36 @{ key=$key; val=$v } { Set-Seg $this.Tag.key $this.Tag.val; Update-TsPreview }
+        $host_.Children.Add($b) | Out-Null; $script:tsSegBtns[$key][$v] = $b
+    }
+    Refresh-Seg $key
+}
+
+# ── Per-zone layout matrix (prefix-aware: order = 4 zones, check = 2 zones) ─────
+$script:tsZoneState = @{
+    order = @{ header=@{size='';bold='';align=''}; info=@{size='';bold='';align=''}; items=@{size='';bold='';align=''}; footer=@{size='';bold='';align=''} }
+    check = @{ info=@{size='';bold='';align=''}; items=@{size='';bold='';align=''} }
+}
+$script:tsZoneBtns = @{}    # "prefix|zone|prop|val" -> Border
+function Refresh-Zone($prefix, $zone) {
+    foreach ($k in $script:tsZoneBtns.Keys) {
+        $parts = $k -split '\|'
+        if ($parts[0] -ne $prefix -or $parts[1] -ne $zone) { continue }
+        $b = $script:tsZoneBtns[$k]
+        $on = ($parts[3] -eq [string]$script:tsZoneState[$prefix][$zone][$parts[2]])
+        if ($on) { $b.Background = SolidBrush '#0F2A26'; $b.BorderBrush = SolidBrush '#14B8A6' }
+        else { $b.Background = SolidBrush '#0F1117'; $b.BorderBrush = SolidBrush '#2A2D3A' }
+    }
+}
+function Set-Zone($prefix, $zone, $prop, $val) {
+    if ($prop -eq 'bold') {
+        $script:tsZoneState[$prefix][$zone].bold = if ($script:tsZoneState[$prefix][$zone].bold -eq 'bold') { '' } else { 'bold' }
+    } else {
+        $script:tsZoneState[$prefix][$zone][$prop] = $val
+    }
+    Refresh-Zone $prefix $zone; Update-TsPreview
+}
+function Build-ZoneMatrix($containerName, $prefix, $zones) {
+    $host_ = ctl $containerName; $host_.Children.Clear()
+    foreach ($zd in $zones) {
+        $zone = $zd.z
+        $row = New-Object System.Windows.Controls.StackPanel
+        $row.Orientation = 'Horizontal'; $row.Margin = New-Object System.Windows.Thickness(0,0,0,8)
+        $lbl = New-Object System.Windows.Controls.TextBlock
+        $lbl.Text = $zd.n; $lbl.Width = 50; $lbl.Foreground = SolidBrush '#9CA3AF'; $lbl.FontSize = 12; $lbl.VerticalAlignment = 'Center'
+        $row.Children.Add($lbl) | Out-Null
+        foreach ($sv in @(@{ l='Auto'; v='' }, @{ l='S'; v='S' }, @{ l='M'; v='M' }, @{ l='L'; v='L' })) {
+            $w = if ($sv.l -eq 'Auto') { 44 } else { 30 }
+            $b = New-SegBtn $sv.l $w @{ p=$prefix; zone=$zone; prop='size'; val=$sv.v } { Set-Zone $this.Tag.p $this.Tag.zone 'size' $this.Tag.val }
+            $row.Children.Add($b) | Out-Null; $script:tsZoneBtns["$prefix|$zone|size|$($sv.v)"] = $b
+        }
+        $g1 = New-Object System.Windows.Controls.Border; $g1.Width = 8; $row.Children.Add($g1) | Out-Null
+        $bb = New-SegBtn 'B' 30 @{ p=$prefix; zone=$zone; prop='bold'; val='bold' } { Set-Zone $this.Tag.p $this.Tag.zone 'bold' 'bold' }
+        $row.Children.Add($bb) | Out-Null; $script:tsZoneBtns["$prefix|$zone|bold|bold"] = $bb
+        $g2 = New-Object System.Windows.Controls.Border; $g2.Width = 8; $row.Children.Add($g2) | Out-Null
+        foreach ($av in @(@{ l='L'; v='left' }, @{ l='C'; v='center' }, @{ l='R'; v='right' })) {
+            $b = New-SegBtn $av.l 30 @{ p=$prefix; zone=$zone; prop='align'; val=$av.v } { Set-Zone $this.Tag.p $this.Tag.zone 'align' $this.Tag.val }
+            $row.Children.Add($b) | Out-Null; $script:tsZoneBtns["$prefix|$zone|align|$($av.v)"] = $b
+        }
+        $host_.Children.Add($row) | Out-Null
+        Refresh-Zone $prefix $zone
+    }
+}
+
+function Load-TicketSettings {
+    $script:tsLoading = $true   # suppress preview re-render while we set many controls
+    try {
+        $r = Invoke-RestMethod -Uri "$base/local/ticket-settings" -TimeoutSec 3 -ErrorAction Stop
+        $s = $r.settings
+        # Global
+        if ($s.ticket_language) { $script:tsLang = [string]$s.ticket_language }; Refresh-LangGrid
+        # Custom label overrides
+        foreach ($k in $script:tsLabelBoxes.Keys) { $script:tsLabelBoxes[$k].Text = '' }
+        if ($s.label_overrides) {
+            foreach ($k in $script:tsLabelBoxes.Keys) {
+                $v = $s.label_overrides.$k
+                if ($v) { $script:tsLabelBoxes[$k].Text = [string]$v }
+            }
+        }
+        Set-ComboByContent (ctl 'TsDateFormat') $s.date_format
+        Set-ComboByContent (ctl 'TsTimeFormat') $s.time_format
+        (ctl 'TsLogoEnabled').IsChecked = [bool]$s.logo_print_enabled
+        Set-ComboByContent (ctl 'TsLogoSize') $(if ($s.logo_size) { [string]$s.logo_size } else { 'medium' })
+        (ctl 'TsLogoText').Text = $(if ($r.has_logo) { 'Logo set - click to replace' } else { 'Upload logo (PNG/JPG)' })
+        # Order
+        Set-Seg 'order_copies' ([string]$s.order_copies)
+        Set-ComboByContent (ctl 'TsOrderFont')   $s.font_size
+        # Per-zone layout
+        $script:tsZoneState.order.header = @{ size=[string]$s.order_header_font_size; bold=[string]$s.order_header_font_bold; align=[string]$s.order_header_align }
+        $script:tsZoneState.order.info   = @{ size=[string]$s.order_info_font_size;   bold=[string]$s.order_info_font_bold;   align=[string]$s.order_info_font_align }
+        $script:tsZoneState.order.items  = @{ size=[string]$s.order_items_font_size;  bold=[string]$s.order_items_font_bold;  align=[string]$s.order_items_font_align }
+        $script:tsZoneState.order.footer = @{ size=[string]$s.order_footer_font_size; bold=[string]$s.order_footer_font_bold; align=[string]$s.order_footer_font_align }
+        foreach ($z in @('header','info','items','footer')) { Refresh-Zone 'order' $z }
+        $script:tsZoneState.check.info  = @{ size=[string]$s.check_info_font_size;  bold=[string]$s.check_info_font_bold;  align=[string]$s.check_info_font_align }
+        $script:tsZoneState.check.items = @{ size=[string]$s.check_items_font_size; bold=[string]$s.check_items_font_bold; align=[string]$s.check_items_font_align }
+        foreach ($z in @('info','items')) { Refresh-Zone 'check' $z }
+        Set-Seg 'separator_style' (if ($s.separator_style) { [string]$s.separator_style } else { 'lines' })
+        Set-Seg 'ticket_mode'     (if ($s.ticket_mode)     { [string]$s.ticket_mode }     else { 'per_item' })
+        (ctl 'TsOrderBold').IsChecked       = [bool]$s.order_item_bold
+        (ctl 'TsOrderRestHeader').IsChecked = [bool]$s.show_restaurant_header
+        (ctl 'TsOrderWaiter').IsChecked     = [bool]$s.show_waiter_name
+        (ctl 'TsOrderPrice').IsChecked      = [bool]$s.show_item_price
+        (ctl 'TsOrderFooter').Text          = [string]$s.kitchen_footer_text
+        # Check
+        Set-Seg 'check_copies' ([string]$s.check_copies)
+        Set-ComboByContent (ctl 'TsCheckItemSize') $s.check_item_size
+        (ctl 'TsCheckAddress').IsChecked   = [bool]$s.check_show_address
+        (ctl 'TsCheckPhone').IsChecked     = [bool]$s.check_show_phone
+        (ctl 'TsCheckInstagram').IsChecked = [bool]$s.check_show_instagram
+        (ctl 'TsCheckWaiter').IsChecked    = [bool]$s.check_show_waiter
+        (ctl 'TsCheckBoldTotal').IsChecked = [bool]$s.check_bold_total
+        (ctl 'TsCheckFooter').Text         = [string]$s.check_footer_text
+        # Cancel
+        Set-ComboByContent (ctl 'TsCancelAlign')    $s.cancel_header_align
+        Set-ComboByContent (ctl 'TsCancelItemSize') $s.cancel_item_size
+        (ctl 'TsCancelEnabled').IsChecked  = [bool]$s.cancel_ticket_enabled
+        (ctl 'TsCancelRestName').IsChecked = [bool]$s.cancel_show_restaurant_name
+        (ctl 'TsCancelBy').IsChecked       = [bool]$s.cancel_show_cancelled_by
+        (ctl 'TsCancelFooter').Text        = [string]$s.cancel_footer_text
+        # Transfer
+        Set-ComboByContent (ctl 'TsTransferAlign')    $s.transfer_header_align
+        Set-ComboByContent (ctl 'TsTransferItemSize') $s.transfer_item_size
+        (ctl 'TsTransferEnabled').IsChecked  = [bool]$s.transfer_ticket_enabled
+        (ctl 'TsTransferRestName').IsChecked = [bool]$s.transfer_show_restaurant_name
+        (ctl 'TsTransferFooter').Text        = [string]$s.transfer_footer_text
+    } catch { }
+    $script:tsLoading = $false
+    Update-TsPreview
+}
+
+function Get-TicketSettingsFromUI {
+    return @{
+        ticket_language        = $script:tsLang
+        label_overrides        = (Get-LabelOverrides)
+        date_format            = Get-ComboContent (ctl 'TsDateFormat')
+        time_format            = Get-ComboContent (ctl 'TsTimeFormat')
+        logo_print_enabled     = [bool](ctl 'TsLogoEnabled').IsChecked
+        logo_size              = Get-ComboContent (ctl 'TsLogoSize')
+        order_copies           = [int](Get-Seg 'order_copies')
+        order_header_align     = $script:tsZoneState.order.header.align
+        order_header_font_size = $script:tsZoneState.order.header.size
+        order_header_font_bold = $script:tsZoneState.order.header.bold
+        order_info_font_size   = $script:tsZoneState.order.info.size
+        order_info_font_bold   = $script:tsZoneState.order.info.bold
+        order_info_font_align  = $script:tsZoneState.order.info.align
+        order_items_font_size  = $script:tsZoneState.order.items.size
+        order_items_font_bold  = $script:tsZoneState.order.items.bold
+        order_items_font_align = $script:tsZoneState.order.items.align
+        order_footer_font_size = $script:tsZoneState.order.footer.size
+        order_footer_font_bold = $script:tsZoneState.order.footer.bold
+        order_footer_font_align= $script:tsZoneState.order.footer.align
+        check_info_font_size   = $script:tsZoneState.check.info.size
+        check_info_font_bold   = $script:tsZoneState.check.info.bold
+        check_info_font_align  = $script:tsZoneState.check.info.align
+        check_items_font_size  = $script:tsZoneState.check.items.size
+        check_items_font_bold  = $script:tsZoneState.check.items.bold
+        check_items_font_align = $script:tsZoneState.check.items.align
+        font_size              = Get-ComboContent (ctl 'TsOrderFont')
+        separator_style        = Get-Seg 'separator_style'
+        ticket_mode            = Get-Seg 'ticket_mode'
+        order_item_bold        = [bool](ctl 'TsOrderBold').IsChecked
+        show_restaurant_header = [bool](ctl 'TsOrderRestHeader').IsChecked
+        show_waiter_name       = [bool](ctl 'TsOrderWaiter').IsChecked
+        show_item_price        = [bool](ctl 'TsOrderPrice').IsChecked
+        kitchen_footer_text    = (ctl 'TsOrderFooter').Text
+        check_copies           = [int](Get-Seg 'check_copies')
+        check_item_size        = Get-ComboContent (ctl 'TsCheckItemSize')
+        check_show_address     = [bool](ctl 'TsCheckAddress').IsChecked
+        check_show_phone       = [bool](ctl 'TsCheckPhone').IsChecked
+        check_show_instagram   = [bool](ctl 'TsCheckInstagram').IsChecked
+        check_show_waiter      = [bool](ctl 'TsCheckWaiter').IsChecked
+        check_bold_total       = [bool](ctl 'TsCheckBoldTotal').IsChecked
+        check_footer_text      = (ctl 'TsCheckFooter').Text
+        cancel_header_align         = Get-ComboContent (ctl 'TsCancelAlign')
+        cancel_item_size            = Get-ComboContent (ctl 'TsCancelItemSize')
+        cancel_ticket_enabled       = [bool](ctl 'TsCancelEnabled').IsChecked
+        cancel_show_restaurant_name = [bool](ctl 'TsCancelRestName').IsChecked
+        cancel_show_cancelled_by    = [bool](ctl 'TsCancelBy').IsChecked
+        cancel_footer_text          = (ctl 'TsCancelFooter').Text
+        transfer_header_align         = Get-ComboContent (ctl 'TsTransferAlign')
+        transfer_item_size            = Get-ComboContent (ctl 'TsTransferItemSize')
+        transfer_ticket_enabled       = [bool](ctl 'TsTransferEnabled').IsChecked
+        transfer_show_restaurant_name = [bool](ctl 'TsTransferRestName').IsChecked
+        transfer_footer_text          = (ctl 'TsTransferFooter').Text
+    }
+}
+
+# ── Live preview ─────────────────────────────────────────────────────────────
+# A handful of preview-only label translations so the mock reflects the chosen
+# language. (Full label set is resolved server-side on Save / Test Print.)
+$script:tsPrevLbl = @{
+    en=@{table='Table';waiter='Waiter';total='TOTAL';invit='[INVIT]';cancelled='!! CANCELLED !!';transfer='** TRANSFER **';from='FROM';to='TO';by='Cancelled by'}
+    fr=@{table='Table';waiter='Serveur';total='TOTAL';invit='[OFFERT]';cancelled='!! ANNULÉ !!';transfer='** TRANSFERT **';from='DE';to='VERS';by='Annulé par'}
+    es=@{table='Mesa';waiter='Camarero';total='TOTAL';invit='[INVIT]';cancelled='!! CANCELADO !!';transfer='** TRANSFERIDO **';from='DESDE';to='A';by='Cancelado por'}
+    it=@{table='Tavolo';waiter='Cameriere';total='TOTALE';invit='[OMAGGIO]';cancelled='!! ANNULLATO !!';transfer='** TRASFERITO **';from='DA';to='A';by='Annullato da'}
+    de=@{table='Tisch';waiter='Kellner';total='GESAMT';invit='[EINLADUNG]';cancelled='!! STORNIERT !!';transfer='** ÜBERTRAGEN **';from='VON';to='NACH';by='Storniert von'}
+    nl=@{table='Tafel';waiter='Ober';total='TOTAAL';invit='[GRATIS]';cancelled='!! GEANNULEERD !!';transfer='** OVERGEZET **';from='VAN';to='NAAR';by='Geannuleerd door'}
+    ru=@{table='Стол';waiter='Официант';total='ИТОГО';invit='[УГОЩЕНИЕ]';cancelled='!! ОТМЕНЕНО !!';transfer='** ПЕРЕНОС **';from='ОТ';to='К';by='Отменил'}
+    ar=@{table='طاولة';waiter='النادل';total='المجموع';invit='[دعوة]';cancelled='!! تم الإلغاء !!';transfer='** تم النقل **';from='من';to='إلى';by='تم الإلغاء بواسطة'}
+    zh=@{table='桌号';waiter='服务员';total='总计';invit='[赠送]';cancelled='!! 已取消 !!';transfer='** 已转移 **';from='从';to='到';by='取消人'}
+    pt=@{table='Mesa';waiter='Garçom';total='TOTAL';invit='[CORTESIA]';cancelled='!! CANCELADO !!';transfer='** TRANSFERIDO **';from='DE';to='PARA';by='Cancelado por'}
+}
+function Get-PrevLbl($k) {
+    # A custom override (if set) wins over the language default in the preview.
+    $map = @{ table='table'; waiter='waiter'; total='total'; invit='invitation' }
+    if ($map.ContainsKey($k) -and $script:tsLabelBoxes -and $script:tsLabelBoxes[$map[$k]]) {
+        $ov = ($script:tsLabelBoxes[$map[$k]].Text).Trim()
+        if ($ov) { return $ov }
+    }
+    $d = $script:tsPrevLbl[$script:tsLang]; if (-not $d) { $d = $script:tsPrevLbl['en'] }; return $d[$k]
+}
+$script:TS_W = 32
+function Ts-Sep($style) {
+    $ch = switch ($style) { 'dashes' { '-' } 'stars' { '*' } 'dots' { '.' } default { '=' } }
+    return ($ch * $script:TS_W)
+}
+function Ts-Align($text, $align) {
+    if ($text.Length -ge $script:TS_W) { return $text }
+    $pad = $script:TS_W - $text.Length
+    if ($align -eq 'right') { return (' ' * $pad) + $text }
+    if ($align -eq 'center') { $l = [math]::Floor($pad/2); return (' ' * $l) + $text }
+    return $text
+}
+function Ts-LR($l, $r) {
+    $sp = $script:TS_W - $l.Length - $r.Length
+    if ($sp -lt 1) { $sp = 1 }
+    return $l + (' ' * $sp) + $r
+}
+$script:tsLoading = $false
+function Update-TsPreview {
+    if ($script:tsLoading) { return }   # skip churn while Load-TicketSettings sets many controls
+    $tb = ctl 'TsPreview'; if (-not $tb) { return }
+    try {
+    $lines = @()
+    $tab = $script:tsActiveTab
+    $rest = 'COFFEES'
+    if ($tab -eq 'order') {
+        $sep = Ts-Sep (Get-Seg 'separator_style')
+        $hAlign = if ($script:tsZoneState.order.header.align) { $script:tsZoneState.order.header.align } else { 'center' }
+        if ((ctl 'TsOrderRestHeader').IsChecked) { $lines += (Ts-Align $rest $hAlign) }
+        $lines += $sep
+        $lines += (Ts-LR ((Get-PrevLbl 'table') + ': 5') '27/06/2026')
+        if ((ctl 'TsOrderWaiter').IsChecked) { $lines += (Ts-LR ((Get-PrevLbl 'waiter') + ': Emran') '04:05') }
+        $lines += $sep
+        $price = [bool](ctl 'TsOrderPrice').IsChecked
+        $lines += if ($price) { Ts-LR '2x Expresso' '4.00' } else { '2x Expresso' }
+        $lines += if ($price) { Ts-LR '1x Croissant' '3.50' } else { '1x Croissant' }
+        $lines += if ($price) { Ts-LR '1x Orange Juice' '4.50' } else { '1x Orange Juice' }
+        $lines += ((Get-PrevLbl 'invit') + ' 1x Water')
+        $ft = ((ctl 'TsOrderFooter').Text).Trim()
+        if ($ft) { $lines += ''; $lines += (Ts-Align $ft 'center') }
+    } elseif ($tab -eq 'check') {
+        $lines += (Ts-Align $rest 'center')
+        $lines += (Ts-Sep 'lines')
+        $lines += ((Get-PrevLbl 'table') + ': 5')
+        $lines += (Ts-Sep 'dashes')
+        $lines += (Ts-LR '2x Expresso' '4.00')
+        $lines += (Ts-LR '1x Croissant' '3.50')
+        $lines += (Ts-LR '1x Orange Juice' '4.50')
+        $lines += (Ts-Sep 'dashes')
+        $lines += (Ts-LR (Get-PrevLbl 'total') '12.00')
+        $ft = ((ctl 'TsCheckFooter').Text).Trim()
+        if ($ft) { $lines += ''; $lines += (Ts-Align $ft 'center') }
+    } elseif ($tab -eq 'cancel') {
+        $lines += (Ts-Align (Get-PrevLbl 'cancelled') (Get-ComboContent (ctl 'TsCancelAlign')))
+        if ((ctl 'TsCancelRestName').IsChecked) { $lines += (Ts-Align $rest 'center') }
+        $lines += (Ts-Sep 'lines')
+        $lines += ((Get-PrevLbl 'table') + ': 5')
+        $lines += '2x Expresso'
+        if ((ctl 'TsCancelBy').IsChecked) { $lines += ''; $lines += ((Get-PrevLbl 'by') + ': Manager') }
+        $ft = ((ctl 'TsCancelFooter').Text).Trim()
+        if ($ft) { $lines += ''; $lines += (Ts-Align $ft 'center') }
+    } else {
+        $lines += (Ts-Align (Get-PrevLbl 'transfer') (Get-ComboContent (ctl 'TsTransferAlign')))
+        if ((ctl 'TsTransferRestName').IsChecked) { $lines += (Ts-Align $rest 'center') }
+        $lines += (Ts-Sep 'lines')
+        $lines += (Ts-LR ((Get-PrevLbl 'from') + ' 5') ((Get-PrevLbl 'to') + ' 8'))
+        $lines += '2x Expresso'
+        $ft = ((ctl 'TsTransferFooter').Text).Trim()
+        if ($ft) { $lines += ''; $lines += (Ts-Align $ft 'center') }
+    }
+    $tb.Text = ($lines -join "`n")
+    } catch { }
+}
+
+$script:tsActiveTab = 'order'
+function Set-TsTab($tab) {
+    $script:tsActiveTab = $tab
+    $panels = @{ order='TsOrderPanel'; check='TsCheckPanel'; cancel='TsCancelPanel'; transfer='TsTransferPanel' }
+    $tabs   = @{ order='TsTabOrder';   check='TsTabCheck';   cancel='TsTabCancel';   transfer='TsTabTransfer' }
+    foreach ($k in $panels.Keys) {
+        (ctl $panels[$k]).Visibility = if ($k -eq $tab) { 'Visible' } else { 'Collapsed' }
+        $btn = ctl $tabs[$k]
+        if ($k -eq $tab) { $btn.Background = SolidBrush '#14B8A6'; $btn.Foreground = [System.Windows.Media.Brushes]::White }
+        else { $btn.Background = SolidBrush '#1A1D29'; $btn.Foreground = SolidBrush '#9CA3AF' }
+    }
+    Update-TsPreview
+}
+
+(ctl 'TsTabOrder').Add_Click({ Set-TsTab 'order' })
+(ctl 'TsTabCheck').Add_Click({ Set-TsTab 'check' })
+(ctl 'TsTabCancel').Add_Click({ Set-TsTab 'cancel' })
+(ctl 'TsTabTransfer').Add_Click({ Set-TsTab 'transfer' })
+(ctl 'TsSave').Add_Click({
+    try {
+        $body = (Get-TicketSettingsFromUI) | ConvertTo-Json
+        Invoke-RestMethod -Uri "$base/local/ticket-settings" -Method Patch -Body $body -ContentType 'application/json' -TimeoutSec 10 -ErrorAction Stop | Out-Null
+        [System.Windows.MessageBox]::Show((T 'ts_saved'), 'LightMenu', 'OK', 'Information') | Out-Null
+    } catch {
+        [System.Windows.MessageBox]::Show((T 'menu_save_fail'), 'LightMenu', 'OK', 'Warning') | Out-Null
+    }
+})
+(ctl 'TsTest').Add_Click({
+    try {
+        $type = switch ($script:tsActiveTab) { 'check' { 'check' } 'cancel' { 'cancel' } 'transfer' { 'transfer' } default { 'kitchen' } }
+        $body = @{ type = $type; settings = (Get-TicketSettingsFromUI) } | ConvertTo-Json
+        Invoke-RestMethod -Uri "$base/local/ticket-settings/test" -Method Post -Body $body -ContentType 'application/json' -TimeoutSec 8 -ErrorAction Stop | Out-Null
+        [System.Windows.MessageBox]::Show((T 'test_print_sent'), 'LightMenu', 'OK', 'Information') | Out-Null
+    } catch {
+        [System.Windows.MessageBox]::Show((T 'test_print_fail'), 'LightMenu', 'OK', 'Warning') | Out-Null
+    }
+})
+# Live preview reacts to the controls that affect it.
+foreach ($n in @('TsOrderBold','TsOrderRestHeader','TsOrderWaiter','TsOrderPrice','TsCancelRestName','TsCancelBy','TsTransferRestName')) {
+    (ctl $n).Add_Click({ Update-TsPreview }) | Out-Null
+}
+foreach ($n in @('TsCancelAlign','TsTransferAlign')) {
+    (ctl $n).Add_SelectionChanged({ Update-TsPreview }) | Out-Null
+}
+foreach ($n in @('TsOrderFooter','TsCheckFooter','TsCancelFooter','TsTransferFooter')) {
+    (ctl $n).Add_TextChanged({ Update-TsPreview }) | Out-Null
+}
+# ── Logo upload ──────────────────────────────────────────────────────────────
+# PowerShell decodes + resizes the image and extracts per-pixel luminance; the
+# agent does the Floyd–Steinberg dither + ESC/POS packing.
+function Convert-LogoToGray($path, $targetWidth) {
+    Add-Type -AssemblyName System.Drawing
+    $img = [System.Drawing.Image]::FromFile($path)
+    try {
+        $scale = $targetWidth / $img.Width
+        $w = [int][Math]::Max(8, [Math]::Round($img.Width * $scale))
+        $h = [int][Math]::Max(1, [Math]::Round($img.Height * $scale))
+        $bmp = New-Object System.Drawing.Bitmap($w, $h)
+        $g = [System.Drawing.Graphics]::FromImage($bmp)
+        $g.Clear([System.Drawing.Color]::White)
+        $g.InterpolationMode = [System.Drawing.Drawing2D.InterpolationMode]::HighQualityBicubic
+        $g.DrawImage($img, 0, 0, $w, $h)
+        $g.Dispose()
+        $rect = New-Object System.Drawing.Rectangle 0, 0, $w, $h
+        $bd = $bmp.LockBits($rect, [System.Drawing.Imaging.ImageLockMode]::ReadOnly, [System.Drawing.Imaging.PixelFormat]::Format32bppArgb)
+        $stride = $bd.Stride
+        $buf = New-Object byte[] ($stride * $h)
+        [System.Runtime.InteropServices.Marshal]::Copy($bd.Scan0, $buf, 0, $buf.Length)
+        $bmp.UnlockBits($bd); $bmp.Dispose()
+        $gray = New-Object byte[] ($w * $h)
+        for ($y = 0; $y -lt $h; $y++) {
+            $ro = $y * $stride
+            for ($x = 0; $x -lt $w; $x++) {
+                $o = $ro + $x * 4   # BGRA
+                $lum = [int](0.114 * $buf[$o] + 0.587 * $buf[$o + 1] + 0.299 * $buf[$o + 2])
+                if ($lum -gt 255) { $lum = 255 }
+                $gray[$y * $w + $x] = [byte]$lum
+            }
+        }
+        return @{ w = $w; h = $h; gray_b64 = [Convert]::ToBase64String($gray) }
+    } finally { $img.Dispose() }
+}
+(ctl 'TsLogoDrop').Add_MouseLeftButtonUp({
+    Add-Type -AssemblyName System.Windows.Forms
+    $dlg = New-Object System.Windows.Forms.OpenFileDialog
+    $dlg.Filter = 'Images|*.png;*.jpg;*.jpeg;*.bmp;*.gif'
+    if ($dlg.ShowDialog() -ne [System.Windows.Forms.DialogResult]::OK) { return }
+    $sizeName = Get-ComboContent (ctl 'TsLogoSize'); if (-not $sizeName) { $sizeName = 'medium' }
+    $tw = switch ($sizeName) { 'small' { 192 } 'large' { 384 } default { 288 } }
+    (ctl 'TsLogoText').Text = 'Processing...'
+    try {
+        $r = Convert-LogoToGray $dlg.FileName $tw
+        $body = @{ width = $r.w; height = $r.h; gray_b64 = $r.gray_b64; size = $sizeName; enabled = $true } | ConvertTo-Json
+        Invoke-RestMethod -Uri "$base/local/logo" -Method Post -Body $body -ContentType 'application/json' -TimeoutSec 25 -ErrorAction Stop | Out-Null
+        (ctl 'TsLogoText').Text = 'Logo set - click to replace'
+        (ctl 'TsLogoEnabled').IsChecked = $true
+    } catch {
+        (ctl 'TsLogoText').Text = 'Upload failed - try a smaller image.'
+    }
+}) | Out-Null
+(ctl 'TsLogoEnabled').Add_Click({
+    try { Invoke-RestMethod -Uri "$base/local/ticket-settings" -Method Patch -Body ((Get-TicketSettingsFromUI) | ConvertTo-Json) -ContentType 'application/json' -TimeoutSec 10 -ErrorAction Stop | Out-Null } catch {}
+}) | Out-Null
+(ctl 'TsLogoRemove').Add_Click({
+    try {
+        Invoke-RestMethod -Uri "$base/local/logo/remove" -Method Post -TimeoutSec 8 -ErrorAction Stop | Out-Null
+        (ctl 'TsLogoText').Text = 'Upload logo (PNG/JPG)'; (ctl 'TsLogoEnabled').IsChecked = $false
+    } catch {}
+}) | Out-Null
+
+Build-LangGrid
+Build-LabelGrid
+Build-ModeSeg
+Build-SepSeg
+Build-CopiesSeg 'TsOrderCopiesSeg' 'order_copies'
+Build-CopiesSeg 'TsCheckCopiesSeg' 'check_copies'
+Build-ZoneMatrix 'TsZoneMatrix'      'order' @(@{z='header';n='Header'},@{z='info';n='Info'},@{z='items';n='Items'},@{z='footer';n='Footer'})
+Build-ZoneMatrix 'TsCheckZoneMatrix' 'check' @(@{z='info';n='Info'},@{z='items';n='Items'})
+Set-Seg 'ticket_mode' 'per_item'
+Set-Seg 'separator_style' 'lines'
+Set-Seg 'order_copies' '1'
+Set-Seg 'check_copies' '1'
+Set-TsTab 'order'
+
+(ctl 'KitchenRefresh').Add_Click({ Update-Kitchen-Page })
+(ctl 'AddPrinterBtn').Add_Click({ (ctl 'AddPrinterPanel').Visibility = 'Visible' })
+(ctl 'CancelPrinterBtn').Add_Click({
+    (ctl 'AddPrinterPanel').Visibility = 'Collapsed'
+    (ctl 'NewPrinterName').Text = ''; (ctl 'NewPrinterIp').Text = ''
+})
+(ctl 'SavePrinterBtn').Add_Click({
+    $name = ((ctl 'NewPrinterName').Text).Trim()
+    $ip   = ((ctl 'NewPrinterIp').Text).Trim()
+    $typeItem = (ctl 'NewPrinterType').SelectedItem
+    $type = if ($typeItem) { $typeItem.Content } else { 'kitchen' }
+    if (-not $name) { $name = 'Printer' }
+    if ($ip -and $ip -notmatch '^\d+\.\d+\.\d+\.\d+$') {
+        [System.Windows.MessageBox]::Show((T 'invalid_ip'), 'LightMenu', 'OK', 'Warning') | Out-Null
+        return
+    }
+    try {
+        $body = @{ name = $name; ip = $ip; port = 9100; type = $type } | ConvertTo-Json
+        Invoke-RestMethod -Uri "$base/local/printers" -Method Post -Body $body -ContentType 'application/json' -TimeoutSec 8 -ErrorAction Stop | Out-Null
+        (ctl 'AddPrinterPanel').Visibility = 'Collapsed'
+        (ctl 'NewPrinterName').Text = ''; (ctl 'NewPrinterIp').Text = ''
+        Update-Kitchen-Page
+    } catch {
+        [System.Windows.MessageBox]::Show((T 'printer_add_fail'), 'LightMenu', 'OK', 'Warning') | Out-Null
+    }
+})
+
+# ─── ASSISTANT (AI chat) ─────────────────────────────────────────────────────
+$script:aiHistory = @()
+$script:aiBusy = $false
+$script:aiInited = $false
+function Add-AiBubble($role, $text) {
+    $wrap = New-Object System.Windows.Controls.Border
+    $wrap.CornerRadius = New-Object System.Windows.CornerRadius(10)
+    $wrap.Padding = New-Object System.Windows.Thickness(12,9,12,9)
+    $wrap.Margin = New-Object System.Windows.Thickness(0,0,0,8)
+    $wrap.MaxWidth = 560
+    if ($role -eq 'user') {
+        $wrap.Background = SolidBrush '#14B8A6'; $wrap.HorizontalAlignment = 'Right'
+    } elseif ($role -eq 'system') {
+        $wrap.Background = SolidBrush '#2A2D3A'; $wrap.HorizontalAlignment = 'Center'
+    } else {
+        $wrap.Background = SolidBrush '#1A1D29'; $wrap.HorizontalAlignment = 'Left'
+        $wrap.BorderBrush = SolidBrush '#2A2D3A'; $wrap.BorderThickness = New-Object System.Windows.Thickness(1)
+    }
+    $tb = New-Object System.Windows.Controls.TextBlock
+    $tb.Text = $text; $tb.Foreground = SolidBrush '#FFFFFF'; $tb.FontSize = 13; $tb.TextWrapping = 'Wrap'
+    $wrap.Child = $tb
+    (ctl 'AiMessages').Children.Add($wrap) | Out-Null
+    (ctl 'AiScroller').ScrollToBottom()
+    return $tb
+}
+function Init-Assistant {
+    if ($script:aiInited) { return }
+    $script:aiInited = $true
+    Add-AiBubble 'assistant' "Hi! I'm your Station assistant. Try: ""add a Mojito for 8 euros to Cocktails"", ""rename Glaces to Desserts"", or ""how many items are in Mekla?""" | Out-Null
+}
+function Send-AiMessage {
+    if ($script:aiBusy) { return }
+    $msg = ((ctl 'AiInput').Text).Trim()
+    if (-not $msg) { return }
+    (ctl 'AiInput').Text = ''
+    Add-AiBubble 'user' $msg | Out-Null
+    $script:aiBusy = $true
+    (ctl 'AiSendText').Text = '...'
+    $thinking = Add-AiBubble 'assistant' 'Thinking...'
+    # Defer the (blocking) network call so the user bubble + "Thinking..." render first.
+    $window.Dispatcher.BeginInvoke([System.Windows.Threading.DispatcherPriority]::Background, [action]{
+        try {
+            $body = @{ message = $msg; history = $script:aiHistory } | ConvertTo-Json -Depth 5
+            $r = Invoke-RestMethod -Uri "$base/local/ai" -Method Post -Body $body -ContentType 'application/json' -TimeoutSec 90 -ErrorAction Stop
+            $reply = if ($r.reply) { [string]$r.reply } else { 'Done.' }
+            $thinking.Text = $reply
+            if ($r.actions -and @($r.actions).Count -gt 0) {
+                Add-AiBubble 'system' ('actions: ' + (@($r.actions) -join ', ')) | Out-Null
+            }
+            $script:aiHistory += @{ role = 'user'; text = $msg }
+            $script:aiHistory += @{ role = 'assistant'; text = $reply }
+            if (@($script:aiHistory).Count -gt 12) { $script:aiHistory = @($script:aiHistory)[-12..-1] }
+            # If the AI changed the menu, refresh the Menu page data next time it opens.
+            $script:menuData = $null
+        } catch {
+            $emsg = $_.Exception.Message
+            if ($emsg -match 'quota') { $thinking.Text = "You've hit your monthly AI limit. Upgrade your plan for more." }
+            elseif ($emsg -match '401|Invalid station') { $thinking.Text = 'The Station could not authenticate with the AI service. Make sure the agent is set up for this restaurant.' }
+            else { $thinking.Text = "Sorry, I couldn't reach the AI service. Check the internet connection and try again." }
+        } finally {
+            $script:aiBusy = $false
+            (ctl 'AiSendText').Text = 'Send'
+            (ctl 'AiScroller').ScrollToBottom()
+        }
+    }) | Out-Null
+}
+(ctl 'AiSend').Add_Click({ Send-AiMessage })
+(ctl 'AiInput').Add_KeyDown({ if ($_.Key -eq 'Return') { Send-AiMessage } })
 
 # ─── Timers ─────────────────────────────────────────────────────────────────
 $statusTimer = New-Object System.Windows.Threading.DispatcherTimer

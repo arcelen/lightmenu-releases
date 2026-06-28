@@ -618,13 +618,12 @@ async function autoAssignPrinterIps(discoveredIps) {
             log('Auto-registered printer ' + ip + ' (fp=' + fp + ', ' + (upserted.is_new ? 'new' : 'matched existing') + ')');
             continue;
           }
-          await supabasePost('printer_configs', {
-            restaurant_id: RESTAURANT_ID,
+          await stationDb('printer_config.create', { values: {
             name: discoveredIps.length === 1 ? 'Printer' : 'Printer ' + (i + 1),
             printer_type: 'kitchen',
             printer_ip: ip,
             is_active: true,
-          });
+          } });
           log('Auto-created printer config for ' + ip);
         } catch (e) {
           log('Auto-create failed for ' + (discoveredIps[i]) + ': ' + e.message);
@@ -641,7 +640,7 @@ async function autoAssignPrinterIps(discoveredIps) {
       // Single-printer setup â€” keep the IP current (handles DHCP changes automatically)
       const cfg = real[0];
       if (cfg.printer_ip !== discoveredIps[0]) {
-        await supabasePatch('printer_configs', cfg.id, { printer_ip: discoveredIps[0] });
+        await stationDb('printer_config.update', { id: cfg.id, patch: { printer_ip: discoveredIps[0] } });
         log('Updated printer IP: ' + (cfg.printer_ip || '(none)') + ' â†’ ' + discoveredIps[0]);
         await new Promise(r => setTimeout(r, 1500));
         await refreshPrinters();
@@ -658,7 +657,7 @@ async function autoAssignPrinterIps(discoveredIps) {
       const noIp = real.filter(c => !c.printer_ip);
       let changed = false;
       for (let i = 0; i < Math.min(noIp.length, discoveredIps.length); i++) {
-        await supabasePatch('printer_configs', noIp[i].id, { printer_ip: discoveredIps[i] });
+        await stationDb('printer_config.update', { id: noIp[i].id, patch: { printer_ip: discoveredIps[i] } });
         log('Assigned IP ' + discoveredIps[i] + ' â†’ ' + noIp[i].name);
         changed = true;
       }
@@ -1088,6 +1087,9 @@ function log(m) {
 const ANALYTICS_FILE = path.join(__dirname, 'analytics.queue.json');
 const ANALYTICS_CAP  = 500; // max events to buffer locally
 const STATS_FILE     = path.join(__dirname, 'stats.daily.json');
+// Menu snapshot — fetched from Supabase when online, served from disk when
+// offline so the Station's Menu tab keeps working during an internet outage.
+const MENU_CACHE_FILE = path.join(__dirname, 'menu.cache.json');
 
 // Read/write today's cumulative stats — survives agent restarts.
 // ui.ps1 reads this file directly so it shows accurate totals even when
@@ -1594,6 +1596,274 @@ function zonePrefix(s, defaults) {
 }
 function zoneSuffix() { return REVERSE_OFF + FONT_NORMAL + ALIGN_LEFT; }
 
+// ── Ticket label translations (ported from web lib/ticketTranslations.js) ────
+// The agent resolves the language → printed labels at save time and stores the
+// result in settings.labels, which the ticket builders read as s.labels?.X.
+const TICKET_LABEL_KEYS = [
+  'table','waiter','date','time','covers','total','cancelled','cancelled_by',
+  'transfer','from','to','thank_you','tel','split','persons','per_person',
+  'cash','card','mixed','invitation','gratis','drinks','food','order_details',
+  'scan_to_save','vat_incl',
+];
+const TICKET_LABELS = {
+  en: { table:'Table', waiter:'Waiter', date:'Date', time:'Time', covers:'Covers', total:'TOTAL', cancelled:'!! CANCELLED !!', cancelled_by:'Cancelled by', transfer:'** TRANSFER **', from:'FROM', to:'TO', thank_you:'Thank you for your visit!', tel:'Tel', split:'Split', persons:'persons', per_person:'per person', cash:'** CASH **', card:'** CARD **', mixed:'** CASH + CARD **', invitation:'[INVIT]', gratis:'[GRATIS]', drinks:'-- DRINKS --', food:'-- MENU --', order_details:'- ORDER DETAILS -', scan_to_save:'Scan to save this bill:', vat_incl:'(VAT incl.)' },
+  fr: { table:'Table', waiter:'Serveur', date:'Date', time:'Heure', covers:'Couverts', total:'TOTAL', cancelled:'!! ANNULÉ !!', cancelled_by:'Annulé par', transfer:'** TRANSFERT **', from:'DE', to:'VERS', thank_you:'Merci de votre visite !', tel:'Tél', split:'Partage', persons:'personnes', per_person:'par personne', cash:'** ESPÈCES **', card:'** CARTE **', mixed:'** ESPÈCES + CARTE **', invitation:'[OFFERT]', gratis:'[OFFERT]', drinks:'-- BOISSONS --', food:'-- MENU --', order_details:'- DÉTAILS DE LA COMMANDE -', scan_to_save:"Scannez pour sauvegarder l'addition :", vat_incl:'(TVA incluse)' },
+  es: { table:'Mesa', waiter:'Camarero', date:'Fecha', time:'Hora', covers:'Comensales', total:'TOTAL', cancelled:'!! CANCELADO !!', cancelled_by:'Cancelado por', transfer:'** TRANSFERIDO **', from:'DESDE', to:'A', thank_you:'¡Gracias por su visita!', tel:'Tel', split:'Dividir', persons:'personas', per_person:'por persona', cash:'** EFECTIVO **', card:'** TARJETA **', mixed:'** EFECTIVO + TARJETA **', invitation:'[INVIT]', gratis:'[GRATIS]', drinks:'-- BEBIDAS --', food:'-- MENÚ --', order_details:'- DETALLES DEL PEDIDO -', scan_to_save:'Escanee para guardar el ticket:', vat_incl:'(IVA incl.)' },
+  it: { table:'Tavolo', waiter:'Cameriere', date:'Data', time:'Ora', covers:'Coperti', total:'TOTALE', cancelled:'!! ANNULLATO !!', cancelled_by:'Annullato da', transfer:'** TRASFERITO **', from:'DA', to:'A', thank_you:'Grazie per la sua visita!', tel:'Tel', split:'Dividi', persons:'persone', per_person:'a persona', cash:'** CONTANTI **', card:'** CARTA **', mixed:'** CONTANTI + CARTA **', invitation:'[OMAGGIO]', gratis:'[OMAGGIO]', drinks:'-- BEVANDE --', food:'-- MENÙ --', order_details:'- DETTAGLI ORDINE -', scan_to_save:'Scansiona per salvare lo scontrino:', vat_incl:'(IVA incl.)' },
+  de: { table:'Tisch', waiter:'Kellner', date:'Datum', time:'Zeit', covers:'Gäste', total:'GESAMT', cancelled:'!! STORNIERT !!', cancelled_by:'Storniert von', transfer:'** ÜBERTRAGEN **', from:'VON', to:'NACH', thank_you:'Vielen Dank für Ihren Besuch!', tel:'Tel', split:'Aufteilen', persons:'Personen', per_person:'pro Person', cash:'** BAR **', card:'** KARTE **', mixed:'** BAR + KARTE **', invitation:'[EINLADUNG]', gratis:'[GRATIS]', drinks:'-- GETRÄNKE --', food:'-- SPEISEN --', order_details:'- BESTELLDETAILS -', scan_to_save:'Scannen zum Speichern der Rechnung:', vat_incl:'(inkl. MwSt.)' },
+  nl: { table:'Tafel', waiter:'Ober', date:'Datum', time:'Tijd', covers:'Gasten', total:'TOTAAL', cancelled:'!! GEANNULEERD !!', cancelled_by:'Geannuleerd door', transfer:'** OVERGEZET **', from:'VAN', to:'NAAR', thank_you:'Bedankt voor uw bezoek!', tel:'Tel', split:'Splitsen', persons:'personen', per_person:'per persoon', cash:'** CONTANT **', card:'** PIN **', mixed:'** CONTANT + PIN **', invitation:'[GRATIS]', gratis:'[GRATIS]', drinks:'-- DRANKEN --', food:'-- MENU --', order_details:'- BESTELDETAILS -', scan_to_save:'Scan om de rekening op te slaan:', vat_incl:'(incl. BTW)' },
+  ru: { table:'Стол', waiter:'Официант', date:'Дата', time:'Время', covers:'Гостей', total:'ИТОГО', cancelled:'!! ОТМЕНЕНО !!', cancelled_by:'Отменил', transfer:'** ПЕРЕНОС **', from:'ОТ', to:'К', thank_you:'Спасибо за визит!', tel:'Тел', split:'Разделить', persons:'персон', per_person:'на персону', cash:'** НАЛИЧНЫЕ **', card:'** КАРТА **', mixed:'** НАЛИЧНЫЕ + КАРТА **', invitation:'[УГОЩЕНИЕ]', gratis:'[БЕСПЛАТНО]', drinks:'-- НАПИТКИ --', food:'-- МЕНЮ --', order_details:'- ДЕТАЛИ ЗАКАЗА -', scan_to_save:'Отсканируйте, чтобы сохранить счёт:', vat_incl:'(вкл. НДС)' },
+  ar: { table:'طاولة', waiter:'النادل', date:'التاريخ', time:'الوقت', covers:'الضيوف', total:'المجموع', cancelled:'!! تم الإلغاء !!', cancelled_by:'تم الإلغاء بواسطة', transfer:'** تم النقل **', from:'من', to:'إلى', thank_you:'شكراً لزيارتكم!', tel:'هاتف', split:'تقسيم', persons:'أشخاص', per_person:'للشخص', cash:'** نقدًا **', card:'** بطاقة **', mixed:'** نقدًا + بطاقة **', invitation:'[دعوة]', gratis:'[مجاناً]', drinks:'-- المشروبات --', food:'-- الطعام --', order_details:'- تفاصيل الطلب -', scan_to_save:'امسح لحفظ الفاتورة:', vat_incl:'(شامل الضريبة)' },
+  zh: { table:'桌号', waiter:'服务员', date:'日期', time:'时间', covers:'人数', total:'总计', cancelled:'!! 已取消 !!', cancelled_by:'取消人', transfer:'** 已转移 **', from:'从', to:'到', thank_you:'感谢您的光临!', tel:'电话', split:'分单', persons:'人', per_person:'每人', cash:'** 现金 **', card:'** 银行卡 **', mixed:'** 现金 + 银行卡 **', invitation:'[赠送]', gratis:'[免费]', drinks:'-- 饮品 --', food:'-- 菜单 --', order_details:'- 订单详情 -', scan_to_save:'扫码保存账单:', vat_incl:'(含税)' },
+  pt: { table:'Mesa', waiter:'Garçom', date:'Data', time:'Hora', covers:'Pessoas', total:'TOTAL', cancelled:'!! CANCELADO !!', cancelled_by:'Cancelado por', transfer:'** TRANSFERIDO **', from:'DE', to:'PARA', thank_you:'Obrigado pela sua visita!', tel:'Tel', split:'Dividir', persons:'pessoas', per_person:'por pessoa', cash:'** DINHEIRO **', card:'** CARTÃO **', mixed:'** DINHEIRO + CARTÃO **', invitation:'[CORTESIA]', gratis:'[GRÁTIS]', drinks:'-- BEBIDAS --', food:'-- MENU --', order_details:'- DETALHES DO PEDIDO -', scan_to_save:'Digitalize para salvar a conta:', vat_incl:'(IVA incl.)' },
+};
+function resolveTicketLabels(lang, overrides) {
+  const base = TICKET_LABELS.en;
+  const loc = TICKET_LABELS[lang] || {};
+  const out = {};
+  for (const k of TICKET_LABEL_KEYS) out[k] = loc[k] || base[k] || '';
+  if (overrides && typeof overrides === 'object') {
+    for (const k of TICKET_LABEL_KEYS) {
+      const v = overrides[k];
+      if (v != null && String(v).trim() !== '') out[k] = String(v);
+    }
+  }
+  return out;
+}
+
+// The functional ticket-setting keys the Station exposes — the ones that
+// actually change a printed ticket (copies, toggles, footers, formats, mode,
+// language). Per-zone colour styling and logo rastering stay in the web editor;
+// the agent still honours them if other clients set them.
+const TICKET_SETTING_DEFAULTS = {
+  // Global
+  ticket_language: 'en',         // en|fr|es|it|de|nl|ru|ar|zh|pt
+  date_format: 'DD/MM/YYYY',     // DD/MM/YYYY | MM/DD/YYYY | YYYY-MM-DD
+  time_format: '24h',            // 24h | 12h
+  logo_print_enabled: false,     // print the uploaded logo at the top of tickets
+  logo_size: 'medium',           // small | medium | large
+  // Order / kitchen ticket
+  order_copies: 1,
+  order_header_align: 'center',  // left | center | right
+  order_item_bold: false,
+  separator_style: 'lines',      // lines | dashes | stars | dots
+  font_size: 'normal',           // small | normal | large
+  show_restaurant_header: true,
+  show_waiter_name: true,
+  show_item_price: false,
+  kitchen_footer_text: '',
+  ticket_mode: 'per_item',       // per_item | per_table | per_section
+  // Order per-zone layout overrides ('' = auto). size: ''|S|M|L, bold: ''|bold, align: ''|left|center|right
+  order_header_font_size: '', order_header_font_bold: '',
+  order_info_font_size: '',   order_info_font_bold: '',   order_info_font_align: '',
+  order_items_font_size: '',  order_items_font_bold: '',  order_items_font_align: '',
+  order_footer_font_size: '', order_footer_font_bold: '', order_footer_font_align: '',
+  // Check ticket
+  check_copies: 1,
+  check_item_size: 'normal',     // small | normal | large
+  check_show_address: true,
+  check_show_phone: true,
+  check_show_instagram: true,
+  check_show_waiter: true,
+  check_bold_total: true,
+  check_footer_text: 'Gracias por su visita! / Thank you for your visit!',
+  // Check per-zone layout overrides (Info + Items zones)
+  check_info_font_size: '',  check_info_font_bold: '',  check_info_font_align: '',
+  check_items_font_size: '', check_items_font_bold: '', check_items_font_align: '',
+  // Cancel ticket
+  cancel_ticket_enabled: true,
+  cancel_show_restaurant_name: true,
+  cancel_show_cancelled_by: true,
+  cancel_header_align: 'center',
+  cancel_item_size: 'normal',
+  cancel_footer_text: '',
+  // Transfer ticket
+  transfer_ticket_enabled: true,
+  transfer_show_restaurant_name: true,
+  transfer_header_align: 'center',
+  transfer_item_size: 'normal',
+  transfer_footer_text: '',
+};
+
+// Return only the whitelisted ticket keys, coercing types and filling defaults.
+// `label_overrides` (free-form object) is passed through when present.
+function pickTicketSettings(src) {
+  src = src && typeof src === 'object' ? src : {};
+  const out = {};
+  for (const [k, def] of Object.entries(TICKET_SETTING_DEFAULTS)) {
+    const v = src[k];
+    if (v === undefined || v === null) { out[k] = def; continue; }
+    if (typeof def === 'boolean')      out[k] = (v === true || v === 'true');
+    else if (typeof def === 'number')  out[k] = Math.max(1, Math.min(3, Number(v) || 1)); // copies 1..3
+    else                               out[k] = String(v);
+  }
+  if (src.label_overrides && typeof src.label_overrides === 'object') {
+    out.label_overrides = src.label_overrides;
+  }
+  return out;
+}
+
+// ─── STATION AI ─────────────────────────────────────────────────────────────
+// A management assistant that can read + modify the menu. It calls the LightMenu
+// backend (authenticated by the restaurant's print_agent_token = API_TOKEN), runs
+// a bounded agentic loop, and executes tool calls locally against Supabase.
+// The LightMenu API backend. www.lightmenu.app is the Vercel SPA (its /api is
+// not proxied to the server), so the agent talks to the Railway backend directly.
+const LM_API_BASE = 'https://lightmenu-production.up.railway.app/api';
+function stationAI(prompt, systemPrompt) {
+  return new Promise((resolve, reject) => {
+    const bodyStr = JSON.stringify({ token: API_TOKEN, prompt, system_prompt: systemPrompt, tier: 'standard' });
+    let u;
+    try { u = new URL(LM_API_BASE + '/station/ai'); } catch (e) { return reject(e); }
+    const r = https.request(u, { method: 'POST', headers: { 'Content-Type': 'application/json', 'Content-Length': Buffer.byteLength(bodyStr) } }, (res) => {
+      let data = '';
+      res.on('data', c => data += c);
+      res.on('end', () => {
+        if (res.statusCode < 200 || res.statusCode >= 300) { reject(new Error('AI HTTP ' + res.statusCode + ': ' + data.slice(0, 200))); return; }
+        try { resolve(JSON.parse(data).result); } catch (e) { reject(e); }
+      });
+    });
+    r.on('error', reject);
+    r.setTimeout(45000, () => r.destroy(new Error('AI request timed out')));
+    r.write(bodyStr); r.end();
+  });
+}
+
+// Station WRITES go through the LightMenu backend (token-authed, scoped
+// server-side to this restaurant) instead of writing to Supabase with the
+// public anon key. The DB no longer grants anon writes (migration 0022), so a
+// leaked anon key can only READ public menu data. Returns the action's `result`.
+function stationDb(action, payload) {
+  return new Promise((resolve, reject) => {
+    const bodyStr = JSON.stringify({ token: API_TOKEN, action, payload: payload || {} });
+    let u;
+    try { u = new URL(LM_API_BASE + '/station/db'); } catch (e) { return reject(e); }
+    const r = https.request(u, { method: 'POST', headers: { 'Content-Type': 'application/json', 'Content-Length': Buffer.byteLength(bodyStr) } }, (res) => {
+      let data = '';
+      res.on('data', c => data += c);
+      res.on('end', () => {
+        let parsed = null;
+        try { parsed = JSON.parse(data); } catch {}
+        if (res.statusCode < 200 || res.statusCode >= 300) {
+          reject(new Error((parsed && parsed.error) || ('Station DB HTTP ' + res.statusCode)));
+          return;
+        }
+        resolve(parsed ? parsed.result : null);
+      });
+    });
+    r.on('error', reject);
+    r.setTimeout(20000, () => r.destroy(new Error('Station DB request timed out')));
+    r.write(bodyStr); r.end();
+  });
+}
+
+const STATION_AI_SYSTEM =
+  'You are StationAI, the on-site assistant for a restaurant POS/print station. ' +
+  'You read and modify the menu. Reply in the SAME language as the user. ' +
+  'Return ONLY JSON: {"reasoning":"...","tool_name":"...","tool_args":{}}. ' +
+  'Tools: ' +
+  'list_menu{} -> current categories+items with ids; ' +
+  'add_item{name,price,description?,category_id?,is_available?,is_addon?}; ' +
+  'update_item{id,name?,price?,description?,menu_category_id?,is_available?,is_addon?}; ' +
+  'delete_item{id}; move_item{id,category_id}; ' +
+  'add_category{name,section?}; rename_category{id,name}; move_category{id,section}; delete_category{id}; ' +
+  'say{message} -> the final answer for the user. ' +
+  'Rules: ALWAYS finish with say{}. Use the FEWEST tool calls. Call list_menu first if you need ids — NEVER invent ids. ' +
+  'Only run delete_* when the user clearly asked to delete.';
+
+async function stationExecTool(name, args) {
+  args = args || {};
+  switch (name) {
+    case 'list_menu': {
+      const [cats, items] = await Promise.all([
+        supabaseGet('menu_categories', { restaurant_id: RESTAURANT_ID }, 500),
+        supabaseGet('menu_items', { restaurant_id: RESTAURANT_ID }, 2000),
+      ]);
+      return {
+        categories: (Array.isArray(cats) ? cats : []).map(x => ({ id: x.id, name: x.name, section: x.section })),
+        items: (Array.isArray(items) ? items : []).map(x => ({ id: x.id, name: x.name, price: x.price, category_id: x.menu_category_id, available: x.is_available !== false, addon: x.is_addon === true })),
+      };
+    }
+    case 'add_item': {
+      if (!args.name) throw new Error('name required');
+      const r = await stationDb('menu_item.create', { name: String(args.name), price: Number(args.price) || 0, description: args.description || '', menu_category_id: args.category_id || null, is_available: args.is_available !== false, is_addon: args.is_addon === true });
+      return { ok: true, id: r && r.id };
+    }
+    case 'update_item': {
+      if (!args.id) throw new Error('id required');
+      const patch = {};
+      if (args.name !== undefined) patch.name = String(args.name);
+      if (args.description !== undefined) patch.description = String(args.description);
+      if (args.price !== undefined) patch.price = Number(args.price) || 0;
+      if (args.menu_category_id !== undefined) patch.menu_category_id = args.menu_category_id || null;
+      if (args.is_available !== undefined) patch.is_available = args.is_available !== false;
+      if (args.is_addon !== undefined) patch.is_addon = args.is_addon === true;
+      await stationDb('menu_item.update', { id: args.id, patch });
+      return { ok: true };
+    }
+    case 'delete_item': { if (!args.id) throw new Error('id required'); await stationDb('menu_item.delete', { id: args.id }); return { ok: true }; }
+    case 'move_item': { if (!args.id) throw new Error('id required'); await stationDb('menu_item.update', { id: args.id, patch: { menu_category_id: args.category_id || null } }); return { ok: true }; }
+    case 'add_category': {
+      if (!args.name) throw new Error('name required');
+      const r = await stationDb('menu_category.create', { name: String(args.name).trim(), section: args.section || 'menu' });
+      return { ok: true, id: r && r.id };
+    }
+    case 'rename_category': { if (!args.id) throw new Error('id required'); await stationDb('menu_category.update', { id: args.id, patch: { name: String(args.name) } }); return { ok: true }; }
+    case 'move_category': { if (!args.id) throw new Error('id required'); await stationDb('menu_category.update', { id: args.id, patch: { section: args.section || 'menu' } }); return { ok: true }; }
+    case 'delete_category': {
+      if (!args.id) throw new Error('id required');
+      await stationDb('menu_category.delete', { id: args.id });
+      return { ok: true };
+    }
+    default: throw new Error('Unknown tool: ' + name);
+  }
+}
+
+async function runStationAgent(userMessage, history) {
+  const convo = [];
+  (history || []).forEach(h => convo.push((h.role === 'user' ? 'User: ' : 'Assistant: ') + h.text));
+  convo.push('User: ' + userMessage);
+  const actions = [];
+  for (let step = 0; step < 6; step++) {
+    const prompt = convo.join('\n') + '\n\nDecide your next action. Return ONLY the JSON.';
+    const resp = await stationAI(prompt, STATION_AI_SYSTEM);
+    let obj = resp;
+    if (typeof resp === 'string') {
+      try { obj = JSON.parse(resp.replace(/```json?/gi, '').replace(/```/g, '').trim()); }
+      catch { obj = { tool_name: 'say', tool_args: { message: resp } }; }
+    }
+    const tool = obj && obj.tool_name, targs = (obj && obj.tool_args) || {};
+    if (tool === 'say' || !tool) { return { reply: targs.message || 'Done.', actions }; }
+    try {
+      const result = await stationExecTool(tool, targs);
+      actions.push(tool);
+      // list_menu can be large (full catalogue) — keep enough for accurate counts.
+      const cap = tool === 'list_menu' ? 12000 : 1500;
+      convo.push('(called ' + tool + ' -> ' + JSON.stringify(result).slice(0, cap) + ')');
+    } catch (e) {
+      convo.push('(called ' + tool + ' -> ERROR: ' + e.message + ')');
+    }
+  }
+  return { reply: 'I did several steps but ran out of moves — please check the menu.', actions };
+}
+
+// Simple diagnostic ticket fired from the Station's Kitchen & Printing tab so
+// the owner can confirm a printer is wired up correctly without taking an order.
+function buildTestTicket(printerName) {
+  const d = new Date();
+  let b = INIT;
+  b += ALIGN_CENTER + FONT_LARGE_B + 'LightMenu' + '\n' + FONT_NORMAL;
+  b += ALIGN_CENTER + FONT_TITLE + 'TEST PRINT' + '\n' + FONT_NORMAL;
+  b += ALIGN_CENTER + '------------------------------' + '\n';
+  b += ALIGN_LEFT + FONT_BOLD + 'Printer: ' + FONT_NORMAL + (printerName || 'Printer') + '\n';
+  if (RESTAURANT_NAME) b += FONT_BOLD + 'Venue:   ' + FONT_NORMAL + RESTAURANT_NAME + '\n';
+  b += FONT_BOLD + 'Time:    ' + FONT_NORMAL + d.toLocaleString() + '\n';
+  b += ALIGN_CENTER + '------------------------------' + '\n';
+  b += ALIGN_CENTER + 'If you can read this,\nyour printer is connected.' + '\n';
+  b += FEED(4) + CUT;
+  return Buffer.from(b, 'binary');
+}
+
 function buildKitchenTicket(t) {
   const s = t.settings || {};
   const d = new Date(t.time || Date.now());
@@ -1891,6 +2161,517 @@ http.createServer((req, res) => {
     return;
   }
 
+  // ─── MENU — read ────────────────────────────────────────────────────────
+  // Fetches categories + items from Supabase, normalises them for the UI, and
+  // caches the result to disk. When offline, serves the last cached snapshot so
+  // the Menu tab still renders. Add an optional ?fresh=1 to force a re-fetch.
+  if (req.method === 'GET' && req.url === '/local/menu') {
+    (async () => {
+      try {
+        const [cats, items] = await Promise.all([
+          supabaseGet('menu_categories', { restaurant_id: RESTAURANT_ID }, 500),
+          supabaseGet('menu_items',      { restaurant_id: RESTAURANT_ID }, 2000),
+        ]);
+        if (!Array.isArray(cats) || !Array.isArray(items)) throw new Error('bad payload');
+
+        const categories = cats
+          .map(c => ({ id: c.id, name: c.name || 'Category', section: c.section || '', order_index: c.order_index ?? 0 }))
+          .sort((a, b) => a.order_index - b.order_index);
+
+        const normItems = items
+          .filter(i => !i.is_addon)
+          .map(i => ({
+            id:           i.id,
+            name:         i.name || 'Item',
+            price:        Number(i.price) || 0,
+            description:  i.description || '',
+            category_id:  i.menu_category_id || null,
+            available:    i.is_available !== false,
+            order_index:  i.order_index ?? 0,
+          }))
+          .sort((a, b) => a.order_index - b.order_index);
+
+        const addons = items
+          .filter(i => i.is_addon)
+          .map(i => ({ id: i.id, name: i.name || 'Add-on', price: Number(i.price) || 0, available: i.is_available !== false }));
+
+        const payload = { categories, items: normItems, addons, synced_at: new Date().toISOString(), source: 'supabase' };
+        try { fs.writeFileSync(MENU_CACHE_FILE, JSON.stringify(payload)); } catch {}
+        res.writeHead(200, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify(payload));
+      } catch (e) {
+        // Offline / fetch failed — fall back to the cached snapshot.
+        try {
+          const cached = JSON.parse(fs.readFileSync(MENU_CACHE_FILE, 'utf8'));
+          cached.source = 'cache';
+          res.writeHead(200, { 'Content-Type': 'application/json' });
+          res.end(JSON.stringify(cached));
+        } catch {
+          res.writeHead(200, { 'Content-Type': 'application/json' });
+          res.end(JSON.stringify({ categories: [], items: [], addons: [], synced_at: null, source: 'empty' }));
+        }
+      }
+    })();
+    return;
+  }
+
+  // ─── MENU — create item ─────────────────────────────────────────────────
+  if (req.method === 'POST' && req.url === '/local/menu/item') {
+    let body = '';
+    req.on('data', c => body += c);
+    req.on('end', async () => {
+      try {
+        const d = JSON.parse(body || '{}');
+        if (!d.name || !String(d.name).trim()) throw new Error('Name is required');
+        const r = await stationDb('menu_item.create', {
+          name:             String(d.name).trim(),
+          description:      d.description || '',
+          price:            Number(d.price) || 0,
+          menu_category_id: d.menu_category_id || null,
+          is_available:     d.is_available !== false,
+          is_addon:         d.is_addon === true,
+        });
+        log('Menu item created via Station: ' + d.name);
+        res.writeHead(200, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ ok: true, item: r && r.item }));
+      } catch (e) {
+        res.writeHead(500, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ ok: false, error: e.message }));
+      }
+    });
+    return;
+  }
+
+  // ─── MENU — update item ─────────────────────────────────────────────────
+  if (req.method === 'PATCH' && req.url.startsWith('/local/menu/item/')) {
+    const id = decodeURIComponent(req.url.slice('/local/menu/item/'.length));
+    let body = '';
+    req.on('data', c => body += c);
+    req.on('end', async () => {
+      try {
+        const d = JSON.parse(body || '{}');
+        const patch = {};
+        if (d.name !== undefined)             patch.name = String(d.name).trim();
+        if (d.description !== undefined)      patch.description = d.description || '';
+        if (d.price !== undefined)            patch.price = Number(d.price) || 0;
+        if (d.menu_category_id !== undefined) patch.menu_category_id = d.menu_category_id || null;
+        if (d.is_available !== undefined)     patch.is_available = d.is_available !== false;
+        if (d.is_addon !== undefined)         patch.is_addon = d.is_addon === true;
+        await stationDb('menu_item.update', { id, patch });
+        log('Menu item updated via Station: ' + id);
+        res.writeHead(200, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ ok: true }));
+      } catch (e) {
+        res.writeHead(500, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ ok: false, error: e.message }));
+      }
+    });
+    return;
+  }
+
+  // ─── MENU — delete item ─────────────────────────────────────────────────
+  if (req.method === 'DELETE' && req.url.startsWith('/local/menu/item/')) {
+    const id = decodeURIComponent(req.url.slice('/local/menu/item/'.length));
+    (async () => {
+      try {
+        await stationDb('menu_item.delete', { id });
+        log('Menu item deleted via Station: ' + id);
+        res.writeHead(200, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ ok: true }));
+      } catch (e) {
+        res.writeHead(500, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ ok: false, error: e.message }));
+      }
+    })();
+    return;
+  }
+
+  // ─── MENU — create category ─────────────────────────────────────────────
+  if (req.method === 'POST' && req.url === '/local/menu/category') {
+    let body = '';
+    req.on('data', c => body += c);
+    req.on('end', async () => {
+      try {
+        const d = JSON.parse(body || '{}');
+        if (!d.name || !String(d.name).trim()) throw new Error('Name is required');
+        // slug is generated server-side (menu_categories.slug is NOT NULL).
+        const r = await stationDb('menu_category.create', {
+          name:        String(d.name).trim(),
+          section:     d.section || 'menu',
+          order_index: Number(d.order_index) || 0,
+        });
+        log('Menu category created via Station: ' + d.name);
+        res.writeHead(200, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ ok: true, category: r && r.category }));
+      } catch (e) {
+        res.writeHead(500, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ ok: false, error: e.message }));
+      }
+    });
+    return;
+  }
+
+  // ─── MENU — rename / update category ────────────────────────────────────
+  if (req.method === 'PATCH' && req.url.startsWith('/local/menu/category/')) {
+    const id = decodeURIComponent(req.url.slice('/local/menu/category/'.length));
+    let body = '';
+    req.on('data', c => body += c);
+    req.on('end', async () => {
+      try {
+        const d = JSON.parse(body || '{}');
+        const patch = {};
+        if (d.name !== undefined)    patch.name = String(d.name).trim();
+        if (d.section !== undefined) patch.section = d.section || 'menu';
+        await stationDb('menu_category.update', { id, patch });
+        log('Menu category updated via Station: ' + id);
+        res.writeHead(200, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ ok: true }));
+      } catch (e) {
+        res.writeHead(500, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ ok: false, error: e.message }));
+      }
+    });
+    return;
+  }
+
+  // ─── MENU — delete category (and its items) ─────────────────────────────
+  if (req.method === 'DELETE' && req.url.startsWith('/local/menu/category/')) {
+    const id = decodeURIComponent(req.url.slice('/local/menu/category/'.length));
+    (async () => {
+      try {
+        // Server deletes the category's items first (mirrors the web behaviour).
+        const r = await stationDb('menu_category.delete', { id });
+        log('Menu category deleted via Station: ' + id + ' (+' + ((r && r.deleted_items) || 0) + ' items)');
+        res.writeHead(200, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ ok: true }));
+      } catch (e) {
+        res.writeHead(500, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ ok: false, error: e.message }));
+      }
+    })();
+    return;
+  }
+
+  // ─── PRINTERS — list ────────────────────────────────────────────────────
+  // Returns the restaurant's printer_configs (excluding the internal "scan"
+  // heartbeat row) merged with this agent's live transport state.
+  if (req.method === 'GET' && req.url === '/local/printers') {
+    (async () => {
+      let rows = [];
+      try { rows = await supabaseGet('printer_configs', { restaurant_id: RESTAURANT_ID }, 100); } catch {}
+      if (!Array.isArray(rows)) rows = [];
+      const printers = rows
+        .filter(c => c.printer_type !== 'scan')
+        .map(c => ({
+          id:        c.id,
+          name:      c.name || 'Printer',
+          type:      c.printer_type || 'kitchen',
+          ip:        c.printer_ip || '',
+          port:      9100, // thermal printers always listen on 9100
+          active:    c.is_active !== false,
+          status:    c.status || 'unknown',
+          last_seen: c.last_seen || c.updated_date || null,
+        }));
+      const live = {
+        usb:  usbDirectPort || usbWinPrinter || null,
+        mode: usbDirectPort ? 'usb-direct' : usbWinPrinter ? 'usb-spooler' : (PRINTER_IP ? 'network' : 'none'),
+        ip:   PRINTER_IP || '',
+        port: PRINTER_PORT,
+      };
+      res.writeHead(200, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ printers, live }));
+    })();
+    return;
+  }
+
+  // ─── PRINTERS — add ─────────────────────────────────────────────────────
+  if (req.method === 'POST' && req.url === '/local/printers') {
+    let body = '';
+    req.on('data', c => body += c);
+    req.on('end', async () => {
+      try {
+        const d = JSON.parse(body || '{}');
+        const ip = (d.ip || '').trim();
+        if (ip && !/^\d+\.\d+\.\d+\.\d+$/.test(ip)) throw new Error('Invalid IP');
+        const r = await stationDb('printer_config.create', { values: {
+          name:          (d.name || 'Printer').slice(0, 60),
+          printer_type:  d.type || 'kitchen',
+          printer_ip:    ip || null,
+          is_active:     true,
+        } });
+        log('Printer added via Station: ' + (d.name || 'Printer') + ' ' + ip);
+        res.writeHead(200, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ ok: true, printer: r && r.printer }));
+      } catch (e) {
+        res.writeHead(500, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ ok: false, error: e.message }));
+      }
+    });
+    return;
+  }
+
+  // ─── PRINTERS — test print ──────────────────────────────────────────────
+  if (req.method === 'POST' && req.url === '/local/printers/test') {
+    let body = '';
+    req.on('data', c => body += c);
+    req.on('end', async () => {
+      try {
+        const d = JSON.parse(body || '{}');
+        const ip = (d.ip || '').trim();
+        const port = Number(d.port) || 9100;
+        const data = buildTestTicket(d.name || 'Printer');
+        if (ip && /^\d+\.\d+\.\d+\.\d+$/.test(ip)) {
+          await sendViaNetwork(data, ip, port); // force the specific network printer
+        } else {
+          await sendToPrinter(data); // active transport (USB / default network)
+        }
+        log('Test print sent to ' + (ip ? ip + ':' + port : 'active printer'));
+        res.writeHead(200, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ ok: true }));
+      } catch (e) {
+        log('Test print failed: ' + e.message);
+        res.writeHead(500, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ ok: false, error: e.message }));
+      }
+    });
+    return;
+  }
+
+  // ─── PRINTERS — update (rename / change IP / change type) ───────────────
+  if (req.method === 'PATCH' && req.url.startsWith('/local/printers/')) {
+    const pid = decodeURIComponent(req.url.slice('/local/printers/'.length));
+    let body = '';
+    req.on('data', c => body += c);
+    req.on('end', async () => {
+      try {
+        const d = JSON.parse(body || '{}');
+        const patch = {};
+        if (d.name !== undefined) patch.name = String(d.name).slice(0, 60);
+        if (d.type !== undefined) patch.printer_type = d.type;
+        if (d.ip !== undefined) {
+          const ip = String(d.ip).trim();
+          if (ip && !/^\d+\.\d+\.\d+\.\d+$/.test(ip)) throw new Error('Invalid IP');
+          patch.printer_ip = ip || null;
+        }
+        if (d.is_active !== undefined) patch.is_active = d.is_active !== false;
+        await stationDb('printer_config.update', { id: pid, patch });
+        log('Printer updated via Station: ' + pid);
+        res.writeHead(200, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ ok: true }));
+      } catch (e) {
+        res.writeHead(500, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ ok: false, error: e.message }));
+      }
+    });
+    return;
+  }
+
+  // ─── PRINTERS — delete ──────────────────────────────────────────────────
+  if (req.method === 'DELETE' && req.url.startsWith('/local/printers/')) {
+    const pid = decodeURIComponent(req.url.slice('/local/printers/'.length));
+    (async () => {
+      try {
+        await stationDb('printer_config.delete', { id: pid });
+        log('Printer removed via Station: ' + pid);
+        res.writeHead(200, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ ok: true }));
+      } catch (e) {
+        res.writeHead(500, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ ok: false, error: e.message }));
+      }
+    })();
+    return;
+  }
+
+  // ─── TICKET SETTINGS ────────────────────────────────────────────────────
+  // The appearance/behaviour of printed tickets lives in the kitchen
+  // printer_config's `settings` JSONB. Whoever prints (web / Flutter / agent)
+  // loads these and passes them with the job, so editing them here changes
+  // every future ticket. We expose the functional subset that actually alters
+  // the printout (copies, show_* toggles, footers, formats, ticket mode).
+  if (req.method === 'GET' && req.url === '/local/ticket-settings') {
+    (async () => {
+      try {
+        const rows = await supabaseGet('printer_configs', { restaurant_id: RESTAURANT_ID, printer_type: 'kitchen' }, 5);
+        const cfg = Array.isArray(rows) ? rows.find(c => c.printer_type === 'kitchen') : null;
+        const s = (cfg && cfg.settings) ? cfg.settings : {};
+        res.writeHead(200, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ has_config: !!cfg, has_logo: !!s.logo_raster_b64, settings: pickTicketSettings(s) }));
+      } catch (e) {
+        res.writeHead(200, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ has_config: false, settings: pickTicketSettings({}), error: e.message }));
+      }
+    })();
+    return;
+  }
+
+  if (req.method === 'PATCH' && req.url === '/local/ticket-settings') {
+    let body = '';
+    req.on('data', c => body += c);
+    req.on('end', async () => {
+      try {
+        const incoming = pickTicketSettings(JSON.parse(body || '{}'));
+        // Read current kitchen settings (still anon-readable) so we merge rather
+        // than clobber; the WRITE goes through the token-authed server.
+        const rows = await supabaseGet('printer_configs', { restaurant_id: RESTAURANT_ID, printer_type: 'kitchen' }, 5);
+        const cfg = Array.isArray(rows) ? rows.find(c => c.printer_type === 'kitchen') : null;
+        const merged = { ...((cfg && cfg.settings) || {}), ...incoming };
+        // Resolve the printed labels from the chosen language + any overrides,
+        // so the ticket builders (which read s.labels) print in that language.
+        merged.labels = resolveTicketLabels(merged.ticket_language || 'en', merged.label_overrides);
+        await stationDb('kitchen_settings.save', { settings: merged });
+        log('Ticket settings saved via Station (lang=' + (merged.ticket_language || 'en') + ')');
+        res.writeHead(200, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ ok: true }));
+      } catch (e) {
+        res.writeHead(500, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ ok: false, error: e.message }));
+      }
+    });
+    return;
+  }
+
+  // Send a sample ticket of the chosen type so the user can preview a real
+  // print with the current (possibly unsaved) settings.
+  if (req.method === 'POST' && req.url === '/local/ticket-settings/test') {
+    let body = '';
+    req.on('data', c => body += c);
+    req.on('end', async () => {
+      try {
+        const d = JSON.parse(body || '{}');
+        const type = d.type === 'check' ? 'check' : (d.type === 'cancel' || d.type === 'transfer' ? d.type : 'kitchen');
+        const settings = pickTicketSettings(d.settings || {});
+        settings.labels = resolveTicketLabels(settings.ticket_language || 'en', settings.label_overrides);
+        const sample = {
+          type,
+          restaurant_id:   RESTAURANT_ID,
+          restaurant_name: RESTAURANT_NAME || 'Restaurant',
+          table_number:    '5',
+          waiter_name:     'Sample',
+          from_table:      '5',
+          to_table:        '8',
+          cancelled_by:    'Manager',
+          currency:        'EUR',
+          time:            new Date().toISOString(),
+          total:           12.0,
+          items: [
+            { qty: 2, name: 'Expresso',     price: 2.0 },
+            { qty: 1, name: 'Croissant',    price: 3.5 },
+            { qty: 1, name: 'Orange Juice', price: 4.5 },
+          ],
+          settings,
+        };
+        let data;
+        switch (type) {
+          case 'check':    data = buildCheckTicket(sample); break;
+          case 'cancel':   data = buildCancelTicket(sample); break;
+          case 'transfer': data = buildTransferTicket(sample); break;
+          default:         data = buildKitchenTicket(sample);
+        }
+        await sendToPrinter(data);
+        log('Ticket-settings test print (' + type + ')');
+        res.writeHead(200, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ ok: true }));
+      } catch (e) {
+        log('Ticket test print failed: ' + e.message);
+        res.writeHead(500, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ ok: false, error: e.message }));
+      }
+    });
+    return;
+  }
+
+  // ─── LOGO — rasterize + store ───────────────────────────────────────────
+  // The Station (PowerShell) decodes/resizes the image and posts the per-pixel
+  // luminance (0..255, one byte each, row-major). We Floyd–Steinberg dither and
+  // pack to ESC/POS GS v 0 raster bytes (identical to the web's imageToEscPos),
+  // then store it in the kitchen config so every ticket can print it.
+  if (req.method === 'POST' && req.url === '/local/logo') {
+    let body = '';
+    req.on('data', c => body += c);
+    req.on('end', async () => {
+      try {
+        const d = JSON.parse(body || '{}');
+        const w = Number(d.width), h = Number(d.height);
+        if (!w || !h || !d.gray_b64) throw new Error('Missing image data');
+        const gray = Buffer.from(d.gray_b64, 'base64');
+        if (gray.length !== w * h) throw new Error('Gray buffer size mismatch (' + gray.length + ' != ' + (w * h) + ')');
+        const g = new Float32Array(w * h);
+        for (let i = 0; i < w * h; i++) g[i] = gray[i];
+        const padW = (w + 7) & ~7;
+        const bytesPerRow = padW >> 3;
+        const out = Buffer.alloc(bytesPerRow * h, 0);
+        for (let y = 0; y < h; y++) {
+          for (let x = 0; x < w; x++) {
+            const i = y * w + x, old = g[i], isBlack = old < 128, nv = isBlack ? 0 : 255, err = old - nv;
+            if (x + 1 < w) g[i + 1] += err * 7 / 16;
+            if (y + 1 < h) { if (x > 0) g[i + w - 1] += err * 3 / 16; g[i + w] += err * 5 / 16; if (x + 1 < w) g[i + w + 1] += err * 1 / 16; }
+            if (isBlack) out[y * bytesPerRow + (x >> 3)] |= 0x80 >> (x & 7);
+          }
+        }
+        const xL = bytesPerRow & 0xff, xH = (bytesPerRow >> 8) & 0xff, yL = h & 0xff, yH = (h >> 8) & 0xff;
+        const full = Buffer.concat([
+          Buffer.from([0x1B, 0x61, 0x01]),                          // ALIGN_CENTER
+          Buffer.from([0x1D, 0x76, 0x30, 0x00, xL, xH, yL, yH]),    // GS v 0
+          out,
+          Buffer.from([0x0A, 0x1B, 0x61, 0x00]),                    // LF + ALIGN_LEFT
+        ]);
+        const b64 = full.toString('base64');
+        const rows = await supabaseGet('printer_configs', { restaurant_id: RESTAURANT_ID, printer_type: 'kitchen' }, 5);
+        const cfg = Array.isArray(rows) ? rows.find(c => c.printer_type === 'kitchen') : null;
+        const merged = { ...((cfg && cfg.settings) || {}), logo_raster_b64: b64, logo_print_enabled: d.enabled !== false, logo_size: d.size || 'medium' };
+        await stationDb('kitchen_settings.save', { settings: merged });
+        log('Logo set via Station (' + w + 'x' + h + ')');
+        res.writeHead(200, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ ok: true }));
+      } catch (e) {
+        res.writeHead(500, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ ok: false, error: e.message }));
+      }
+    });
+    return;
+  }
+
+  // ─── STATION AI — chat ──────────────────────────────────────────────────
+  if (req.method === 'POST' && req.url === '/local/ai') {
+    let body = '';
+    req.on('data', c => body += c);
+    req.on('end', async () => {
+      try {
+        const d = JSON.parse(body || '{}');
+        if (!d.message) throw new Error('message required');
+        const out = await runStationAgent(String(d.message), Array.isArray(d.history) ? d.history : []);
+        res.writeHead(200, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ ok: true, reply: out.reply, actions: out.actions }));
+      } catch (e) {
+        res.writeHead(500, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ ok: false, error: e.message }));
+      }
+    });
+    return;
+  }
+
+  // ─── LOGO — remove ──────────────────────────────────────────────────────
+  if (req.method === 'POST' && req.url === '/local/logo/remove') {
+    (async () => {
+      try {
+        const rows = await supabaseGet('printer_configs', { restaurant_id: RESTAURANT_ID, printer_type: 'kitchen' }, 5);
+        const cfg = Array.isArray(rows) ? rows.find(c => c.printer_type === 'kitchen') : null;
+        if (cfg) {
+          const merged = { ...(cfg.settings || {}), logo_raster_b64: '', logo_print_enabled: false };
+          await stationDb('kitchen_settings.save', { settings: merged });
+        }
+        log('Logo removed via Station');
+        res.writeHead(200, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ ok: true }));
+      } catch (e) {
+        res.writeHead(500, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ ok: false, error: e.message }));
+      }
+    })();
+    return;
+  }
+
   if (req.method === 'POST' && req.url === '/local/reprint') {
     let body = '';
     req.on('data', c => body += c);
@@ -1999,11 +2780,10 @@ http.createServer((req, res) => {
         }
         let result = null;
         try {
-          // Create staff + token atomically via RPC (bypasses RLS on waiter_tokens)
-          const rpcResult = await supabaseRpc('manage_staff_create', {
-            p_restaurant_id: RESTAURANT_ID,
-            p_name:          data.name,
-            p_role_id:       data.role_id || null,
+          // Create staff + token atomically server-side (token-authed, scoped).
+          const rpcResult = await stationDb('staff.create', {
+            name:    data.name,
+            role_id: data.role_id || null,
           });
           if (rpcResult && rpcResult.id) {
             result = { id: rpcResult.id, name: rpcResult.name, source: 'supabase' };
@@ -2032,7 +2812,7 @@ http.createServer((req, res) => {
     (async () => {
       let supaOk = false;
       try {
-        const result = await supabaseRpc('manage_staff_delete', { p_staff_id: staffId, p_restaurant_id: RESTAURANT_ID });
+        const result = await stationDb('staff.delete', { staff_id: staffId });
         supaOk = result && !result.error;
       } catch {}
       const localOk = store.removeStaff(staffId);
@@ -2047,7 +2827,7 @@ http.createServer((req, res) => {
     const staffId = decodeURIComponent(req.url.split('/')[3]);
     (async () => {
       try {
-        const result = await supabaseRpc('manage_staff_toggle', { p_staff_id: staffId, p_restaurant_id: RESTAURANT_ID });
+        const result = await stationDb('staff.toggle', { staff_id: staffId });
         if (result && result.error === 'not_found') {
           // local-only staff — toggle in store
           const active = store.toggleStaff(staffId);
@@ -2093,7 +2873,7 @@ http.createServer((req, res) => {
         return;
       }
       try {
-        const result = await supabaseRpc('manage_staff_new_link', { p_staff_id: staffId, p_restaurant_id: RESTAURANT_ID });
+        const result = await stationDb('staff.new_link', { staff_id: staffId });
         if (result && result.error) throw new Error(result.error);
         res.writeHead(200, { 'Content-Type': 'application/json' });
         res.end(JSON.stringify({ ok: true, link: `https://www.lightmenu.app/waiter/${result.token}` }));
@@ -2124,7 +2904,7 @@ http.createServer((req, res) => {
           return;
         }
         try {
-          const result = await supabaseRpc('manage_staff_role', { p_staff_id: staffId, p_role_id: data.role_id, p_restaurant_id: RESTAURANT_ID });
+          const result = await stationDb('staff.role', { staff_id: staffId, role_id: data.role_id });
           if (result && result.error) throw new Error(result.error);
         } catch {
           // Local staff or offline — update role in local store
@@ -2163,12 +2943,12 @@ http.createServer((req, res) => {
       const testName = '__test__' + Date.now();
       const out = { name: testName, restaurant_id: RESTAURANT_ID };
       try {
-        const r = await supabaseRpc('manage_staff_create', { p_restaurant_id: RESTAURANT_ID, p_name: testName, p_role_id: null });
+        const r = await stationDb('staff.create', { name: testName, role_id: null });
         out.rpc_result = r;
         out.success = r && r.id ? true : false;
         if (r && r.id) {
           // cleanup
-          await supabaseRpc('manage_staff_delete', { p_staff_id: r.id, p_restaurant_id: RESTAURANT_ID }).catch(() => {});
+          await stationDb('staff.delete', { staff_id: r.id }).catch(() => {});
         }
       } catch (e) {
         out.success = false;
