@@ -1967,18 +1967,66 @@ function Add-Floor {
 }
 
 function Add-Table {
+    # Suggest the next free table number so the field is pre-filled but editable.
+    $maxNum = 0
+    foreach ($t in $script:lastFloorData) { if ([int]$t.table_number -gt $maxNum) { $maxNum = [int]$t.table_number } }
+    $suggest = $maxNum + 1
+
+    [xml]$dx = @"
+<Window xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Title="Add Table" Height="322" Width="340" WindowStartupLocation="CenterOwner"
+        Background="#0F1117" TextElement.Foreground="#FFFFFF" ResizeMode="NoResize">
+  <StackPanel Margin="20">
+    <TextBlock x:Name="AddInfo" Text="New table on Main" Foreground="#6B7280" FontSize="11" Margin="0,0,0,12"/>
+    <TextBlock Text="Table number" Foreground="#9CA3AF" FontSize="11" FontWeight="Bold"/>
+    <TextBox x:Name="AddNum" Background="#1A1D29" Foreground="#FFFFFF" BorderBrush="#2A2D3A" Padding="7,5" Margin="0,4,0,12"/>
+    <TextBlock Text="Seats" Foreground="#9CA3AF" FontSize="11" FontWeight="Bold"/>
+    <TextBox x:Name="AddCap" Background="#1A1D29" Foreground="#FFFFFF" BorderBrush="#2A2D3A" Padding="7,5" Margin="0,4,0,12"/>
+    <TextBlock Text="Shape" Foreground="#9CA3AF" FontSize="11" FontWeight="Bold"/>
+    <ComboBox x:Name="AddShape" Margin="0,4,0,16">
+      <ComboBoxItem Content="Square" Tag="square"/>
+      <ComboBoxItem Content="Round"  Tag="circle"/>
+      <ComboBoxItem Content="Long"   Tag="rect"/>
+    </ComboBox>
+    <StackPanel Orientation="Horizontal" HorizontalAlignment="Right">
+      <Button x:Name="AddCancel" Content="Cancel" Background="#2A2D3A" Foreground="#FFFFFF" BorderThickness="0" Padding="14,8" Margin="0,0,8,0" Cursor="Hand"/>
+      <Button x:Name="AddCreate" Content="Add table" Background="#14B8A6" Foreground="#FFFFFF" BorderThickness="0" Padding="16,8" Cursor="Hand"/>
+    </StackPanel>
+  </StackPanel>
+</Window>
+"@
+    $rd  = New-Object System.Xml.XmlNodeReader $dx
+    $dlg = [System.Windows.Markup.XamlReader]::Load($rd)
+    $dlg.Owner = $window
+    $aNum = $dlg.FindName('AddNum'); $aCap = $dlg.FindName('AddCap'); $aShape = $dlg.FindName('AddShape')
+    $dlg.FindName('AddInfo').Text = "New table on $($script:activeFloor)"
+    $aNum.Text = [string]$suggest
+    $aCap.Text = '4'
+    $aShape.SelectedIndex = 0
+
     $zone = if ($script:activeFloor -eq 'Main') { $null } else { $script:activeFloor }
-    $body = (@{ zone = $zone } | ConvertTo-Json -Compress)
-    Invoke-AsyncPost "$base/local/tables" $body 'POST' {
-        param($r, $bad, $em)
-        if (-not $bad) {
-            # Floor now has a table — drop it from the pending list.
-            $script:pendingFloors = @($script:pendingFloors | Where-Object { $_ -ne $script:activeFloor })
-            Update-FloorPlan
-        } else {
-            [System.Windows.MessageBox]::Show("Could not add table.`n$em", 'LightMenu', 'OK', 'Warning') | Out-Null
+    $dlg.FindName('AddCreate').Add_Click({
+        $num = [int]($aNum.Text -replace '[^\d]','')
+        $cap = [int]($aCap.Text -replace '[^\d]','')
+        if ($num -le 0) { [System.Windows.MessageBox]::Show('Enter a table number.', 'LightMenu', 'OK', 'Info') | Out-Null; return }
+        if ($cap -le 0) { $cap = 4 }
+        $body = (@{ zone = $zone; table_number = $num; capacity = $cap; shape = [string]$aShape.SelectedItem.Tag } | ConvertTo-Json -Compress)
+        Invoke-AsyncPost "$base/local/tables" $body 'POST' {
+            param($r, $bad, $em)
+            if (-not $bad) {
+                $script:pendingFloors = @($script:pendingFloors | Where-Object { $_ -ne $script:activeFloor })
+                Update-FloorPlan
+            } else {
+                [System.Windows.MessageBox]::Show("Could not add table.`n$em", 'LightMenu', 'OK', 'Warning') | Out-Null
+            }
         }
-    }
+        $dlg.Close()
+    }.GetNewClosure())
+    $dlg.FindName('AddCancel').Add_Click({ $dlg.Close() }.GetNewClosure())
+    $dlg.Add_Closed({ $script:editorOpen = $false })
+    $script:editorOpen = $true
+    $dlg.ShowDialog() | Out-Null
 }
 
 function Delete-Floor {

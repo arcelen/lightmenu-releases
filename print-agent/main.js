@@ -2201,7 +2201,7 @@ http.createServer((req, res) => {
         const b = JSON.parse(body || '{}');
         const r = await stationDb('table.create', {
           zone: b.zone || null, pos_x: b.pos_x, pos_y: b.pos_y,
-          capacity: b.capacity, shape: b.shape,
+          capacity: b.capacity, shape: b.shape, table_number: b.table_number,
         });
         res.writeHead(200, { 'Content-Type': 'application/json' });
         res.end(JSON.stringify(r || { ok: true }));
