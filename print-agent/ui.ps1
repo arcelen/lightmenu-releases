@@ -208,87 +208,64 @@ function Format-Money($amount) {
     <!-- ───────── PAGE CONTAINER ───────── -->
     <Grid Grid.Row="2">
 
-      <!-- ════════ PAGE 1: DASHBOARD ════════ -->
+      <!-- ════════ PAGE 1: DASHBOARD — Floor Plan ════════ -->
       <Grid x:Name="PageDashboard" Visibility="Visible">
         <Grid.RowDefinitions>
-          <RowDefinition Height="Auto"/>
           <RowDefinition Height="Auto"/>
           <RowDefinition Height="*"/>
           <RowDefinition Height="Auto"/>
         </Grid.RowDefinitions>
 
-        <!-- Hero stats: Revenue | Orders | Tickets -->
-        <Grid Grid.Row="0" Margin="0,0,0,12">
+        <!-- Floor tabs + legend -->
+        <Grid Grid.Row="0" Margin="0,0,0,10">
           <Grid.ColumnDefinitions>
             <ColumnDefinition Width="*"/>
-            <ColumnDefinition Width="12"/>
-            <ColumnDefinition Width="*"/>
-            <ColumnDefinition Width="12"/>
-            <ColumnDefinition Width="*"/>
+            <ColumnDefinition Width="Auto"/>
           </Grid.ColumnDefinitions>
-          <Border Style="{StaticResource CardStyle}" Grid.Column="0">
-            <StackPanel>
-              <TextBlock x:Name="LblTodayRevenue" Text="TODAY REVENUE" Style="{StaticResource CardLabel}"/>
-              <TextBlock x:Name="DashRevenue" Text="--" Style="{StaticResource BigValue}"/>
-            </StackPanel>
-          </Border>
-          <Border Style="{StaticResource CardStyle}" Grid.Column="2">
-            <StackPanel>
-              <TextBlock x:Name="LblTodayOrders" Text="TODAY ORDERS" Style="{StaticResource CardLabel}"/>
-              <TextBlock x:Name="DashOrders" Text="--" Foreground="#06B6D4" FontSize="24" FontWeight="Bold" Margin="0,6,0,0"/>
-            </StackPanel>
-          </Border>
-          <Border Style="{StaticResource CardStyle}" Grid.Column="4">
-            <StackPanel>
-              <TextBlock x:Name="LblTicketsPrinted" Text="TICKETS PRINTED" Style="{StaticResource CardLabel}"/>
-              <TextBlock x:Name="DashPrinted" Text="--" Foreground="#A78BFA" FontSize="24" FontWeight="Bold" Margin="0,6,0,0"/>
-            </StackPanel>
-          </Border>
+          <StackPanel x:Name="FloorTabs" Orientation="Horizontal" VerticalAlignment="Center"/>
+          <!-- legend -->
+          <StackPanel Grid.Column="1" Orientation="Horizontal" VerticalAlignment="Center">
+            <Ellipse Width="8" Height="8" Fill="#22C55E" VerticalAlignment="Center" Margin="0,0,5,0"/>
+            <TextBlock x:Name="LblFree"     Text="Free"     Foreground="#6B7280" FontSize="11" VerticalAlignment="Center" Margin="0,0,14,0"/>
+            <Ellipse Width="8" Height="8" Fill="#F59E0B" VerticalAlignment="Center" Margin="0,0,5,0"/>
+            <TextBlock x:Name="LblOccupied" Text="Occupied" Foreground="#6B7280" FontSize="11" VerticalAlignment="Center" Margin="0,0,14,0"/>
+            <Ellipse Width="8" Height="8" Fill="#A78BFA" VerticalAlignment="Center" Margin="0,0,5,0"/>
+            <TextBlock x:Name="LblReserved" Text="Reserved" Foreground="#6B7280" FontSize="11" VerticalAlignment="Center"/>
+          </StackPanel>
         </Grid>
 
-        <!-- Status row: Printer | Last update -->
-        <Grid Grid.Row="1" Margin="0,0,0,12">
-          <Grid.ColumnDefinitions>
-            <ColumnDefinition Width="*"/>
-            <ColumnDefinition Width="12"/>
-            <ColumnDefinition Width="*"/>
-          </Grid.ColumnDefinitions>
-          <Border Style="{StaticResource CardStyle}" Grid.Column="0">
-            <StackPanel>
-              <TextBlock x:Name="LblPrinter" Text="PRINTER" Style="{StaticResource CardLabel}"/>
-              <TextBlock x:Name="PrinterText" Text="--" Style="{StaticResource CardValue}"/>
-            </StackPanel>
-          </Border>
-          <Border Style="{StaticResource CardStyle}" Grid.Column="2">
-            <StackPanel>
-              <TextBlock x:Name="LblLastUpdate" Text="LAST UPDATE" Style="{StaticResource CardLabel}"/>
-              <TextBlock x:Name="UpdateText" Text="--" Style="{StaticResource CardValue}"/>
-            </StackPanel>
-          </Border>
-        </Grid>
-
-        <!-- Recent Activity feed -->
-        <Border Style="{StaticResource CardStyle}" Grid.Row="2">
+        <!-- Floor plan canvas -->
+        <Border Style="{StaticResource CardStyle}" Grid.Row="1" Padding="0">
           <Grid>
-            <Grid.RowDefinitions>
-              <RowDefinition Height="Auto"/>
-              <RowDefinition Height="*"/>
-            </Grid.RowDefinitions>
-            <TextBlock x:Name="LblRecentActivity" Grid.Row="0" Text="RECENT ACTIVITY" Style="{StaticResource CardLabel}" Margin="0,0,0,10"/>
-            <ScrollViewer x:Name="ActivityScroller" Grid.Row="1" VerticalScrollBarVisibility="Auto">
-              <StackPanel x:Name="ActivityFeed"/>
-            </ScrollViewer>
+            <Viewbox x:Name="FloorViewbox" Stretch="Uniform">
+              <Canvas x:Name="FloorCanvas" Width="1000" Height="620"
+                      Background="Transparent"/>
+            </Viewbox>
+            <TextBlock x:Name="FloorEmpty" Text="No tables yet. Add them in the web dashboard."
+                       Foreground="#6B7280" FontSize="13" HorizontalAlignment="Center"
+                       VerticalAlignment="Center" Visibility="Collapsed"/>
           </Grid>
         </Border>
 
-        <!-- Action buttons -->
-        <Grid Grid.Row="3" Margin="0,12,0,0">
+        <!-- Status bar -->
+        <Grid Grid.Row="2" Margin="0,10,0,0">
           <Grid.ColumnDefinitions>
             <ColumnDefinition Width="*"/>
             <ColumnDefinition Width="12"/>
-            <ColumnDefinition Width="*"/>
+            <ColumnDefinition Width="Auto"/>
+            <ColumnDefinition Width="12"/>
+            <ColumnDefinition Width="Auto"/>
           </Grid.ColumnDefinitions>
-          <Button x:Name="TestBtn" Grid.Column="0" Style="{StaticResource ActionBtn}" Content="Rescan Printers">
+          <Border Style="{StaticResource CardStyle}" Grid.Column="0" Padding="12,8">
+            <StackPanel Orientation="Horizontal">
+              <TextBlock x:Name="LblPrinter" Text="PRINTER" Style="{StaticResource CardLabel}" VerticalAlignment="Center" Margin="0,0,8,0"/>
+              <TextBlock x:Name="PrinterText" Text="--" Foreground="#FFFFFF" FontSize="12" VerticalAlignment="Center"/>
+              <TextBlock Text="  ·  " Foreground="#3A3D4A" VerticalAlignment="Center"/>
+              <TextBlock x:Name="LblLastUpdate" Text="LAST UPDATE" Style="{StaticResource CardLabel}" VerticalAlignment="Center" Margin="0,0,8,0"/>
+              <TextBlock x:Name="UpdateText" Text="--" Foreground="#7A8295" FontSize="12" VerticalAlignment="Center"/>
+            </StackPanel>
+          </Border>
+          <Button x:Name="TestBtn" Grid.Column="2" Style="{StaticResource ActionBtn}" Content="Rescan Printers" Padding="14,8">
             <Button.Background>
               <LinearGradientBrush StartPoint="0,0" EndPoint="1,0">
                 <GradientStop Color="#14B8A6" Offset="0"/>
@@ -296,7 +273,7 @@ function Format-Money($amount) {
               </LinearGradientBrush>
             </Button.Background>
           </Button>
-          <Button x:Name="RestartBtn" Grid.Column="2" Style="{StaticResource ActionBtn}" Content="Restart Agent"/>
+          <Button x:Name="RestartBtn" Grid.Column="4" Style="{StaticResource ActionBtn}" Content="Restart Agent" Padding="14,8"/>
         </Grid>
       </Grid>
 
@@ -1202,7 +1179,7 @@ function SolidBrush($hex) { New-Object System.Windows.Media.SolidColorBrush ([Sy
 $script:i18n = @{
     en = @{
         nav_dashboard='Dashboard'; nav_analytics='Analytics'; nav_bills='Bills'; nav_report='Daily Report'; nav_staff='Staff'
-        lbl_printer='PRINTER'; lbl_last_update='LAST UPDATE'; lbl_today_revenue='TODAY REVENUE'; lbl_today_orders='TODAY ORDERS'; lbl_tickets_printed='TICKETS PRINTED'; lbl_recent_activity='RECENT ACTIVITY'
+        lbl_printer='PRINTER'; lbl_last_update='LAST UPDATE'; lbl_free='Free'; lbl_occupied='Occupied'; lbl_reserved='Reserved'
         btn_rescan='Rescan Printers'; btn_restart='Restart Agent'
         period_today='Today'; period_week='This Week'; period_month='This Month'; period_all='All Time'; period_refresh='Refresh'
         lbl_total_revenue='TOTAL REVENUE'; lbl_total_orders='TOTAL ORDERS'; lbl_avg_ticket='AVG TICKET'; lbl_best_day='BEST DAY'
@@ -1516,14 +1493,13 @@ function Apply-Language {
     (ctl 'CancelPrinterBtn').Content = T 'dlg_cancel'
 
     # Dashboard labels
-    (ctl 'LblPrinter').Text         = T 'lbl_printer'
-    (ctl 'LblLastUpdate').Text      = T 'lbl_last_update'
-    (ctl 'LblTodayRevenue').Text    = T 'lbl_today_revenue'
-    (ctl 'LblTodayOrders').Text     = T 'lbl_today_orders'
-    (ctl 'LblTicketsPrinted').Text  = T 'lbl_tickets_printed'
-    (ctl 'LblRecentActivity').Text  = T 'lbl_recent_activity'
-    (ctl 'TestBtn').Content         = T 'btn_rescan'
-    (ctl 'RestartBtn').Content      = T 'btn_restart'
+    (ctl 'LblPrinter').Text     = T 'lbl_printer'
+    (ctl 'LblLastUpdate').Text  = T 'lbl_last_update'
+    (ctl 'LblFree').Text        = T 'lbl_free'
+    (ctl 'LblOccupied').Text    = T 'lbl_occupied'
+    (ctl 'LblReserved').Text    = T 'lbl_reserved'
+    (ctl 'TestBtn').Content     = T 'btn_rescan'
+    (ctl 'RestartBtn').Content  = T 'btn_restart'
 
     # Analytics
     (ctl 'PeriodToday').Content   = T 'period_today'
@@ -1648,7 +1624,7 @@ function Switch-Page($name) {
     # Defer the (network-bound) page loads until AFTER the page has rendered, so
     # switching tabs is instant instead of freezing the UI while data loads.
     $loader = switch ($name) {
-        'Dashboard' { { Update-Dashboard-Stats } }
+        'Dashboard' { { Update-FloorPlan } }
         'Analytics' { { Update-Analytics-Page } }
         'Bills'     { { Update-Bills-Page } }
         'Staff'     { { Update-Staff-Page } }
@@ -1670,73 +1646,7 @@ function Switch-Page($name) {
 (ctl 'NavReport').Add_Click(   { Switch-Page 'Report' })
 (ctl 'NavStaff').Add_Click(    { Switch-Page 'Staff' })
 
-# ─── DASHBOARD: live log + status ───────────────────────────────────────────
-$script:lastLogSize      = -1
-$script:lastActivityLines = ''
-
-function Update-Activity {
-    if (-not (Test-Path $logPath)) { return }
-    try { $size = (Get-Item $logPath -ErrorAction Stop).Length } catch { return }
-    if ($size -eq $script:lastLogSize) { return }
-    $script:lastLogSize = $size
-    $tail = Get-Content $logPath -Tail 14 -ErrorAction SilentlyContinue
-    if (-not $tail) { return }
-    $text = ($tail -join "`n")
-    if ($text -eq $script:lastActivityLines) { return }
-    $script:lastActivityLines = $text
-
-    $feed = ctl 'ActivityFeed'
-    $feed.Children.Clear()
-    foreach ($line in $tail) {
-        if ($line -notmatch '^\[') { continue }
-        $timeStr = ''; $level = 'INFO'; $msg = $line
-        if ($line -match '^\[[\d-]+ (\d{2}:\d{2}:\d{2})\] \[(\w+)\] (.+)$') {
-            $timeStr = $Matches[1]; $level = $Matches[2].ToUpper(); $msg = $Matches[3]
-        }
-        $dotColor = switch -Wildcard ($level) {
-            'ERROR*' { '#EF4444' }
-            'WARN*'  { '#F59E0B' }
-            'PRINT*' { '#14B8A6' }
-            'ORDER*' { '#06B6D4' }
-            default  { '#6B7280' }
-        }
-        $row = New-Object System.Windows.Controls.Grid
-        $row.Margin = New-Object System.Windows.Thickness(0,0,0,6)
-        $c0 = New-Object System.Windows.Controls.ColumnDefinition; $c0.Width = [System.Windows.GridLength]::Auto
-        $c1 = New-Object System.Windows.Controls.ColumnDefinition; $c1.Width = New-Object System.Windows.GridLength(1,[System.Windows.GridUnitType]::Star)
-        $c2 = New-Object System.Windows.Controls.ColumnDefinition; $c2.Width = [System.Windows.GridLength]::Auto
-        $row.ColumnDefinitions.Add($c0) | Out-Null
-        $row.ColumnDefinitions.Add($c1) | Out-Null
-        $row.ColumnDefinitions.Add($c2) | Out-Null
-
-        $dot = New-Object System.Windows.Shapes.Ellipse
-        $dot.Width = 6; $dot.Height = 6
-        $dot.Fill = [System.Windows.Media.SolidColorBrush]([System.Windows.Media.ColorConverter]::ConvertFromString($dotColor))
-        $dot.VerticalAlignment = 'Center'
-        $dot.Margin = New-Object System.Windows.Thickness(0,0,10,0)
-        [System.Windows.Controls.Grid]::SetColumn($dot, 0)
-
-        $msgBlock = New-Object System.Windows.Controls.TextBlock
-        $msgBlock.Text = $msg
-        $msgBlock.Foreground = [System.Windows.Media.Brushes]::White
-        $msgBlock.FontSize = 11; $msgBlock.VerticalAlignment = 'Center'
-        $msgBlock.TextTrimming = 'CharacterEllipsis'
-        [System.Windows.Controls.Grid]::SetColumn($msgBlock, 1)
-
-        $timeBlock = New-Object System.Windows.Controls.TextBlock
-        $timeBlock.Text = $timeStr
-        $timeBlock.Foreground = SolidBrush '#6B7280'
-        $timeBlock.FontSize = 10; $timeBlock.VerticalAlignment = 'Center'
-        $timeBlock.Margin = New-Object System.Windows.Thickness(10,0,0,0)
-        [System.Windows.Controls.Grid]::SetColumn($timeBlock, 2)
-
-        $row.Children.Add($dot)      | Out-Null
-        $row.Children.Add($msgBlock) | Out-Null
-        $row.Children.Add($timeBlock)| Out-Null
-        $feed.Children.Add($row)     | Out-Null
-    }
-    try { (ctl 'ActivityScroller').ScrollToBottom() } catch {}
-}
+# ─── DASHBOARD: floor plan ───────────────────────────────────────────────────
 
 # ─── Async HTTP helpers (keep the WPF UI thread responsive) ──────────────────
 # Every Invoke-RestMethod call blocks the calling thread. When that thread is the
@@ -1808,27 +1718,139 @@ function Update-Status {
             else                                         { $printerInfo = 'Searching...' }
         }
         (ctl 'PrinterText').Text = $printerInfo
-        $p = if ($r.printed) { $r.printed } else { 0 }
-        (ctl 'DashPrinted').Text = [string]$p
-        (ctl 'UpdateText').Text  = ('v' + $r.version + ' - checked ' + (Get-Date -Format 'HH:mm'))
+        (ctl 'UpdateText').Text = ('v' + $r.version + ' - checked ' + (Get-Date -Format 'HH:mm'))
     }
 }
 
-$script:dashStatsBusy = $false
-function Update-Dashboard-Stats {
-    if ($script:dashStatsBusy) { return }
-    $script:dashStatsBusy = $true
-    Invoke-AsyncGet "$base/local/stats?period=today" {
-        param($r, $bad)
-        $script:dashStatsBusy = $false
-        if ($bad -or -not $r) {
-            (ctl 'DashRevenue').Text = '--'
-            (ctl 'DashOrders').Text  = '--'
-            return
+$script:floorBusy       = $false
+$script:activeFloor     = $null
+$script:floorTabBtns    = @{}
+
+function SolidColor([string]$hex) {
+    [System.Windows.Media.SolidColorBrush]([System.Windows.Media.ColorConverter]::ConvertFromString($hex))
+}
+
+function Render-FloorTables([array]$tables) {
+    $canvas    = ctl 'FloorCanvas'
+    $tabsPanel = ctl 'FloorTabs'
+    $emptyMsg  = ctl 'FloorEmpty'
+    $canvas.Children.Clear()
+    $tabsPanel.Children.Clear()
+
+    if (-not $tables -or $tables.Count -eq 0) {
+        $emptyMsg.Visibility = 'Visible'
+        return
+    }
+    $emptyMsg.Visibility = 'Collapsed'
+
+    # Collect zones
+    $zones = @()
+    foreach ($t in $tables) {
+        $z = if ($t.zone) { $t.zone } else { 'Main' }
+        if ($zones -notcontains $z) { $zones += $z }
+    }
+    if (-not $script:activeFloor -or $zones -notcontains $script:activeFloor) {
+        $script:activeFloor = $zones[0]
+    }
+
+    # Build floor tab buttons (only show if >1 zone)
+    $script:floorTabBtns = @{}
+    if ($zones.Count -gt 1) {
+        foreach ($z in $zones) {
+            $zCopy = $z
+            $btn = New-Object System.Windows.Controls.Button
+            $btn.Content    = $z
+            $btn.FontSize   = 12
+            $btn.FontWeight = 'SemiBold'
+            $btn.Padding    = New-Object System.Windows.Thickness(14,6,14,6)
+            $btn.Margin     = New-Object System.Windows.Thickness(0,0,6,0)
+            $btn.Cursor     = 'Hand'
+            $btn.BorderThickness = New-Object System.Windows.Thickness(0)
+            $btn.Template   = (ctl 'NavDashboard').Template
+            if ($z -eq $script:activeFloor) {
+                $btn.Background = SolidColor '#1A1D29'
+                $btn.Foreground = [System.Windows.Media.Brushes]::White
+            } else {
+                $btn.Background = [System.Windows.Media.Brushes]::Transparent
+                $btn.Foreground = SolidColor '#7A8295'
+            }
+            $btn.Add_Click({
+                $script:activeFloor = $zCopy
+                Render-FloorTables $script:lastFloorData
+            }.GetNewClosure())
+            $script:floorTabBtns[$z] = $btn
+            $tabsPanel.Children.Add($btn) | Out-Null
         }
-        $script:currencySymbol = $r.currency
-        (ctl 'DashRevenue').Text = Format-Money $r.total_revenue
-        (ctl 'DashOrders').Text  = [string]$r.total_orders
+    }
+
+    # Draw tables for active floor
+    $W = 1000.0; $H = 620.0
+    $perRow = 5; $idx = 0
+    foreach ($t in $tables) {
+        $tz = if ($t.zone) { $t.zone } else { 'Main' }
+        if ($tz -ne $script:activeFloor) { continue }
+
+        # Position — auto-grid if no saved coords
+        if ($null -ne $t.pos_x -and $null -ne $t.pos_y) {
+            $cx = [double]$t.pos_x * $W
+            $cy = [double]$t.pos_y * $H
+        } else {
+            $col = $idx % $perRow; $row = [Math]::Floor($idx / $perRow)
+            $cx = 120 + $col * 160
+            $cy = 100 + $row * 140
+            $idx++
+        }
+
+        # Colors by status
+        $occ = $t.occupied -or $t.status -eq 'occupied'
+        $res = $t.status -eq 'reserved'
+        if ($occ) {
+            $bg = '#2D2310'; $border = '#F59E0B'; $fg = '#FCD34D'
+        } elseif ($res) {
+            $bg = '#1E1529'; $border = '#A78BFA'; $fg = '#C4B5FD'
+        } else {
+            $bg = '#0D2318'; $border = '#22C55E'; $fg = '#86EFAC'
+        }
+
+        # Shape dimensions
+        $tw = if ($t.shape -eq 'rect') { 100.0 } else { 72.0 }
+        $th = 72.0
+        $left = $cx - $tw / 2; $top = $cy - $th / 2
+
+        $brd = New-Object System.Windows.Controls.Border
+        $brd.Width   = $tw; $brd.Height = $th
+        $brd.Background     = SolidColor $bg
+        $brd.BorderBrush    = SolidColor $border
+        $brd.BorderThickness = New-Object System.Windows.Thickness(2)
+        $brd.CornerRadius   = if ($t.shape -eq 'circle') {
+            New-Object System.Windows.CornerRadius(36)
+        } else { New-Object System.Windows.CornerRadius(10) }
+
+        $lbl = New-Object System.Windows.Controls.TextBlock
+        $lbl.Text       = [string]$t.table_number
+        $lbl.Foreground = SolidColor $fg
+        $lbl.FontSize   = 18; $lbl.FontWeight = 'Bold'
+        $lbl.HorizontalAlignment = 'Center'
+        $lbl.VerticalAlignment   = 'Center'
+        $brd.Child = $lbl
+
+        [System.Windows.Controls.Canvas]::SetLeft($brd, $left)
+        [System.Windows.Controls.Canvas]::SetTop($brd,  $top)
+        $canvas.Children.Add($brd) | Out-Null
+    }
+}
+
+$script:lastFloorData = @()
+function Update-FloorPlan {
+    if ($script:floorBusy) { return }
+    $script:floorBusy = $true
+    Invoke-AsyncGet "$base/local/tables" {
+        param($r, $bad)
+        $script:floorBusy = $false
+        if ($bad -or -not $r) { return }
+        $tables = if ($r -is [array]) { $r } else { @($r) }
+        $script:lastFloorData = $tables
+        Render-FloorTables $tables
     }
 }
 
@@ -3989,15 +4011,10 @@ $statusTimer.Interval = [TimeSpan]::FromSeconds(4)
 $statusTimer.Add_Tick({ Update-Status })
 $statusTimer.Start()
 
-$logTimer = New-Object System.Windows.Threading.DispatcherTimer
-$logTimer.Interval = [TimeSpan]::FromMilliseconds(1500)
-$logTimer.Add_Tick({ Update-Activity })
-$logTimer.Start()
-
-$dashStatsTimer = New-Object System.Windows.Threading.DispatcherTimer
-$dashStatsTimer.Interval = [TimeSpan]::FromSeconds(20)
-$dashStatsTimer.Add_Tick({ if ($script:activePage -eq 'Dashboard') { Update-Dashboard-Stats } })
-$dashStatsTimer.Start()
+$floorTimer = New-Object System.Windows.Threading.DispatcherTimer
+$floorTimer.Interval = [TimeSpan]::FromSeconds(5)
+$floorTimer.Add_Tick({ if ($script:activePage -eq 'Dashboard') { Update-FloorPlan } })
+$floorTimer.Start()
 
 $analyticsTimer = New-Object System.Windows.Threading.DispatcherTimer
 $analyticsTimer.Interval = [TimeSpan]::FromSeconds(10)
@@ -4014,6 +4031,6 @@ Set-Active-Period 'today'
 # which crashes the process silently (window opens then closes, no trap log).
 # ContentRendered fires under the running dispatcher, so the async callback
 # marshals safely back to the UI thread. Update-Log is synchronous and safe.
-$window.Add_ContentRendered({ Update-Status; Update-Activity; Update-Dashboard-Stats })
+$window.Add_ContentRendered({ Update-Status; Update-FloorPlan })
 
 $window.ShowDialog() | Out-Null

@@ -2151,6 +2151,32 @@ http.createServer((req, res) => {
     return;
   }
 
+  if (req.method === 'GET' && req.url === '/local/tables') {
+    (async () => {
+      try {
+        const rows = await supabaseGet('tables', { restaurant_id: RESTAURANT_ID }, 200);
+        const today = new Date().toISOString().slice(0, 10);
+        const todayOrders = store.getOrders(today);
+        const occupiedNums = new Set(todayOrders.map(o => String(o.table)));
+        const tables = (rows || []).map(t => ({
+          id:           t.id,
+          table_number: t.table_number,
+          status:       t.status || 'available',
+          pos_x:        t.pos_x,
+          pos_y:        t.pos_y,
+          shape:        t.shape || 'square',
+          zone:         t.zone || null,
+          occupied:     occupiedNums.has(String(t.table_number)) || !!t.current_order_id,
+        }));
+        res.writeHead(200, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify(tables));
+      } catch(e) {
+        res.writeHead(500); res.end(JSON.stringify({ error: e.message }));
+      }
+    })();
+    return;
+  }
+
   if (req.method === 'GET' && req.url.startsWith('/local/report')) {
     const u = new URL(req.url, 'http://x');
     const date  = u.searchParams.get('date')  || new Date().toISOString().slice(0,10);
