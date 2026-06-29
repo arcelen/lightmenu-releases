@@ -4,7 +4,8 @@ const https = require('https');
 const fs    = require('fs');
 const path  = require('path');
 const os    = require('os');
-const { exec } = require('child_process');
+const crypto = require('crypto');
+const { exec, execSync } = require('child_process');
 
 // ─── AGENT VERSION ─────────────────────────────────────────────────────────
 // Read from the local version.json so /status reports whatever the updater has
@@ -24,9 +25,105 @@ const AGENT_VERSION = (() => {
 // Print Agent from your LightMenu Printer Setup page.
 // Credentials live in config.json — never overwritten by auto-updates.
 // Falls back to legacy hardcoded values for agents installed before this change.
+// --- Machine-bound credential storage --------------------------------------
+// The token is the only secret worth stealing, so we bind it to THIS machine.
+// On first boot we read the plaintext config.json, encrypt it (AES-256-GCM with
+// a key derived from the Windows MachineGuid) to config.enc, then shred the
+// plaintext. A config.enc copied to any other machine fails to decrypt -> the
+// agent refuses to start. config.enc is intentionally NOT in version.json, so
+// the auto-updater never touches it.
+const _CFG_PLAIN = path.join(__dirname, 'config.json');
+const _CFG_ENC   = path.join(__dirname, 'config.enc');
+
+// Read the Windows MachineGuid (stable per-install, unique per machine, present
+// on every Windows since XP, locale-independent). This is the binding anchor.
+function _machineGuid() {
+    try {
+        const out = execSync(
+            'reg query "HKLM\\SOFTWARE\\Microsoft\\Cryptography" /v MachineGuid',
+            { windowsHide: true, stdio: ['ignore', 'pipe', 'ignore'] }
+        ).toString();
+        const m = out.match(/MachineGuid\s+REG_SZ\s+([0-9a-fA-F-]+)/);
+        if (m) return m[1].trim().toLowerCase();
+    } catch {}
+    return '';
+}
+
+// 32-byte key from the machine identity. Returns null if no machine anchor is
+// available (then we fall back to plaintext rather than lock the user out).
+function _machineKey() {
+    const guid = _machineGuid();
+    if (!guid) return null;
+    return crypto.scryptSync(guid, 'lightmenu-station-cfg-v1', 32);
+}
+
+function _encryptCfg(obj, key) {
+    const iv  = crypto.randomBytes(12);
+    const c   = crypto.createCipheriv('aes-256-gcm', key, iv);
+    const enc = Buffer.concat([c.update(JSON.stringify(obj), 'utf8'), c.final()]);
+    const tag = c.getAuthTag();
+    // Format: magic(4) | iv(12) | tag(16) | ciphertext
+    return Buffer.concat([Buffer.from('LMC1'), iv, tag, enc]);
+}
+
+function _decryptCfg(buf, key) {
+    if (buf.length < 32 || buf.slice(0, 4).toString() !== 'LMC1') throw new Error('bad blob');
+    const iv  = buf.slice(4, 16);
+    const tag = buf.slice(16, 32);
+    const enc = buf.slice(32);
+    const d   = crypto.createDecipheriv('aes-256-gcm', key, iv);
+    d.setAuthTag(tag);
+    const dec = Buffer.concat([d.update(enc), d.final()]);
+    return JSON.parse(dec.toString('utf8'));
+}
+
 const _cfg = (() => {
-    try { return JSON.parse(fs.readFileSync(path.join(__dirname, 'config.json'), 'utf8')); }
+    const key = _machineKey();
+
+    // 1) Sealed config present -> decrypt with this machine's key.
+    if (fs.existsSync(_CFG_ENC)) {
+        if (key) {
+            try {
+                return _decryptCfg(fs.readFileSync(_CFG_ENC), key);
+            } catch {
+                // Won't decrypt here. If there's ALSO a plaintext config, this is a
+                // legit re-provision -> fall through and re-seal. Otherwise this is
+                // a config.enc copied from another machine -> refuse to run.
+                if (!fs.existsSync(_CFG_PLAIN)) {
+                    console.error('[security] config.enc cannot be decrypted on this machine. ' +
+                                  'This install appears to have been copied from another computer. Refusing to start.');
+                    process.exit(1);
+                }
+            }
+        } else if (!fs.existsSync(_CFG_PLAIN)) {
+            // No machine anchor and no plaintext to fall back on.
+            console.error('[security] cannot read machine identity to unseal config. Refusing to start.');
+            process.exit(1);
+        }
+    }
+
+    // 2) No (usable) sealed config -> read plaintext and, if possible, seal it.
+    let cfg = {};
+    try { cfg = JSON.parse(fs.readFileSync(_CFG_PLAIN, 'utf8')); }
     catch { return {}; }
+
+    if (key && cfg && cfg.api_token) {
+        try {
+            const blob = _encryptCfg(cfg, key);
+            fs.writeFileSync(_CFG_ENC, blob);
+            // Verify the seal round-trips before destroying the plaintext.
+            const check = _decryptCfg(fs.readFileSync(_CFG_ENC), key);
+            if (check.api_token === cfg.api_token) {
+                try { fs.writeFileSync(_CFG_PLAIN, crypto.randomBytes(512)); } catch {}
+                try { fs.unlinkSync(_CFG_PLAIN); } catch {}
+                console.log('[security] credentials sealed to this machine.');
+            }
+        } catch (e) {
+            // Sealing failed (e.g. read-only dir) — keep running on plaintext.
+            console.log('[security] could not seal config (' + e.message + '); continuing.');
+        }
+    }
+    return cfg;
 })();
 const RESTAURANT_ID   = _cfg.restaurant_id   || '__RESTAURANT_ID__';
 const API_TOKEN       = _cfg.api_token       || '__API_TOKEN__';
