@@ -12,7 +12,7 @@ trap {
     try { Add-Content -Path $errorLog -Value $msg } catch {}
     try {
         [System.Reflection.Assembly]::LoadWithPartialName('PresentationFramework') | Out-Null
-        [System.Windows.MessageBox]::Show("LightMenu UI failed to start.`n`n$($_.Exception.Message)`n`nDetails in ui-error.log", 'LightMenu Print Agent', 'OK', 'Error') | Out-Null
+        [System.Windows.MessageBox]::Show("LightMenu UI failed to start.`n`n$($_.Exception.Message)`n`nDetails in ui-error.log", 'LightMenu Station', 'OK', 'Error') | Out-Null
     } catch {}
     exit 1
 }
@@ -21,6 +21,17 @@ trap {
 [System.Reflection.Assembly]::LoadWithPartialName('PresentationCore')      | Out-Null
 [System.Reflection.Assembly]::LoadWithPartialName('WindowsBase')           | Out-Null
 [System.Reflection.Assembly]::LoadWithPartialName('Microsoft.VisualBasic') | Out-Null  # InputBox for quick prompts
+
+# Give this process its own taskbar identity. Without it Windows ties the taskbar
+# button to the PowerShell host and shows the PowerShell icon; with an explicit
+# AppUserModelID it uses the window's own icon (the LightMenu logo) instead.
+try {
+    Add-Type -Namespace LMShell -Name Native -MemberDefinition @'
+[System.Runtime.InteropServices.DllImport("shell32.dll", SetLastError=true)]
+public static extern void SetCurrentProcessExplicitAppUserModelID([System.Runtime.InteropServices.MarshalAs(System.Runtime.InteropServices.UnmanagedType.LPWStr)] string AppID);
+'@ -ErrorAction SilentlyContinue
+    [LMShell.Native]::SetCurrentProcessExplicitAppUserModelID('LightMenu.Station')
+} catch {}
 
 $appDir   = Resolve-Path "$scriptDir\..\app"
 $logoPath = Join-Path $appDir 'lightmenu.png'
@@ -42,7 +53,7 @@ function Format-Money($amount) {
 [xml]$xaml = @"
 <Window xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
-        Title="LightMenu Print Agent" Height="820" Width="940"
+        Title="LightMenu Station" Height="820" Width="940"
         MinHeight="640" MinWidth="780"
         WindowStartupLocation="CenterScreen"
         Background="#0F1117"
@@ -148,7 +159,7 @@ function Format-Money($amount) {
         <Image x:Name="LogoImage" Grid.Column="0" Width="48" Height="48" Stretch="Uniform" Margin="0,0,14,0"/>
         <StackPanel Grid.Column="1" VerticalAlignment="Center">
           <TextBlock x:Name="RestaurantName" Text="LightMenu" FontSize="17" FontWeight="Bold" Foreground="#FFFFFF"/>
-          <TextBlock x:Name="VersionText" Text="Print Agent v6.0.0" FontSize="11" Foreground="#7A8295" Margin="0,3,0,0"/>
+          <TextBlock x:Name="VersionText" Text="Station v6.0.0" FontSize="11" Foreground="#7A8295" Margin="0,3,0,0"/>
         </StackPanel>
         <StackPanel Grid.Column="2" Orientation="Horizontal" VerticalAlignment="Center">
           <Ellipse x:Name="StatusDot" Width="10" Height="10" Fill="#6B7280" Margin="0,0,8,0"/>
@@ -160,6 +171,11 @@ function Format-Money($amount) {
     <!-- ───────── NAV BAR ───────── -->
     <Border Grid.Row="1" Background="#0F1117" Margin="0,0,0,12">
       <Grid>
+        <Grid.ColumnDefinitions>
+          <ColumnDefinition Width="*"/>
+          <ColumnDefinition Width="Auto"/>
+        </Grid.ColumnDefinitions>
+        <ScrollViewer Grid.Column="0" VerticalScrollBarVisibility="Disabled" HorizontalScrollBarVisibility="Auto">
         <StackPanel Orientation="Horizontal">
           <Button x:Name="NavDashboard"  Style="{StaticResource NavBtn}" Content="Dashboard"/>
           <Button x:Name="NavAssistant"  Style="{StaticResource NavBtn}" Content="LightMenu AI" Margin="4,0,0,0"/>
@@ -170,7 +186,8 @@ function Format-Money($amount) {
           <Button x:Name="NavBills"      Style="{StaticResource NavBtn}" Content="Bills"        Margin="4,0,0,0"/>
           <Button x:Name="NavReport"     Style="{StaticResource NavBtn}" Content="Daily Report" Margin="4,0,0,0"/>
         </StackPanel>
-        <Grid HorizontalAlignment="Right" VerticalAlignment="Center" Width="170">
+        </ScrollViewer>
+        <Grid Grid.Column="1" VerticalAlignment="Center" Width="170" Margin="8,0,0,0">
           <Button x:Name="LangBtn" Background="#1A1D29" Foreground="#FFFFFF" BorderThickness="0" Cursor="Hand" Padding="12,6" HorizontalContentAlignment="Stretch">
             <Button.Template>
               <ControlTemplate TargetType="Button">
@@ -1734,7 +1751,7 @@ function Update-Status {
         }
         (ctl 'StatusDot').Fill = [System.Windows.Media.Brushes]::LimeGreen
         (ctl 'StatusText').Text = 'Connected'
-        (ctl 'VersionText').Text = "Print Agent v$($r.version)"
+        (ctl 'VersionText').Text = "Station v$($r.version)"
         if ($r.restaurant_name) { (ctl 'RestaurantName').Text = $r.restaurant_name }
 
         $printerInfo = '-'
