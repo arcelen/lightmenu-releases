@@ -18,7 +18,7 @@
       "url": "https://raw.githubusercontent.com/arcelen/lightmenu-releases/0609773/print-agent/updater.js"
     },
     "../scripts/ui.ps1": {
-      "sha256": "89a45b0792a00b5e022471fcebe60dc3ed045c35cc407f623dacd70d00466551",
+      "sha256": "c432fcec0ea3d6a19757e70c7dabb1df48d7790cec82b697125e70e8c3c1a203",
       "url": "https://raw.githubusercontent.com/arcelen/lightmenu-releases/main/print-agent/ui.ps1"
     }
   }
