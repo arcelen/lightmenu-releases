@@ -129,6 +129,14 @@ const RESTAURANT_ID   = _cfg.restaurant_id   || '__RESTAURANT_ID__';
 const API_TOKEN       = _cfg.api_token       || '__API_TOKEN__';
 let   RESTAURANT_NAME = _cfg.restaurant_name || '';
 
+// Machine fingerprint sent to the server kill switch (sha256 of the MachineGuid,
+// never the raw guid). Falls back to the hostname if the guid can't be read.
+const MACHINE_HASH = crypto.createHash('sha256')
+    .update(_machineGuid() || ('host:' + os.hostname())).digest('hex');
+// Server-controlled kill switch. Defaults OPEN so a server/network outage never
+// stops printing; only an explicit { ok:false } from the server flips it off.
+let STATION_ALLOWED = true;
+
 // LightMenu Supabase endpoint â€” do not change
 const SUPABASE_URL     = 'https://xakaknyanjzabxqmcipz.supabase.co';
 const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Inhha2Frbnlhbmp6YWJ4cW1jaXB6Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzcxOTc2MjUsImV4cCI6MjA5Mjc3MzYyNX0.NqGyREZO2o_-ZUvIltQCTZ6zJAO7ARGa45cDU9OX7G4';
@@ -907,6 +915,7 @@ async function markJobPrinted(id) {
 }
 
 async function pollAndPrint() {
+  if (!STATION_ALLOWED) return;   // server kill switch — paused, but keep re-checking
   try {
     const jobs = await fetchPendingJobs();
     for (const job of jobs) {
@@ -1853,6 +1862,40 @@ function stationDb(action, payload) {
     r.write(bodyStr); r.end();
   });
 }
+
+// Server-side machine kill switch. Reports this machine to the backend and learns
+// whether this install may run. Fail-OPEN: any network/HTTP error leaves
+// STATION_ALLOWED unchanged so an outage never bricks a restaurant. Only an
+// explicit { ok:false } (machine revoked or restaurant disabled) pauses printing;
+// a later { ok:true } resumes it automatically — no restart needed.
+function stationVerify() {
+  return new Promise((resolve) => {
+    const bodyStr = JSON.stringify({ token: API_TOKEN, machine_hash: MACHINE_HASH, agent_version: AGENT_VERSION });
+    let u;
+    try { u = new URL(LM_API_BASE + '/station/verify'); } catch { return resolve(); }
+    const r = https.request(u, { method: 'POST', headers: { 'Content-Type': 'application/json', 'Content-Length': Buffer.byteLength(bodyStr) } }, (res) => {
+      let data = '';
+      res.on('data', c => data += c);
+      res.on('end', () => {
+        if (res.statusCode >= 200 && res.statusCode < 300) {
+          let parsed = null; try { parsed = JSON.parse(data); } catch {}
+          if (parsed && typeof parsed.ok === 'boolean') {
+            const was = STATION_ALLOWED;
+            STATION_ALLOWED = parsed.ok;
+            if (was && !STATION_ALLOWED) log('Station disabled by server (' + (parsed.reason || 'revoked') + ') — printing paused.');
+            if (!was && STATION_ALLOWED) log('Station re-enabled by server — printing resumed.');
+          }
+        }
+        resolve();
+      });
+    });
+    r.on('error', () => resolve());           // fail open
+    r.setTimeout(15000, () => r.destroy());   // fail open
+    r.write(bodyStr); r.end();
+  });
+}
+setTimeout(() => { stationVerify().catch(() => {}); }, 2500);            // shortly after boot
+setInterval(() => { stationVerify().catch(() => {}); }, 5 * 60 * 1000); // every 5 min
 
 const STATION_AI_SYSTEM =
   'You are StationAI, the on-site assistant for a restaurant POS/print station. ' +
