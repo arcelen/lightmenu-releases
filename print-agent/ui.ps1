@@ -148,6 +148,74 @@ function Format-Money($amount) {
       <RowDefinition Height="*"/>
     </Grid.RowDefinitions>
 
+    <!-- ───────── ANIMATED BACKGROUND (drifting teal glow orbs, like the web dashboard) ───────── -->
+    <Canvas x:Name="BgLayer" Grid.RowSpan="3" Panel.ZIndex="-1" IsHitTestVisible="False" ClipToBounds="True">
+      <Ellipse Width="540" Height="540" Canvas.Left="40" Canvas.Top="-60">
+        <Ellipse.Fill>
+          <RadialGradientBrush>
+            <GradientStop Color="#2614B8A6" Offset="0"/>
+            <GradientStop Color="#1014B8A6" Offset="0.45"/>
+            <GradientStop Color="#0014B8A6" Offset="1"/>
+          </RadialGradientBrush>
+        </Ellipse.Fill>
+        <Ellipse.RenderTransform>
+          <TransformGroup>
+            <ScaleTransform x:Name="Orb1S" CenterX="270" CenterY="270"/>
+            <TranslateTransform x:Name="Orb1T"/>
+          </TransformGroup>
+        </Ellipse.RenderTransform>
+      </Ellipse>
+      <Ellipse Width="460" Height="460" Canvas.Left="560" Canvas.Top="300">
+        <Ellipse.Fill>
+          <RadialGradientBrush>
+            <GradientStop Color="#220D9488" Offset="0"/>
+            <GradientStop Color="#0E0D9488" Offset="0.45"/>
+            <GradientStop Color="#000D9488" Offset="1"/>
+          </RadialGradientBrush>
+        </Ellipse.Fill>
+        <Ellipse.RenderTransform>
+          <TransformGroup>
+            <ScaleTransform x:Name="Orb2S" CenterX="230" CenterY="230"/>
+            <TranslateTransform x:Name="Orb2T"/>
+          </TransformGroup>
+        </Ellipse.RenderTransform>
+      </Ellipse>
+      <Ellipse Width="400" Height="400" Canvas.Left="300" Canvas.Top="200">
+        <Ellipse.Fill>
+          <RadialGradientBrush>
+            <GradientStop Color="#1C0F766E" Offset="0"/>
+            <GradientStop Color="#000F766E" Offset="1"/>
+          </RadialGradientBrush>
+        </Ellipse.Fill>
+        <Ellipse.RenderTransform>
+          <TransformGroup>
+            <ScaleTransform x:Name="Orb3S" CenterX="200" CenterY="200"/>
+            <TranslateTransform x:Name="Orb3T"/>
+          </TransformGroup>
+        </Ellipse.RenderTransform>
+      </Ellipse>
+      <Canvas.Triggers>
+        <EventTrigger RoutedEvent="FrameworkElement.Loaded">
+          <BeginStoryboard>
+            <Storyboard>
+              <DoubleAnimation Storyboard.TargetName="Orb1T" Storyboard.TargetProperty="X" From="0" To="70"  Duration="0:0:22" AutoReverse="True" RepeatBehavior="Forever"/>
+              <DoubleAnimation Storyboard.TargetName="Orb1T" Storyboard.TargetProperty="Y" From="0" To="-50" Duration="0:0:22" AutoReverse="True" RepeatBehavior="Forever"/>
+              <DoubleAnimation Storyboard.TargetName="Orb1S" Storyboard.TargetProperty="ScaleX" From="1" To="1.25" Duration="0:0:22" AutoReverse="True" RepeatBehavior="Forever"/>
+              <DoubleAnimation Storyboard.TargetName="Orb1S" Storyboard.TargetProperty="ScaleY" From="1" To="1.25" Duration="0:0:22" AutoReverse="True" RepeatBehavior="Forever"/>
+
+              <DoubleAnimation Storyboard.TargetName="Orb2T" Storyboard.TargetProperty="X" From="0" To="-60" Duration="0:0:28" BeginTime="0:0:2" AutoReverse="True" RepeatBehavior="Forever"/>
+              <DoubleAnimation Storyboard.TargetName="Orb2T" Storyboard.TargetProperty="Y" From="0" To="70"  Duration="0:0:28" BeginTime="0:0:2" AutoReverse="True" RepeatBehavior="Forever"/>
+              <DoubleAnimation Storyboard.TargetName="Orb2S" Storyboard.TargetProperty="ScaleX" From="1.1" To="0.9" Duration="0:0:28" BeginTime="0:0:2" AutoReverse="True" RepeatBehavior="Forever"/>
+              <DoubleAnimation Storyboard.TargetName="Orb2S" Storyboard.TargetProperty="ScaleY" From="1.1" To="0.9" Duration="0:0:28" BeginTime="0:0:2" AutoReverse="True" RepeatBehavior="Forever"/>
+
+              <DoubleAnimation Storyboard.TargetName="Orb3T" Storyboard.TargetProperty="X" From="0" To="40"  Duration="0:0:18" BeginTime="0:0:4" AutoReverse="True" RepeatBehavior="Forever"/>
+              <DoubleAnimation Storyboard.TargetName="Orb3T" Storyboard.TargetProperty="Y" From="0" To="-35" Duration="0:0:18" BeginTime="0:0:4" AutoReverse="True" RepeatBehavior="Forever"/>
+            </Storyboard>
+          </BeginStoryboard>
+        </EventTrigger>
+      </Canvas.Triggers>
+    </Canvas>
+
     <!-- ───────── HEADER ───────── -->
     <Border Style="{StaticResource CardStyle}" Grid.Row="0" Margin="0,0,0,10">
       <Grid>
