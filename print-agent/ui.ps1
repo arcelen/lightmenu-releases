@@ -162,7 +162,7 @@ function Format-Money($amount) {
       <Grid>
         <StackPanel Orientation="Horizontal">
           <Button x:Name="NavDashboard"  Style="{StaticResource NavBtn}" Content="Dashboard"/>
-          <Button x:Name="NavAssistant"  Style="{StaticResource NavBtn}" Content="Assistant"    Margin="4,0,0,0"/>
+          <Button x:Name="NavAssistant"  Style="{StaticResource NavBtn}" Content="LightMenu AI" Margin="4,0,0,0"/>
           <Button x:Name="NavMenu"       Style="{StaticResource NavBtn}" Content="Menu"         Margin="4,0,0,0"/>
           <Button x:Name="NavKitchen"    Style="{StaticResource NavBtn}" Content="Kitchen"      Margin="4,0,0,0"/>
           <Button x:Name="NavStaff"      Style="{StaticResource NavBtn}" Content="Staff"        Margin="4,0,0,0"/>
@@ -1095,7 +1095,7 @@ function Format-Money($amount) {
           <RowDefinition Height="Auto"/>
         </Grid.RowDefinitions>
         <StackPanel Grid.Row="0" Margin="0,0,0,12">
-          <TextBlock Text="Assistant" Foreground="#FFFFFF" FontSize="18" FontWeight="Bold"/>
+          <TextBlock Text="LightMenu AI" Foreground="#FFFFFF" FontSize="18" FontWeight="Bold"/>
           <TextBlock Text="Ask me to add items, change prices, reorganise the menu, or answer questions about it." Foreground="#7A8295" FontSize="11" Margin="0,3,0,0"/>
         </StackPanel>
         <Border Grid.Row="1" Style="{StaticResource CardStyle}" Padding="6">
@@ -1493,7 +1493,7 @@ function Apply-Language {
 
     # Nav
     (ctl 'NavDashboard').Content = NavIcon 0x1F5FA (T 'nav_dashboard')   # map
-    (ctl 'NavAssistant').Content = NavIcon 0x2728  'Assistant'           # sparkles
+    (ctl 'NavAssistant').Content = NavIcon 0x2728  'LightMenu AI'        # sparkles
     (ctl 'NavMenu').Content      = NavIcon 0x1F37D (T 'nav_menu')        # plate
     (ctl 'NavKitchen').Content   = NavIcon 0x1F5A8 (T 'nav_kitchen')     # printer
     (ctl 'NavStaff').Content     = NavIcon 0x1F465 (T 'nav_staff')       # people
