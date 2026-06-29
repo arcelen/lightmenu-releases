@@ -1753,6 +1753,16 @@ $script:dragBorder = $null
 $script:dragStarted = $false
 $script:editorOpen = $false
 
+# A thrown exception inside any WPF handler bubbles to the top-level trap, which
+# shows "failed to start" and kills the app. Floor handlers log + swallow instead,
+# so a glitch never takes the whole UI down — and we get the exact failing line.
+function FloorLog($where, $err) {
+    try {
+        $line = if ($err.InvocationInfo) { $err.InvocationInfo.ScriptLineNumber } else { '?' }
+        Add-Content -Path $errorLog -Value ("[" + (Get-Date -Format 'yyyy-MM-dd HH:mm:ss') + "] FLOOR/" + $where + ": " + $err.Exception.Message + " @L" + $line)
+    } catch {}
+}
+
 function SolidColor([string]$hex) {
     [System.Windows.Media.SolidColorBrush]([System.Windows.Media.ColorConverter]::ConvertFromString($hex))
 }
@@ -1851,10 +1861,12 @@ function Render-FloorTables([array]$tables) {
         #    do the move + save/tap. No event args needed here, so GetNewClosure
         #    safely captures just this table's border + metadata.
         $brd.Add_MouseLeftButtonDown({
-            $script:dragBorder = $brd; $script:dragTable = $t
-            $script:dragTW = $tw; $script:dragTH = $th
-            $script:dragMoved = $false; $script:dragStarted = $false
-            $script:floorCanvas.CaptureMouse() | Out-Null
+            try {
+                $script:dragBorder = $brd; $script:dragTable = $t
+                $script:dragTW = $tw; $script:dragTH = $th
+                $script:dragMoved = $false; $script:dragStarted = $false
+                if ($script:floorCanvas) { $script:floorCanvas.CaptureMouse() | Out-Null }
+            } catch { FloorLog 'down' $_ }
         }.GetNewClosure())
 
         $canvas.Children.Add($brd) | Out-Null
@@ -1932,6 +1944,10 @@ function Show-TableEditor($table) {
     $dlg.Add_Closed({ $script:editorOpen = $false })
     $script:editorOpen = $true
     $dlg.ShowDialog() | Out-Null
+}
+
+function Show-TableEditorSafe($table) {
+    try { Show-TableEditor $table } catch { FloorLog 'editor' $_; $script:editorOpen = $false }
 }
 
 function Add-Floor {
@@ -2067,32 +2083,35 @@ function Update-FloorPlan {
 $script:floorCanvas = ctl 'FloorCanvas'
 $script:floorCanvas.Add_MouseMove({
     if (-not $script:dragBorder) { return }
-    # Static Mouse.GetPosition reads the live cursor relative to the canvas — no
-    # dependence on the event-args object, whose arg position differs across PS
-    # hosts (sender lands in $this, args in $args[0], so $args[1] is null here).
-    $W  = $script:FW; $H = $script:FH; $tw = $script:dragTW; $th = $script:dragTH
-    $p  = [System.Windows.Input.Mouse]::GetPosition($script:floorCanvas)
-    if (-not $script:dragStarted) { $script:dragStarted = $true; $script:dragSX = $p.X; $script:dragSY = $p.Y }
-    $cxn = [Math]::Max($tw/2.0, [Math]::Min($W - $tw/2.0, $p.X))
-    $cyn = [Math]::Max($th/2.0, [Math]::Min($H - $th/2.0, $p.Y))
-    [System.Windows.Controls.Canvas]::SetLeft($script:dragBorder, $cxn - $tw/2.0)
-    [System.Windows.Controls.Canvas]::SetTop($script:dragBorder,  $cyn - $th/2.0)
-    $script:dragNewX = $cxn / $W; $script:dragNewY = $cyn / $H
-    if ([Math]::Abs($p.X - $script:dragSX) + [Math]::Abs($p.Y - $script:dragSY) -gt 3) { $script:dragMoved = $true }
+    try {
+        # Static Mouse.GetPosition reads the live cursor relative to the canvas — no
+        # dependence on the event-args object (its arg slot differs across PS hosts).
+        $W  = $script:FW; $H = $script:FH; $tw = $script:dragTW; $th = $script:dragTH
+        $p  = [System.Windows.Input.Mouse]::GetPosition($script:floorCanvas)
+        if (-not $script:dragStarted) { $script:dragStarted = $true; $script:dragSX = $p.X; $script:dragSY = $p.Y }
+        $cxn = [Math]::Max($tw/2.0, [Math]::Min($W - $tw/2.0, $p.X))
+        $cyn = [Math]::Max($th/2.0, [Math]::Min($H - $th/2.0, $p.Y))
+        [System.Windows.Controls.Canvas]::SetLeft($script:dragBorder, $cxn - $tw/2.0)
+        [System.Windows.Controls.Canvas]::SetTop($script:dragBorder,  $cyn - $th/2.0)
+        $script:dragNewX = $cxn / $W; $script:dragNewY = $cyn / $H
+        if ([Math]::Abs($p.X - $script:dragSX) + [Math]::Abs($p.Y - $script:dragSY) -gt 3) { $script:dragMoved = $true }
+    } catch { FloorLog 'move' $_ }
 })
 $script:floorCanvas.Add_MouseLeftButtonUp({
     if (-not $script:dragBorder) { return }
-    try { $script:floorCanvas.ReleaseMouseCapture() } catch {}
-    $tbl = $script:dragTable; $moved = $script:dragMoved
-    $nx = $script:dragNewX; $ny = $script:dragNewY
-    $script:dragBorder = $null; $script:dragTable = $null; $script:dragStarted = $false
-    if ($moved -and $tbl) {
-        $tbl.pos_x = $nx; $tbl.pos_y = $ny
-        $body = (@{ pos_x = [Math]::Round([double]$nx,4); pos_y = [Math]::Round([double]$ny,4) } | ConvertTo-Json -Compress)
-        Invoke-AsyncPost "$base/local/tables/$($tbl.id)" $body 'PATCH' { param($r,$bad,$em) }
-    } elseif ($tbl) {
-        Show-TableEditor $tbl
-    }
+    try {
+        try { $script:floorCanvas.ReleaseMouseCapture() } catch {}
+        $tbl = $script:dragTable; $moved = $script:dragMoved
+        $nx = $script:dragNewX; $ny = $script:dragNewY
+        $script:dragBorder = $null; $script:dragTable = $null; $script:dragStarted = $false
+        if ($moved -and $tbl) {
+            $tbl.pos_x = $nx; $tbl.pos_y = $ny
+            $body = (@{ pos_x = [Math]::Round([double]$nx,4); pos_y = [Math]::Round([double]$ny,4) } | ConvertTo-Json -Compress)
+            Invoke-AsyncPost "$base/local/tables/$($tbl.id)" $body 'PATCH' { param($r,$bad,$em) }
+        } elseif ($tbl) {
+            Show-TableEditorSafe $tbl
+        }
+    } catch { FloorLog 'up' $_; $script:dragBorder = $null; $script:dragTable = $null; $script:dragStarted = $false }
 })
 
 # ─── ANALYTICS PAGE ─────────────────────────────────────────────────────────
