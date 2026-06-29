@@ -2067,9 +2067,11 @@ function Update-FloorPlan {
 $script:floorCanvas = ctl 'FloorCanvas'
 $script:floorCanvas.Add_MouseMove({
     if (-not $script:dragBorder) { return }
-    $e  = $args[1]
+    # Static Mouse.GetPosition reads the live cursor relative to the canvas — no
+    # dependence on the event-args object, whose arg position differs across PS
+    # hosts (sender lands in $this, args in $args[0], so $args[1] is null here).
     $W  = $script:FW; $H = $script:FH; $tw = $script:dragTW; $th = $script:dragTH
-    $p  = $e.GetPosition($script:floorCanvas)
+    $p  = [System.Windows.Input.Mouse]::GetPosition($script:floorCanvas)
     if (-not $script:dragStarted) { $script:dragStarted = $true; $script:dragSX = $p.X; $script:dragSY = $p.Y }
     $cxn = [Math]::Max($tw/2.0, [Math]::Min($W - $tw/2.0, $p.X))
     $cyn = [Math]::Max($th/2.0, [Math]::Min($H - $th/2.0, $p.Y))
