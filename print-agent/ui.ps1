@@ -1481,18 +1481,25 @@ function T($key) {
     return $key
 }
 
+# Section icon prefix. 0x1Fxxx emoji are above the BMP, so build them with
+# ConvertFromUtf32 (a plain [char] cast throws). WPF falls back to Segoe UI Emoji.
+function NavIcon([int]$cp, [string]$label) {
+    return ([System.Char]::ConvertFromUtf32($cp)) + '  ' + $label
+}
+
 function Apply-Language {
     $rtl = ($script:lang -eq 'ar')
     $window.FlowDirection = if ($rtl) { 'RightToLeft' } else { 'LeftToRight' }
 
     # Nav
-    (ctl 'NavDashboard').Content = T 'nav_dashboard'
-    (ctl 'NavMenu').Content      = T 'nav_menu'
-    (ctl 'NavKitchen').Content   = T 'nav_kitchen'
-    (ctl 'NavAnalytics').Content = T 'nav_analytics'
-    (ctl 'NavBills').Content     = T 'nav_bills'
-    (ctl 'NavReport').Content    = T 'nav_report'
-    (ctl 'NavStaff').Content     = T 'nav_staff'
+    (ctl 'NavDashboard').Content = NavIcon 0x1F5FA (T 'nav_dashboard')   # map
+    (ctl 'NavAssistant').Content = NavIcon 0x2728  'Assistant'           # sparkles
+    (ctl 'NavMenu').Content      = NavIcon 0x1F37D (T 'nav_menu')        # plate
+    (ctl 'NavKitchen').Content   = NavIcon 0x1F5A8 (T 'nav_kitchen')     # printer
+    (ctl 'NavStaff').Content     = NavIcon 0x1F465 (T 'nav_staff')       # people
+    (ctl 'NavAnalytics').Content = NavIcon 0x1F4CA (T 'nav_analytics')   # bar chart
+    (ctl 'NavBills').Content     = NavIcon 0x1F9FE (T 'nav_bills')       # receipt
+    (ctl 'NavReport').Content    = NavIcon 0x1F4C5 (T 'nav_report')      # calendar
 
     # Menu page
     (ctl 'MenuRefresh').Content = T 'menu_refresh'
@@ -1762,6 +1769,10 @@ function FloorLog($where, $err) {
         Add-Content -Path $errorLog -Value ("[" + (Get-Date -Format 'yyyy-MM-dd HH:mm:ss') + "] FLOOR/" + $where + ": " + $err.Exception.Message + " @L" + $line)
     } catch {}
 }
+$script:moveCount = 0
+function FloorDbg($m) {
+    try { Add-Content -Path $errorLog -Value ("[" + (Get-Date -Format 'HH:mm:ss') + "] FLOORDBG: " + $m) } catch {}
+}
 
 function SolidColor([string]$hex) {
     [System.Windows.Media.SolidColorBrush]([System.Windows.Media.ColorConverter]::ConvertFromString($hex))
@@ -1857,18 +1868,11 @@ function Render-FloorTables([array]$tables) {
         [System.Windows.Controls.Canvas]::SetLeft($brd, $cx - $tw/2.0)
         [System.Windows.Controls.Canvas]::SetTop($brd,  $cy - $th/2.0)
 
-        # ── Grab → record which table; the canvas-level handlers (wired once)
-        #    do the move + save/tap. No event args needed here, so GetNewClosure
-        #    safely captures just this table's border + metadata.
-        $brd.Add_MouseLeftButtonDown({
-            try {
-                $script:dragBorder = $brd; $script:dragTable = $t
-                $script:dragTW = $tw; $script:dragTH = $th
-                $script:dragMoved = $false; $script:dragStarted = $false
-                if ($script:floorCanvas) { $script:floorCanvas.CaptureMouse() | Out-Null }
-            } catch { FloorLog 'down' $_ }
-        }.GetNewClosure())
-
+        # The table object rides on the border's Tag — the canvas-level
+        # PreviewMouseLeftButtonDown (wired once) hit-tests by position and reads
+        # this back. No per-child mouse handlers (those never fired inside the
+        # Viewbox-scaled canvas).
+        $brd.Tag = $t
         $canvas.Children.Add($brd) | Out-Null
     }
 }
@@ -2081,14 +2085,36 @@ function Update-FloorPlan {
 # the real event invocation args (sender, MouseEventArgs) — unlike a closure,
 # which would shadow $args with a captured snapshot.
 $script:floorCanvas = ctl 'FloorCanvas'
-$script:floorCanvas.Add_MouseMove({
+# Preview (tunneling) events fire on the canvas FIRST, before any child — the only
+# reliable way to catch the press, since per-border handlers never fired inside the
+# Viewbox-scaled canvas. We hit-test by position to find the grabbed table.
+$script:floorCanvas.Add_PreviewMouseLeftButtonDown({
+    try {
+        $p = [System.Windows.Input.Mouse]::GetPosition($script:floorCanvas)
+        $hit = $null
+        foreach ($child in $script:floorCanvas.Children) {
+            if (-not $child.Tag) { continue }
+            $l = [System.Windows.Controls.Canvas]::GetLeft($child)
+            $tp = [System.Windows.Controls.Canvas]::GetTop($child)
+            if ([double]::IsNaN($l) -or [double]::IsNaN($tp)) { continue }
+            if ($p.X -ge $l -and $p.X -le ($l + $child.Width) -and $p.Y -ge $tp -and $p.Y -le ($tp + $child.Height)) { $hit = $child; break }
+        }
+        if (-not $hit) { return }
+        $script:dragBorder = $hit; $script:dragTable = $hit.Tag
+        $script:dragTW = $hit.Width; $script:dragTH = $hit.Height
+        $script:dragMoved = $false; $script:dragStarted = $true; $script:moveCount = 0
+        $script:dragSX = $p.X; $script:dragSY = $p.Y
+        $script:dragNewX = $hit.Tag.pos_x; $script:dragNewY = $hit.Tag.pos_y
+        $script:floorCanvas.CaptureMouse() | Out-Null
+        FloorDbg "down t=$($hit.Tag.table_number)"
+    } catch { FloorLog 'down' $_ }
+})
+$script:floorCanvas.Add_PreviewMouseMove({
     if (-not $script:dragBorder) { return }
     try {
-        # Static Mouse.GetPosition reads the live cursor relative to the canvas — no
-        # dependence on the event-args object (its arg slot differs across PS hosts).
+        $script:moveCount++
         $W  = $script:FW; $H = $script:FH; $tw = $script:dragTW; $th = $script:dragTH
         $p  = [System.Windows.Input.Mouse]::GetPosition($script:floorCanvas)
-        if (-not $script:dragStarted) { $script:dragStarted = $true; $script:dragSX = $p.X; $script:dragSY = $p.Y }
         $cxn = [Math]::Max($tw/2.0, [Math]::Min($W - $tw/2.0, $p.X))
         $cyn = [Math]::Max($th/2.0, [Math]::Min($H - $th/2.0, $p.Y))
         [System.Windows.Controls.Canvas]::SetLeft($script:dragBorder, $cxn - $tw/2.0)
@@ -2097,9 +2123,10 @@ $script:floorCanvas.Add_MouseMove({
         if ([Math]::Abs($p.X - $script:dragSX) + [Math]::Abs($p.Y - $script:dragSY) -gt 3) { $script:dragMoved = $true }
     } catch { FloorLog 'move' $_ }
 })
-$script:floorCanvas.Add_MouseLeftButtonUp({
+$script:floorCanvas.Add_PreviewMouseLeftButtonUp({
     if (-not $script:dragBorder) { return }
     try {
+        FloorDbg "up moved=$($script:dragMoved) moves=$($script:moveCount)"
         try { $script:floorCanvas.ReleaseMouseCapture() } catch {}
         $tbl = $script:dragTable; $moved = $script:dragMoved
         $nx = $script:dragNewX; $ny = $script:dragNewY
