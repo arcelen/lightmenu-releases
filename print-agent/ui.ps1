@@ -1241,12 +1241,21 @@ if (Test-Path $logoPath) {
 $icoPath = Join-Path $appDir 'lightmenu.ico'
 if (Test-Path $icoPath) {
     try {
-        $iconBi = New-Object System.Windows.Media.Imaging.BitmapImage
-        $iconBi.BeginInit()
-        $iconBi.UriSource = New-Object System.Uri($icoPath, [System.UriKind]::Absolute)
-        $iconBi.CacheOption = [System.Windows.Media.Imaging.BitmapCacheOption]::OnLoad
-        $iconBi.EndInit()
-        $window.Icon = $iconBi
+        $script:appIcon = New-Object System.Windows.Media.Imaging.BitmapImage
+        $script:appIcon.BeginInit()
+        $script:appIcon.UriSource = New-Object System.Uri($icoPath, [System.UriKind]::Absolute)
+        $script:appIcon.CacheOption = [System.Windows.Media.Imaging.BitmapCacheOption]::OnLoad
+        $script:appIcon.EndInit()
+        $window.Icon = $script:appIcon
+        # Apply the LightMenu icon to EVERY window the app opens (QR popups, editors,
+        # confirmations) so none fall back to the PowerShell host icon in the title
+        # bar or taskbar. One class handler covers all current and future dialogs.
+        [System.Windows.EventManager]::RegisterClassHandler(
+            [System.Windows.Window],
+            [System.Windows.FrameworkElement]::LoadedEvent,
+            [System.Windows.RoutedEventHandler]{ param($s, $e) try { if ($script:appIcon) { $s.Icon = $script:appIcon } } catch {} },
+            $true
+        )
     } catch {}
 }
 
@@ -1274,6 +1283,9 @@ $window.Add_SourceInitialized({
 
 # ─── HELPERS ────────────────────────────────────────────────────────────────
 function SolidBrush($hex) { New-Object System.Windows.Media.SolidColorBrush ([System.Windows.Media.ColorConverter]::ConvertFromString($hex)) }
+# Build a translucent colour. WPF hex is #AARRGGBB (alpha FIRST), unlike CSS's
+# #RRGGBBAA, so the alpha byte must be PREFIXED — e.g. Tint '#8b5cf6' '20' -> '#208b5cf6'.
+function Tint($hex, $aa) { return '#' + $aa + ($hex -replace '^#','') }
 
 # ─── LANGUAGE SYSTEM ────────────────────────────────────────────────────────
 $script:i18n = @{
@@ -2482,11 +2494,15 @@ $script:lastReport = $null
 # ─── STAFF PAGE ─────────────────────────────────────────────────────────────
 $script:staffData = @()
 
+# Fallback role colours, matching the web app's default role palette. Used only
+# when the role's own DB colour isn't available (role_color).
 function Get-RoleColor($role) {
     switch -Wildcard ($role) {
-        '*anager*' { return '#8B5CF6' }
-        '*hef*'    { return '#F59E0B' }
-        '*ashier*' { return '#10B981' }
+        '*anager*' { return '#8B5CF6' }   # violet
+        '*hef*'    { return '#F97316' }   # orange
+        '*wner*'   { return '#EF4444' }   # red
+        '*aiter*'  { return '#3B82F6' }   # blue
+        '*ashier*' { return '#10B981' }   # green
         default    { return '#3B82F6' }
     }
 }
@@ -2516,7 +2532,7 @@ function New-StaffCard($member) {
     $nameBlock.FontSize   = 15; $nameBlock.FontWeight = 'Bold'
     [System.Windows.Controls.Grid]::SetColumn($nameBlock, 0)
 
-    $dotColor = if ($member.active) { '#22C55E' } else { '#6B7280' }
+    $dotColor = if ($member.active) { '#34D399' } else { '#6B7280' }
     $activeDot = New-Object System.Windows.Shapes.Ellipse
     $activeDot.Width = 8; $activeDot.Height = 8; $activeDot.Fill = SolidBrush $dotColor
     $activeDot.VerticalAlignment = 'Center'; $activeDot.Margin = New-Object System.Windows.Thickness(0,0,5,0)
@@ -2540,8 +2556,8 @@ function New-StaffCard($member) {
 
     # Role badge
     $roleBorder = New-Object System.Windows.Controls.Border
-    $roleColor  = Get-RoleColor $member.role
-    $roleBorder.Background  = SolidBrush ($roleColor + '33')
+    $roleColor  = if ($member.role_color) { $member.role_color } else { Get-RoleColor $member.role }
+    $roleBorder.Background  = SolidBrush (Tint $roleColor '20')
     $roleBorder.BorderBrush = SolidBrush $roleColor
     $roleBorder.BorderThickness = New-Object System.Windows.Thickness(1)
     $roleBorder.CornerRadius = New-Object System.Windows.CornerRadius(4)
@@ -2596,13 +2612,13 @@ function New-StaffCard($member) {
     $memberData = $member
 
     # SHARE — opens QR popup
-    $shareBtn = Make-PillButton 'Share' '#06B6D4' $member.id
+    $shareBtn = Make-PillButton 'Share' '#4ADE80' $member.id
     $shareBtn.Add_Click({ Show-QrDialog $memberData.id $memberData.name $memberData.waiter_link }.GetNewClosure())
     $btnRow.Children.Add($shareBtn) | Out-Null
 
     # ON/OFF toggle
     $toggleText = if ($member.active) { 'Off' } else { 'On' }
-    $toggleColor = if ($member.active) { '#EF4444' } else { '#22C55E' }
+    $toggleColor = if ($member.active) { '#F87171' } else { '#4ADE80' }
     $toggleBtn = Make-PillButton $toggleText $toggleColor $member.id
     $toggleBtn.Add_Click({
         $mid = $this.Tag
@@ -2614,7 +2630,7 @@ function New-StaffCard($member) {
     $btnRow.Children.Add($toggleBtn) | Out-Null
 
     # NEW LINK
-    $newLinkBtn = Make-PillButton 'New Link' '#D1D5DB' $member.id
+    $newLinkBtn = Make-PillButton 'New Link' '#9CA3AF' $member.id
     $newLinkBtn.Add_Click({
         $mid = $this.Tag
         $res = [System.Windows.MessageBox]::Show("Generate a new link? The old link will stop working.", 'LightMenu', 'YesNo', 'Question')
@@ -2627,7 +2643,7 @@ function New-StaffCard($member) {
     $btnRow.Children.Add($newLinkBtn) | Out-Null
 
     # ROLE
-    $roleBtn = Make-PillButton 'Role' '#D1D5DB' $member.id
+    $roleBtn = Make-PillButton 'Role' '#60A5FA' $member.id
     $roleBtn.Add_Click({ Show-RoleDialog $memberData.id $memberData.role }.GetNewClosure())
     $btnRow.Children.Add($roleBtn) | Out-Null
 
@@ -2656,15 +2672,21 @@ function Show-SupabaseError($errorRecord, $action) {
     [System.Windows.MessageBox]::Show($msg, 'LightMenu', 'OK', 'Warning') | Out-Null
 }
 
-function Make-PillButton($content, $fgColor, $tag) {
+function Make-PillButton($content, $color, $tag) {
+    # Web-matching tinted pill: colour/10 background, colour/30 border, colour text
+    # (alpha PREFIXED for WPF). Hover deepens the tint.
+    $bg      = Tint $color '1A'   # ~10%
+    $bd      = Tint $color '4D'   # ~30%
+    $hoverBg = Tint $color '2E'   # ~18%
+    $hoverBd = Tint $color '80'   # ~50%
     $b = New-Object System.Windows.Controls.Button
     $b.Content     = $content
     $b.FontSize    = 11
     $b.FontWeight  = 'Medium'
     $b.Cursor      = 'Hand'
-    $b.Background  = SolidBrush '#252836'
-    $b.Foreground  = SolidBrush $fgColor
-    $b.BorderBrush = SolidBrush '#3A3D4E'
+    $b.Background  = SolidBrush $bg
+    $b.Foreground  = SolidBrush $color
+    $b.BorderBrush = SolidBrush $bd
     $b.BorderThickness = New-Object System.Windows.Thickness(1)
     $b.Padding     = New-Object System.Windows.Thickness(11,5,11,5)
     $b.Margin      = New-Object System.Windows.Thickness(0,0,6,0)
@@ -2673,16 +2695,16 @@ function Make-PillButton($content, $fgColor, $tag) {
 <ControlTemplate xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
                  xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
                  TargetType="Button">
-  <Border x:Name="bdr" Background="{TemplateBinding Background}" BorderBrush="{TemplateBinding BorderBrush}" BorderThickness="{TemplateBinding BorderThickness}" CornerRadius="6" Padding="{TemplateBinding Padding}">
+  <Border x:Name="bdr" Background="{TemplateBinding Background}" BorderBrush="{TemplateBinding BorderBrush}" BorderThickness="{TemplateBinding BorderThickness}" CornerRadius="8" Padding="{TemplateBinding Padding}">
     <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center"/>
   </Border>
   <ControlTemplate.Triggers>
     <Trigger Property="IsMouseOver" Value="True">
-      <Setter TargetName="bdr" Property="Background" Value="#2F3244"/>
-      <Setter TargetName="bdr" Property="BorderBrush" Value="#4A4D5E"/>
+      <Setter TargetName="bdr" Property="Background" Value="$hoverBg"/>
+      <Setter TargetName="bdr" Property="BorderBrush" Value="$hoverBd"/>
     </Trigger>
     <Trigger Property="IsPressed" Value="True">
-      <Setter TargetName="bdr" Property="Background" Value="#1A1D29"/>
+      <Setter TargetName="bdr" Property="Background" Value="$bd"/>
     </Trigger>
   </ControlTemplate.Triggers>
 </ControlTemplate>

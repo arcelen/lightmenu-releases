@@ -2967,19 +2967,20 @@ http.createServer((req, res) => {
       const linkBase = 'https://www.lightmenu.app';
 
       const rolesById = {};
-      for (const r of rolesTable) rolesById[r.id] = r.name || r.label || 'Role';
+      for (const r of rolesTable) rolesById[r.id] = { name: r.name || r.label || 'Role', color: r.color || null };
 
       const remoteNorm = members.map(m => {
         const activeTok = tokens.find(t => t.staff_member_id === m.id && t.is_active);
         const anyTok    = activeTok || tokens.find(t => t.staff_member_id === m.id);
         const sRoles    = staffRoles.filter(sr => sr.staff_member_id === m.id);
-        const roleName  = sRoles.length && rolesById[sRoles[0].role_id]
-                          ? rolesById[sRoles[0].role_id]
-                          : (m.role || 'Waiter');
+        const roleEntry = sRoles.length ? rolesById[sRoles[0].role_id] : null;
+        const roleName  = roleEntry ? roleEntry.name : (m.role || 'Waiter');
+        const roleColor = roleEntry ? roleEntry.color : null;
         return {
           id:          m.id,
           name:        m.display_name || m.user_email || m.full_name || 'Staff',
           role:        roleName,
+          role_color:  roleColor,
           waiter_link: anyTok ? `${linkBase}/waiter/${anyTok.token}` : null,
           created_at:  m.created_date || m.created_at || null,
           last_used:   m.last_login_at || (anyTok && anyTok.last_used_at) || null,
