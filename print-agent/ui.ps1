@@ -325,11 +325,13 @@ function Format-Money($amount) {
             <TextBlock x:Name="LblDragHint" Text="Drag to arrange · tap to edit" Foreground="#6B7280" FontSize="11" HorizontalAlignment="Right" Margin="0,0,0,4"/>
             <StackPanel Orientation="Horizontal" HorizontalAlignment="Right">
               <Ellipse Width="8" Height="8" Fill="#22C55E" VerticalAlignment="Center" Margin="0,0,5,0"/>
-              <TextBlock x:Name="LblFree"     Text="Free"     Foreground="#6B7280" FontSize="11" VerticalAlignment="Center" Margin="0,0,14,0"/>
+              <TextBlock x:Name="LblFree"    Text="Free"        Foreground="#6B7280" FontSize="11" VerticalAlignment="Center" Margin="0,0,14,0"/>
+              <Ellipse Width="8" Height="8" Fill="#38BDF8" VerticalAlignment="Center" Margin="0,0,5,0"/>
+              <TextBlock x:Name="LblDishes"  Text="Dishes out"  Foreground="#6B7280" FontSize="11" VerticalAlignment="Center" Margin="0,0,14,0"/>
               <Ellipse Width="8" Height="8" Fill="#F59E0B" VerticalAlignment="Center" Margin="0,0,5,0"/>
-              <TextBlock x:Name="LblOccupied" Text="Occupied" Foreground="#6B7280" FontSize="11" VerticalAlignment="Center" Margin="0,0,14,0"/>
-              <Ellipse Width="8" Height="8" Fill="#A78BFA" VerticalAlignment="Center" Margin="0,0,5,0"/>
-              <TextBlock x:Name="LblReserved" Text="Reserved" Foreground="#6B7280" FontSize="11" VerticalAlignment="Center"/>
+              <TextBlock x:Name="LblReclaim" Text="To reclaim"  Foreground="#6B7280" FontSize="11" VerticalAlignment="Center" Margin="0,0,14,0"/>
+              <Ellipse Width="8" Height="8" Fill="#A855F7" VerticalAlignment="Center" Margin="0,0,5,0"/>
+              <TextBlock x:Name="LblCheck"   Text="Check printed" Foreground="#6B7280" FontSize="11" VerticalAlignment="Center"/>
             </StackPanel>
           </StackPanel>
         </Grid>
@@ -1291,7 +1293,7 @@ function Tint($hex, $aa) { return '#' + $aa + ($hex -replace '^#','') }
 $script:i18n = @{
     en = @{
         nav_dashboard='Dashboard'; nav_analytics='Analytics'; nav_bills='Bills'; nav_report='Daily Report'; nav_staff='Staff'
-        lbl_printer='PRINTER'; lbl_last_update='LAST UPDATE'; lbl_free='Free'; lbl_occupied='Occupied'; lbl_reserved='Reserved'
+        lbl_printer='PRINTER'; lbl_last_update='LAST UPDATE'; lbl_free='Free'; lbl_dishes='Dishes out'; lbl_reclaim='To reclaim'; lbl_check='Check printed'
         lbl_drag_hint='Drag to arrange · tap to edit'; btn_add_floor='+ Floor'; btn_add_table='+ Table'; btn_del_floor='Delete Floor'
         btn_rescan='Rescan Printers'; btn_restart='Restart Agent'
         period_today='Today'; period_week='This Week'; period_month='This Month'; period_all='All Time'; period_refresh='Refresh'
@@ -1616,8 +1618,9 @@ function Apply-Language {
     (ctl 'LblPrinter').Text     = T 'lbl_printer'
     (ctl 'LblLastUpdate').Text  = T 'lbl_last_update'
     (ctl 'LblFree').Text        = T 'lbl_free'
-    (ctl 'LblOccupied').Text    = T 'lbl_occupied'
-    (ctl 'LblReserved').Text    = T 'lbl_reserved'
+    (ctl 'LblDishes').Text      = T 'lbl_dishes'
+    (ctl 'LblReclaim').Text     = T 'lbl_reclaim'
+    (ctl 'LblCheck').Text       = T 'lbl_check'
     (ctl 'LblDragHint').Text    = T 'lbl_drag_hint'
     (ctl 'AddFloorBtn').Content = T 'btn_add_floor'
     (ctl 'AddTableBtn').Content = T 'btn_add_table'
@@ -1927,11 +1930,18 @@ function Render-FloorTables([array]$tables) {
             $cx = 130 + $col * 165; $cy = 110 + $row * 150; $idx++
         }
 
-        $occ = $t.occupied -or $t.status -eq 'occupied'
-        $res = $t.status -eq 'reserved'
-        if     ($occ) { $bg = '#2D2310'; $bc = '#F59E0B'; $fg = '#FCD34D' }
-        elseif ($res) { $bg = '#1E1529'; $bc = '#A78BFA'; $fg = '#C4B5FD' }
-        else          { $bg = '#0D2318'; $bc = '#22C55E'; $fg = '#86EFAC' }
+        # 4-colour floor map (global LightMenu convention — same on web & app):
+        #   green  free          — no active order
+        #   blue   dishes out    — active order, no held secondary plates
+        #   yellow to reclaim    — held s1–s4 plates waiting to be fired/reclaimed
+        #   purple check printed — bill printed at least once, awaiting close
+        $occ   = $t.occupied -or $t.status -eq 'occupied'
+        $held  = [bool]$t.has_held_items
+        $check = -not [string]::IsNullOrEmpty([string]$t.check_printed_at)
+        if     ($check) { $bg = '#241830'; $bc = '#A855F7'; $fg = '#D8B4FE' }
+        elseif ($held)  { $bg = '#2D2310'; $bc = '#F59E0B'; $fg = '#FCD34D' }
+        elseif ($occ)   { $bg = '#0C2230'; $bc = '#38BDF8'; $fg = '#7DD3FC' }
+        else            { $bg = '#0D2318'; $bc = '#22C55E'; $fg = '#86EFAC' }
 
         $tw = if ($t.shape -eq 'rect') { 104.0 } else { 78.0 }
         $th = 78.0
@@ -2165,7 +2175,7 @@ function Update-FloorPlan {
         # Skip the (heavy) full canvas rebuild when nothing visible changed. Most
         # 5s ticks hit this early-out, so the UI no longer churns 39 closures/tick.
         $sig = "$($script:activeFloor)||" + (($tables | ForEach-Object {
-            "$($_.id):$($_.table_number):$($_.pos_x):$($_.pos_y):$($_.status):$($_.zone):$($_.occupied)"
+            "$($_.id):$($_.table_number):$($_.pos_x):$($_.pos_y):$($_.status):$($_.zone):$($_.occupied):$($_.has_held_items):$($_.check_printed_at)"
         }) -join '|')
         if ($sig -eq $script:lastFloorSig) { return }
         $script:lastFloorSig = $sig

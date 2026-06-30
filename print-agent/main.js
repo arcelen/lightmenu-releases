@@ -296,6 +296,31 @@ function supabaseGet(table, query, limit) {
   });
 }
 
+// Like supabaseGet but takes a fully-formed PostgREST query string (so callers
+// can use in.()/not.in.() filters the eq-only helper can't express). Read-only.
+function supabaseGetRaw(pathWithQuery) {
+  return new Promise((resolve, reject) => {
+    const url = SUPABASE_URL + '/rest/v1/' + pathWithQuery;
+    const req = https.request(url, {
+      method: 'GET',
+      headers: {
+        'apikey': SUPABASE_ANON_KEY,
+        'Authorization': 'Bearer ' + SUPABASE_ANON_KEY,
+        'Content-Type': 'application/json',
+      }
+    }, (res) => {
+      let body = '';
+      res.on('data', c => body += c);
+      res.on('end', () => {
+        try { resolve(JSON.parse(body)); }
+        catch (e) { reject(e); }
+      });
+    });
+    req.on('error', reject);
+    req.end();
+  });
+}
+
 function supabasePatch(table, id, patch) {
   return new Promise((resolve, reject) => {
     const body = JSON.stringify(patch);
@@ -2298,15 +2323,45 @@ http.createServer((req, res) => {
         const today = new Date().toISOString().slice(0, 10);
         const todayOrders = store.getOrders(today);
         const occupiedNums = new Set(todayOrders.map(o => String(o.table)));
+
+        // Live order state for the 4-colour floor map: which tables have an
+        // active order, and which of those hold "secondary" plates (s1–s4)
+        // still waiting to be fired/reclaimed (yellow). Best-effort: any failure
+        // just leaves the map on the occupied/free colours.
+        const heldTables = new Set();
+        try {
+          const activeOrders = await supabaseGetRaw(
+            'orders?restaurant_id=eq.' + encodeURIComponent(RESTAURANT_ID) +
+            '&status=not.in.(paid,cancelled)&select=id,table_number&limit=300'
+          );
+          const orderById = new Map((activeOrders || []).map(o => [o.id, o]));
+          const orderIds = (activeOrders || []).map(o => o.id);
+          if (orderIds.length) {
+            const idList = orderIds.map(encodeURIComponent).join(',');
+            const items = await supabaseGetRaw(
+              'order_items?order_id=in.(' + idList + ')&status=eq.pending' +
+              '&select=order_id,course,status&limit=2000'
+            );
+            for (const it of (items || [])) {
+              if (it.course && it.course !== 'direct') {
+                const o = orderById.get(it.order_id);
+                if (o) heldTables.add(String(o.table_number));
+              }
+            }
+          }
+        } catch (_) { /* leave map on occupied/free colours */ }
+
         const tables = (rows || []).map(t => ({
-          id:           t.id,
-          table_number: t.table_number,
-          status:       t.status || 'available',
-          pos_x:        t.pos_x,
-          pos_y:        t.pos_y,
-          shape:        t.shape || 'square',
-          zone:         t.zone || null,
-          occupied:     occupiedNums.has(String(t.table_number)) || !!t.current_order_id,
+          id:               t.id,
+          table_number:     t.table_number,
+          status:           t.status || 'available',
+          pos_x:            t.pos_x,
+          pos_y:            t.pos_y,
+          shape:            t.shape || 'square',
+          zone:             t.zone || null,
+          occupied:         occupiedNums.has(String(t.table_number)) || !!t.current_order_id,
+          has_held_items:   heldTables.has(String(t.table_number)),
+          check_printed_at: t.check_printed_at || null,
         }));
         res.writeHead(200, { 'Content-Type': 'application/json' });
         res.end(JSON.stringify(tables));
