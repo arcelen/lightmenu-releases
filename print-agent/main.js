@@ -1888,6 +1888,35 @@ function stationDb(action, payload) {
   });
 }
 
+// Station READS for Analytics/Bills go through the same backend, scoped
+// server-side to this restaurant's saved_bills rows — the exact rows the web
+// app and Flutter app read, so all three surfaces show the same numbers
+// regardless of which device closed which bill. Local store.js stays as the
+// offline fallback when the server is unreachable.
+function stationReports(type, params) {
+  return new Promise((resolve, reject) => {
+    const qs = new URLSearchParams({ token: API_TOKEN, type, ...(params || {}) });
+    let u;
+    try { u = new URL(LM_API_BASE + '/station/reports?' + qs.toString()); } catch (e) { return reject(e); }
+    const r = https.request(u, { method: 'GET' }, (res) => {
+      let data = '';
+      res.on('data', c => data += c);
+      res.on('end', () => {
+        let parsed = null;
+        try { parsed = JSON.parse(data); } catch {}
+        if (res.statusCode < 200 || res.statusCode >= 300) {
+          reject(new Error((parsed && parsed.error) || ('Station reports HTTP ' + res.statusCode)));
+          return;
+        }
+        resolve(parsed);
+      });
+    });
+    r.on('error', reject);
+    r.setTimeout(15000, () => r.destroy(new Error('Station reports request timed out')));
+    r.end();
+  });
+}
+
 // Server-side machine kill switch. Reports this machine to the backend and learns
 // whether this install may run. Fail-OPEN: any network/HTTP error leaves
 // STATION_ALLOWED unchanged so an outage never bricks a restaurant. Only an
@@ -2294,8 +2323,18 @@ http.createServer((req, res) => {
   if (req.method === 'GET' && req.url.startsWith('/local/stats')) {
     const u = new URL(req.url, 'http://x');
     const period = u.searchParams.get('period') || 'today';
-    res.writeHead(200, { 'Content-Type': 'application/json' });
-    res.end(JSON.stringify(store.getStats(period)));
+    (async () => {
+      try {
+        const live = await stationReports('stats', { period });
+        res.writeHead(200, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify(live));
+      } catch (_) {
+        // Server unreachable — fall back to this PC's local cache so the
+        // page still shows something instead of erroring out.
+        res.writeHead(200, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify(store.getStats(period)));
+      }
+    })();
     return;
   }
 
@@ -2303,8 +2342,19 @@ http.createServer((req, res) => {
     const u = new URL(req.url, 'http://x');
     const start = u.searchParams.get('start') || null;
     const end   = u.searchParams.get('end')   || null;
-    res.writeHead(200, { 'Content-Type': 'application/json' });
-    res.end(JSON.stringify(store.getBills(start, end)));
+    (async () => {
+      try {
+        const params = {};
+        if (start) params.start = start;
+        if (end)   params.end   = end;
+        const live = await stationReports('bills', params);
+        res.writeHead(200, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify(live));
+      } catch (_) {
+        res.writeHead(200, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify(store.getBills(start, end)));
+      }
+    })();
     return;
   }
 
