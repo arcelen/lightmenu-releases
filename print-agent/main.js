@@ -572,6 +572,48 @@ function checkPort(ip, port, timeout) {
   });
 }
 
+// Confirm a device on port 9100 is a REAL ESC/POS printer, not just something
+// with the port open. Plenty of non-printers listen on 9100 — IP cameras/MJPEG
+// servers, NAS boxes, other PCs — and they'll silently swallow print data, so
+// the agent reports jobs as "printed" while nothing comes out.
+//
+// We send a DLE EOT 1 real-time status request. A genuine ESC/POS printer
+// answers with a single status byte whose fixed bits always satisfy
+// (byte & 0x93) === 0x12. A non-printer either stays silent or replies with
+// something unrelated (e.g. an MJPEG server answers our bytes with an HTTP
+// header — long, and its first byte 'H' fails the invariant). So we require:
+// a short reply (<= 4 bytes) whose first byte matches the printer-status mask.
+function probeIsPrinter(ip, port, timeout) {
+  port = port || 9100; timeout = timeout || 2500;
+  return new Promise(resolve => {
+    const s = new net.Socket();
+    let done = false;
+    const finish = (ok) => { if (done) return; done = true; clearTimeout(t); try { s.destroy(); } catch {} resolve(ok); };
+    const t = setTimeout(() => finish(false), timeout);
+    s.connect(port, ip, () => { try { s.write(Buffer.from([0x10, 0x04, 0x01])); } catch { finish(false); } });
+    s.on('data', d => finish(d.length >= 1 && d.length <= 4 && (d[0] & 0x93) === 0x12));
+    s.on('error', () => finish(false));
+    s.on('close', () => finish(false));
+  });
+}
+
+// Filter a list of port-9100 candidates down to devices that verify as real
+// printers. If NONE verify (e.g. a printer that doesn't implement DLE EOT
+// status), return the original list unchanged — better a best-guess than
+// dropping a working printer. Only when at least one device is confirmed do we
+// exclude the unconfirmed ones (that's what kicks the webcam off the list).
+async function keepRealPrinters(ips) {
+  if (!ips || ips.length <= 1) return ips || [];
+  const results = await Promise.all(ips.map(ip => probeIsPrinter(ip).then(ok => ok ? ip : null)));
+  const verified = results.filter(Boolean);
+  if (verified.length === 0) return ips;
+  if (verified.length !== ips.length) {
+    const rejected = ips.filter(ip => !verified.includes(ip));
+    log('Ignoring non-printer device(s) on port 9100: ' + rejected.join(', ') + ' (kept: ' + verified.join(', ') + ')');
+  }
+  return verified;
+}
+
 // Read the Windows ARP table â€” lists every device the PC has seen on the LAN recently.
 // This is instant and much more reliable than port scanning 254 IPs.
 function getArpIps() {
@@ -670,11 +712,12 @@ async function scanNetworkForPrinters() {
     for (const port of PRINTER_PORTS) {
       const found = await checkPortBatch(arpIps, port, 2000, 20);
       if (found.length > 0) {
-        log('Found printer(s) via ARP on port ' + port + ': ' + found.join(', '));
-        return found;
+        log('Found ' + found.length + ' device(s) via ARP on port ' + port + ': ' + found.join(', '));
+        const real = await keepRealPrinters(found);
+        if (real.length > 0) return real;
       }
     }
-    log('ARP devices found but none responded on printer ports (' + PRINTER_PORTS.join('/') + ')');
+    log('ARP devices found but none verified as printers on ports (' + PRINTER_PORTS.join('/') + ')');
   } else {
     log('ARP table empty â€” falling back to subnet scan');
   }
@@ -689,8 +732,9 @@ async function scanNetworkForPrinters() {
   for (const port of PRINTER_PORTS) {
     const found = await checkPortBatch(allIps, port, 1200, 30);
     if (found.length > 0) {
-      log('Found printer(s) via subnet scan on port ' + port + ': ' + found.join(', '));
-      return found;
+      log('Found ' + found.length + ' device(s) via subnet scan on port ' + port + ': ' + found.join(', '));
+      const real = await keepRealPrinters(found);
+      if (real.length > 0) return real;
     }
   }
 
@@ -767,15 +811,14 @@ async function autoAssignPrinterIps(discoveredIps) {
       await new Promise(r => setTimeout(r, 1500));
       await refreshPrinters();
     } else if (real.length === 1 && discoveredIps.length >= 1) {
-      // Single-printer setup â€” keep the IP current (handles DHCP changes automatically).
-      // A restaurant LAN can have other devices answering on port 9100 too (a PC,
-      // an appliance), so blindly trusting discoveredIps[0] can silently point
-      // printing at the wrong device â€” the agent reports "printed" successfully
-      // while nothing comes out. Prefer matching by the printer's known ETH
-      // fingerprint (MAC, stable across DHCP reassignment); only fall back to
-      // "just take it" when there's a single unambiguous candidate, and self-heal
-      // the fingerprint once we're confident so future scans stay accurate even
-      // across a USB â†” ETH transport change.
+      // Single-printer setup â€” keep the IP current automatically, including when
+      // the restaurant switches the printer from USB to Ethernet or the router
+      // hands it a new DHCP address. discoveredIps here has already been verified
+      // to be real ESC/POS printers (see keepRealPrinters), so a webcam/PC that
+      // merely has port 9100 open can no longer hijack the config. Prefer the
+      // device whose MAC matches the printer's learned fingerprint; otherwise
+      // take the verified printer and learn its fingerprint so future scans
+      // track the same physical device across IP changes.
       const cfg = real[0];
       const macMap = await getArpMacMap();
       let targetIp = null;
@@ -783,21 +826,16 @@ async function autoAssignPrinterIps(discoveredIps) {
         const wantMac = cfg.fingerprint.slice(4);
         targetIp = discoveredIps.find(ip => macMap[ip] === wantMac) || null;
       }
-      if (!targetIp) {
-        if (discoveredIps.length === 1) {
-          targetIp = discoveredIps[0];
-        } else {
-          log('Multiple candidate printers found (' + discoveredIps.join(', ') + ') and none match the known fingerprint â€” leaving printer IP unchanged. Set it manually in Printer settings if this is wrong.');
-          return;
-        }
-      }
+      if (!targetIp) targetIp = discoveredIps[0];
       const targetMac = macMap[targetIp];
       const targetFp  = targetMac ? ('eth:' + targetMac) : cfg.fingerprint;
       if (cfg.printer_ip !== targetIp || (targetFp && cfg.fingerprint !== targetFp)) {
         const patch = { printer_ip: targetIp };
         if (targetFp && cfg.fingerprint !== targetFp) patch.fingerprint = targetFp;
         await stationDb('printer_config.update', { id: cfg.id, patch });
-        log('Updated printer IP: ' + (cfg.printer_ip || '(none)') + ' â†’ ' + targetIp + (patch.fingerprint ? ' (fingerprint learned: ' + targetFp + ')' : ''));
+        log('Printer auto-updated: ' + (cfg.printer_ip || '(none)') + ' â†’ ' + targetIp + (patch.fingerprint ? ' (fingerprint learned: ' + targetFp + ')' : ''));
+        PRINTER_IP = targetIp;
+        PRINTER_PORT = Number(cfg.printer_port) || 9100;
         await new Promise(r => setTimeout(r, 1500));
         await refreshPrinters();
       } else {
