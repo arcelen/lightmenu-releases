@@ -767,11 +767,37 @@ async function autoAssignPrinterIps(discoveredIps) {
       await new Promise(r => setTimeout(r, 1500));
       await refreshPrinters();
     } else if (real.length === 1 && discoveredIps.length >= 1) {
-      // Single-printer setup â€” keep the IP current (handles DHCP changes automatically)
+      // Single-printer setup â€” keep the IP current (handles DHCP changes automatically).
+      // A restaurant LAN can have other devices answering on port 9100 too (a PC,
+      // an appliance), so blindly trusting discoveredIps[0] can silently point
+      // printing at the wrong device â€” the agent reports "printed" successfully
+      // while nothing comes out. Prefer matching by the printer's known ETH
+      // fingerprint (MAC, stable across DHCP reassignment); only fall back to
+      // "just take it" when there's a single unambiguous candidate, and self-heal
+      // the fingerprint once we're confident so future scans stay accurate even
+      // across a USB â†” ETH transport change.
       const cfg = real[0];
-      if (cfg.printer_ip !== discoveredIps[0]) {
-        await stationDb('printer_config.update', { id: cfg.id, patch: { printer_ip: discoveredIps[0] } });
-        log('Updated printer IP: ' + (cfg.printer_ip || '(none)') + ' â†’ ' + discoveredIps[0]);
+      const macMap = await getArpMacMap();
+      let targetIp = null;
+      if (cfg.fingerprint && cfg.fingerprint.startsWith('eth:')) {
+        const wantMac = cfg.fingerprint.slice(4);
+        targetIp = discoveredIps.find(ip => macMap[ip] === wantMac) || null;
+      }
+      if (!targetIp) {
+        if (discoveredIps.length === 1) {
+          targetIp = discoveredIps[0];
+        } else {
+          log('Multiple candidate printers found (' + discoveredIps.join(', ') + ') and none match the known fingerprint â€” leaving printer IP unchanged. Set it manually in Printer settings if this is wrong.');
+          return;
+        }
+      }
+      const targetMac = macMap[targetIp];
+      const targetFp  = targetMac ? ('eth:' + targetMac) : cfg.fingerprint;
+      if (cfg.printer_ip !== targetIp || (targetFp && cfg.fingerprint !== targetFp)) {
+        const patch = { printer_ip: targetIp };
+        if (targetFp && cfg.fingerprint !== targetFp) patch.fingerprint = targetFp;
+        await stationDb('printer_config.update', { id: cfg.id, patch });
+        log('Updated printer IP: ' + (cfg.printer_ip || '(none)') + ' â†’ ' + targetIp + (patch.fingerprint ? ' (fingerprint learned: ' + targetFp + ')' : ''));
         await new Promise(r => setTimeout(r, 1500));
         await refreshPrinters();
       } else {
