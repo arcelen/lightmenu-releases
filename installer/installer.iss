@@ -16,7 +16,7 @@
 #endif
 
 #define AppName      "LightMenu Station"
-#define AppVersion   "6.0.70"
+#define AppVersion   "6.0.77"
 #define AppPublisher "LightMenu"
 #define AppURL       "https://lightmenu.com"
 
@@ -48,9 +48,16 @@ Name: "spanish"; MessagesFile: "compiler:Languages\Spanish.isl"
 
 [Files]
 Source: "{#SourceDir}\.internal\*"; DestDir: "{app}\.internal"; \
-    Excludes: "*.log,*.lock,*.local.json,*.queue.json,*.cache.json,*.daily.json,*.bak*,ui-error.log,tunnel.log,tunnel.err.log"; \
+    Excludes: "*.log,*.lock,*.local.json,*.queue.json,*.cache.json,*.daily.json,*.bak*,ui-error.log,tunnel.log,tunnel.err.log,config.json"; \
     Flags: recursesubdirs createallsubdirs ignoreversion
 Source: "{#SourceDir}\lightmenu.png"; DestDir: "{app}"; Flags: ignoreversion skipifsourcedoesntexist
+; Setup.exe itself is generic and carries no restaurant secrets. The real
+; config.json (restaurant_id/name/api_token, written by the web app's download
+; flow) is dropped next to Setup.exe before the user runs it; if present, it's
+; installed here instead of the blank placeholder baked into the compiled
+; installer. "external" means it's read from disk at install time, not
+; compiled into the .exe payload.
+Source: "{srcexe}\config.json"; DestDir: "{app}\.internal\app"; Flags: external skipifsourcedoesntexist
 
 [Icons]
 Name: "{userdesktop}\LightMenu Station";   Filename: "{app}\.internal\scripts\launch-gui.vbs"; WorkingDir: "{app}"; IconFilename: "{app}\.internal\app\lightmenu.ico"; Comment: "LightMenu Station"
