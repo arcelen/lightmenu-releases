@@ -44,15 +44,15 @@ echo.
 if defined OBFUSCATOR (
     echo [..] Obfuscating source files...
     if exist "staging\.internal\app\main.js" (
-        "%OBFUSCATOR%" "staging\.internal\app\main.js" --output "staging\.internal\app\main.js" --compact true --string-array true --string-array-encoding base64 --identifier-names-generator hexadecimal --rename-globals false --self-defending false
+        "%OBFUSCATOR%" "staging\.internal\app\main.js" --output "staging\.internal\app\main.js" --compact true --string-array true --string-array-encoding base64 --string-array-threshold 1 --split-strings true --split-strings-chunk-length 10 --unicode-escape-sequence true --control-flow-flattening true --control-flow-flattening-threshold 0.75 --dead-code-injection true --dead-code-injection-threshold 0.4 --identifier-names-generator hexadecimal --rename-globals false --self-defending true
         echo [OK] main.js obfuscated.
     )
     if exist "staging\.internal\app\store.js" (
-        "%OBFUSCATOR%" "staging\.internal\app\store.js" --output "staging\.internal\app\store.js" --compact true --string-array true --string-array-encoding base64 --identifier-names-generator hexadecimal --rename-globals false --self-defending false
+        "%OBFUSCATOR%" "staging\.internal\app\store.js" --output "staging\.internal\app\store.js" --compact true --string-array true --string-array-encoding base64 --string-array-threshold 1 --split-strings true --split-strings-chunk-length 10 --unicode-escape-sequence true --control-flow-flattening true --control-flow-flattening-threshold 0.75 --dead-code-injection true --dead-code-injection-threshold 0.4 --identifier-names-generator hexadecimal --rename-globals false --self-defending true
         echo [OK] store.js obfuscated.
     )
     if exist "staging\.internal\app\qrcode.js" (
-        "%OBFUSCATOR%" "staging\.internal\app\qrcode.js" --output "staging\.internal\app\qrcode.js" --compact true --string-array true --string-array-encoding base64 --identifier-names-generator hexadecimal --rename-globals false --self-defending false
+        "%OBFUSCATOR%" "staging\.internal\app\qrcode.js" --output "staging\.internal\app\qrcode.js" --compact true --string-array true --string-array-encoding base64 --string-array-threshold 1 --split-strings true --split-strings-chunk-length 10 --unicode-escape-sequence true --control-flow-flattening true --control-flow-flattening-threshold 0.75 --dead-code-injection true --dead-code-injection-threshold 0.4 --identifier-names-generator hexadecimal --rename-globals false --self-defending true
         echo [OK] qrcode.js obfuscated.
     )
     echo.
