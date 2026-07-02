@@ -20,7 +20,7 @@
 #endif
 
 #define AppName      "LightMenu Station"
-#define AppVersion   "6.0.77"
+#define AppVersion   "6.0.79"
 #define AppPublisher "LightMenu"
 #define AppURL       "https://lightmenu.com"
 
