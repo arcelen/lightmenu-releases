@@ -3504,6 +3504,18 @@ http.createServer((req, res) => {
     req.on('data', c => body += c);
     req.on('end', async () => {
       try {
+        // Reject anything not addressed to this restaurant. print.lightmenu.app is
+        // one shared Cloudflare Tunnel hostname for every Station — Cloudflare can
+        // hand a request to ANY connected machine, not necessarily the right one.
+        // A direct LAN call (no X-Station-Token header) already only ever reaches
+        // this one PC, so it's exempt; only the shared-tunnel path needs this check.
+        const incomingToken = req.headers['x-station-token'];
+        if (incomingToken && API_TOKEN && API_TOKEN !== '__API_TOKEN__' && incomingToken !== API_TOKEN) {
+          log('REJECTED /print: token does not match this restaurant (shared-tunnel misroute)');
+          res.writeHead(403, { 'Content-Type': 'application/json' });
+          res.end(JSON.stringify({ ok: false, error: 'restaurant mismatch' }));
+          return;
+        }
         const ticket = JSON.parse(body);
         // Raster path: prefer pre-rendered bitmap when present (Arabic/CJK/etc.)
         let data = null;
