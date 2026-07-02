@@ -58,6 +58,18 @@ if not exist "%ASSETS_DIR%\lightmenu.ico" (
     echo ERROR: %ASSETS_DIR%\lightmenu.ico not found - generic fallback icon missing.
     pause & exit /b 1
 )
+if not exist "%AGENT_DIR%\tunnel\cloudflared.exe" (
+    echo ERROR: %AGENT_DIR%\tunnel\cloudflared.exe not found.
+    echo        This is the Cloudflare Tunnel binary. Tracked via Git LFS - run: git lfs pull
+    pause & exit /b 1
+)
+if not exist "%AGENT_DIR%\tunnel\cloudflared-creds.json" (
+    echo ERROR: %AGENT_DIR%\tunnel\cloudflared-creds.json not found.
+    echo        This is the tunnel private key. It is NEVER committed to git ^(public repo^),
+    echo        so you must place it locally before building. Copy it from a working install:
+    echo          copy "%%LOCALAPPDATA%%\LightMenu Station\.internal\tunnel\cloudflared-creds.json" "%AGENT_DIR%\tunnel\"
+    pause & exit /b 1
+)
 
 :: Build staging folder entirely from committed sources
 echo [..] Assembling staging folder from print-agent...
@@ -65,6 +77,7 @@ if exist "staging" rmdir /S /Q "staging"
 mkdir "staging\.internal\app"      > nul
 mkdir "staging\.internal\scripts"  > nul
 mkdir "staging\.internal\runtime"  > nul
+mkdir "staging\.internal\tunnel"   > nul
 
 :: App payload - the actual agent code + its version manifest
 copy /Y "%AGENT_DIR%\main.js"           "staging\.internal\app\main.js"           > nul
@@ -89,7 +102,15 @@ copy /Y "%AGENT_DIR%\scripts\restart-loop-node.bat"  "staging\.internal\scripts\
 copy /Y "%AGENT_DIR%\runtime\node.exe"      "staging\.internal\runtime\node.exe"      > nul
 if exist "%AGENT_DIR%\runtime\package.json" copy /Y "%AGENT_DIR%\runtime\package.json" "staging\.internal\runtime\package.json" > nul
 
-echo [OK] Staging ready - includes runtime\node.exe, verified below.
+:: Tunnel - cloudflared.exe + config.yml are committed (non-secret); the
+:: private key cloudflared-creds.json is gitignored and placed locally. All
+:: three land in .internal\tunnel\ exactly like the original hand-made zips.
+:: agent-runner.ps1 auto-starts cloudflared only when this folder is present.
+copy /Y "%AGENT_DIR%\tunnel\cloudflared.exe"          "staging\.internal\tunnel\cloudflared.exe"          > nul
+copy /Y "%AGENT_DIR%\tunnel\config.yml"               "staging\.internal\tunnel\config.yml"               > nul
+copy /Y "%AGENT_DIR%\tunnel\cloudflared-creds.json"   "staging\.internal\tunnel\cloudflared-creds.json"   > nul
+
+echo [OK] Staging ready - includes runtime\node.exe + tunnel, verified below.
 echo.
 
 :: Hard verification: fail the build rather than ship a broken installer.
@@ -101,11 +122,14 @@ if %RUNTIME_SIZE% LSS 50000000 (
     pause & exit /b 1
 )
 echo [OK] Runtime verified: %RUNTIME_SIZE% bytes staged.
+for %%F in ("staging\.internal\tunnel\cloudflared.exe") do set "TUNNEL_SIZE=%%~zF"
+if %TUNNEL_SIZE% LSS 20000000 (
+    echo ERROR: staged tunnel\cloudflared.exe is only %TUNNEL_SIZE% bytes - expected ~60MB+.
+    echo        Likely a Git LFS pointer instead of the real binary - run: git lfs pull
+    pause & exit /b 1
+)
+echo [OK] Tunnel verified: cloudflared.exe %TUNNEL_SIZE% bytes staged.
 echo.
-
-:: NOTE: no .internal\tunnel is ever staged here - cloudflared is never part
-:: of the generic installer. Restaurant owners who download this get
-:: download, install, open. Nothing else, ever.
 
 :: Obfuscate JS files in staging
 echo [..] Obfuscating source files...

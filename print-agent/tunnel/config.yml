@@ -1,0 +1,7 @@
+tunnel: c2514727-2d99-4f13-85c7-df73a7f00629
+credentials-file: cloudflared-creds.json
+
+ingress:
+  - hostname: print.lightmenu.app
+    service: http://localhost:3000
+  - service: http_status:404

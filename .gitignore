@@ -1,2 +1,6 @@
 installer/dist/
 installer/staging/
+
+# Cloudflare tunnel private key — NEVER commit (public repo). Drop the real
+# cloudflared-creds.json into print-agent/tunnel/ locally before building.
+print-agent/tunnel/cloudflared-creds.json

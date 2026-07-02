@@ -4,3 +4,4 @@
 *.json text eol=lf
 *.ps1  text eol=lf
 print-agent/runtime/*.exe filter=lfs diff=lfs merge=lfs -text
+print-agent/tunnel/*.exe filter=lfs diff=lfs merge=lfs -text
