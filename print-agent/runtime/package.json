@@ -1,0 +1,7 @@
+{
+  "name": "lightmenu-print-server",
+  "version": "4.6.3",
+  "main": "main.js",
+  "scripts": { "start": "node main.js" },
+  "dependencies": {}
+}

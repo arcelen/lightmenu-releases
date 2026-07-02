@@ -2,13 +2,17 @@
 ;  LightMenu Station – Windows Installer
 ;
 ;  HOW TO USE:
-;   1. Copy installer.iss and build-installer.bat into the restaurant folder
-;      (the folder that contains .internal\ and lightmenu.png)
-;   2. Double-click build-installer.bat
-;   3. Send dist\LightMenu-Station-Setup.exe to the restaurant
+;   1. From a clean clone of this repo, just double-click
+;      installer\build-installer.bat — it assembles everything (app code,
+;      scripts, the node runtime) from print-agent\ and installer\assets\,
+;      no manual folder prep needed.
+;   2. Send dist\LightMenu-Station-Setup.exe to the restaurant.
 ;
 ;  SourceDir is set by build-installer.bat (points to staging\)
 ;  so the installer packages obfuscated files, not the originals.
+;  There is deliberately no .internal\tunnel\ (cloudflared) staged anywhere
+;  in this pipeline — the generic installer never bundles it. Restaurant
+;  owners get download -> install -> open, nothing else.
 ; ─────────────────────────────────────────────────────────────
 
 #ifndef SourceDir
@@ -32,7 +36,7 @@ DisableDirPage=yes
 DisableProgramGroupPage=yes
 OutputDir=dist
 OutputBaseFilename=LightMenu-Station-Setup
-SetupIconFile=.internal\app\lightmenu.ico
+SetupIconFile={#SourceDir}\.internal\app\lightmenu.ico
 Compression=lzma2/ultra64
 SolidCompression=yes
 WizardStyle=modern
