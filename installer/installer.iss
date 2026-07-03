@@ -20,7 +20,7 @@
 #endif
 
 #define AppName      "LightMenu Station"
-#define AppVersion   "6.0.80"
+#define AppVersion   "6.0.81"
 #define AppPublisher "LightMenu"
 #define AppURL       "https://lightmenu.com"
 
@@ -65,12 +65,17 @@ Source: "{#SourceDir}\lightmenu.png"; DestDir: "{app}\.internal\app"; Flags: ign
 ; installed here instead of the blank placeholder baked into the compiled
 ; installer. "external" means it's read from disk at install time, not
 ; compiled into the .exe payload.
-Source: "{srcexe}\config.json"; DestDir: "{app}\.internal\app"; Flags: external skipifsourcedoesntexist
+; {src} is the FOLDER Setup.exe was launched from (where the download's
+; config.json sits). NOTE: use {src}, never {srcexe} — {srcexe} is the full
+; path INCLUDING the exe filename, so {srcexe}\config.json is an invalid path
+; and 'external skipifsourcedoesntexist' would silently skip it every time,
+; leaving the Station unconfigured (__RESTAURANT_ID__).
+Source: "{src}\config.json"; DestDir: "{app}\.internal\app"; Flags: external skipifsourcedoesntexist
 ; Same mechanism for a restaurant's own logo, if the download flow bundled
 ; one: overwrites the generic fallback above in both locations, and feeds
 ; the icon-regeneration step below so shortcuts get a custom icon too.
-Source: "{srcexe}\lightmenu.png"; DestDir: "{app}"; Flags: external ignoreversion skipifsourcedoesntexist
-Source: "{srcexe}\lightmenu.png"; DestDir: "{app}\.internal\app"; Flags: external ignoreversion skipifsourcedoesntexist
+Source: "{src}\lightmenu.png"; DestDir: "{app}"; Flags: external ignoreversion skipifsourcedoesntexist
+Source: "{src}\lightmenu.png"; DestDir: "{app}\.internal\app"; Flags: external ignoreversion skipifsourcedoesntexist
 
 [Icons]
 Name: "{userdesktop}\LightMenu Station";   Filename: "{app}\.internal\scripts\launch-gui.vbs"; WorkingDir: "{app}"; IconFilename: "{app}\.internal\app\lightmenu.ico"; Comment: "LightMenu Station"
@@ -127,7 +132,7 @@ begin
   if CurStep = ssDone then
   begin
     // Warn immediately if this install has no restaurant credentials. config.json
-    // is copied from {srcexe} (next to Setup.exe); if the download .zip wasn't
+    // is copied from {src} (the folder next to Setup.exe); if the .zip wasn't
     // fully extracted before running the installer, it's missing and the Station
     // would run linked to no restaurant. config.enc means a prior install already
     // sealed its credentials, so only warn when BOTH are absent.
