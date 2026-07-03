@@ -20,7 +20,7 @@ const AGENT_VERSION = (() => {
     }
 })();
 
-// â”€â”€â”€ PRE-CONFIGURED PER RESTAURANT â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// --- PRE-CONFIGURED PER RESTAURANT --------------------------------------------
 // These placeholders are replaced automatically when you download the
 // Print Agent from your LightMenu Printer Setup page.
 // Credentials live in config.json — never overwritten by auto-updates.
@@ -137,20 +137,20 @@ const MACHINE_HASH = crypto.createHash('sha256')
 // stops printing; only an explicit { ok:false } from the server flips it off.
 let STATION_ALLOWED = true;
 
-// LightMenu Supabase endpoint â€” do not change
+// LightMenu Supabase endpoint - do not change
 const SUPABASE_URL     = 'https://xakaknyanjzabxqmcipz.supabase.co';
 const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Inhha2Frbnlhbmp6YWJ4cW1jaXB6Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzcxOTc2MjUsImV4cCI6MjA5Mjc3MzYyNX0.NqGyREZO2o_-ZUvIltQCTZ6zJAO7ARGa45cDU9OX7G4';
 
 const SERVER_PORT = 3000;
 
-// Default printer â€” overridden by the first active PrinterConfig from LightMenu
+// Default printer - overridden by the first active PrinterConfig from LightMenu
 let PRINTER_IP   = ''; // set automatically by network scan
 let PRINTER_PORT = 9100;
 
-// â”€â”€â”€ PRINTER CACHE (refreshed every 30s from LightMenu) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// --- PRINTER CACHE (refreshed every 30s from LightMenu) -----------------------
 let printersCache = [];
 
-// â”€â”€â”€ USB PRINTING â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// --- USB PRINTING ------------------------------------------------------
 // Strategy 1 (preferred, NO driver needed):
 //   Write directly to \\.\USB001 … \\.\USB009 via FileStream.
 //   Works as long as Windows' built-in usbprint.sys class driver loaded —
@@ -260,7 +260,7 @@ async function scanUsb() {
   } else {
     const wasConnected = usbDirectPort || usbWinPrinter;
     if (wasConnected) {
-      log('USB lost â€” falling back to network (' + r + ')');
+      log('USB lost - falling back to network (' + r + ')');
       try { track('usb_lost', { last_port: usbDirectPort || usbWinPrinter, reason: r }); } catch {}
     }
     else if (r && r !== 'NO_PORT') log('USB scan: ' + r);
@@ -518,7 +518,7 @@ async function logPrintOutcome(jobId, printerId, status, message, payload) {
   return r;
 }
 
-// â”€â”€â”€ NETWORK PRINTER DISCOVERY â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// --- NETWORK PRINTER DISCOVERY -----------------------------------------------
 function getLocalSubnets() {
   const ifaces = os.networkInterfaces();
   const subnets = [];
@@ -614,7 +614,7 @@ async function keepRealPrinters(ips) {
   return verified;
 }
 
-// Read the Windows ARP table â€” lists every device the PC has seen on the LAN recently.
+// Read the Windows ARP table - lists every device the PC has seen on the LAN recently.
 // This is instant and much more reliable than port scanning 254 IPs.
 function getArpIps() {
   return new Promise(resolve => {
@@ -691,7 +691,7 @@ async function getUsbPrinterFingerprints() {
   return r.split(/\r?\n/).map(s => s.trim()).filter(Boolean);
 }
 
-// Check a list of IPs in controlled batches â€” avoids overwhelming the Windows TCP stack
+// Check a list of IPs in controlled batches - avoids overwhelming the Windows TCP stack
 async function checkPortBatch(ips, port, timeout, batchSize) {
   const found = [];
   for (let i = 0; i < ips.length; i += batchSize) {
@@ -705,10 +705,10 @@ async function checkPortBatch(ips, port, timeout, batchSize) {
 async function scanNetworkForPrinters() {
   const PRINTER_PORTS = [9100, 515, 9101]; // RAW, LPD, alt-RAW
 
-  // â”€â”€ Step 1: ARP table â€” instant, catches printer the moment it gets an IP â”€â”€
+  // -- Step 1: ARP table - instant, catches printer the moment it gets an IP --
   const arpIps = await getArpIps();
   if (arpIps.length > 0) {
-    log('ARP table has ' + arpIps.length + ' device(s) â€” checking for printer ports...');
+    log('ARP table has ' + arpIps.length + ' device(s) - checking for printer ports...');
     for (const port of PRINTER_PORTS) {
       const found = await checkPortBatch(arpIps, port, 2000, 20);
       if (found.length > 0) {
@@ -719,10 +719,10 @@ async function scanNetworkForPrinters() {
     }
     log('ARP devices found but none verified as printers on ports (' + PRINTER_PORTS.join('/') + ')');
   } else {
-    log('ARP table empty â€” falling back to subnet scan');
+    log('ARP table empty - falling back to subnet scan');
   }
 
-  // â”€â”€ Step 2: Batched subnet scan as fallback â”€â”€
+  // -- Step 2: Batched subnet scan as fallback --
   const subnets = getLocalSubnets();
   log('Scanning ' + subnets.map(s => s + '.1-254').join(', ') + ' in batches...');
   const allIps = [];
@@ -738,7 +738,7 @@ async function scanNetworkForPrinters() {
     }
   }
 
-  log('Scan complete â€” 0 printer(s) found');
+  log('Scan complete - 0 printer(s) found');
   return [];
 }
 
@@ -775,7 +775,7 @@ async function autoAssignPrinterIps(discoveredIps) {
     const real = Array.isArray(all) ? all.filter(c => c.printer_type !== 'scan') : [];
 
     if (real.length === 0) {
-      // First-time setup â€” create a config for each discovered printer
+      // First-time setup - create a config for each discovered printer
       for (let i = 0; i < discoveredIps.length; i++) {
         const ip  = discoveredIps[i];
         const mac = macMap[ip];
@@ -811,7 +811,7 @@ async function autoAssignPrinterIps(discoveredIps) {
       await new Promise(r => setTimeout(r, 1500));
       await refreshPrinters();
     } else if (real.length === 1 && discoveredIps.length >= 1) {
-      // Single-printer setup â€” keep the IP current automatically, including when
+      // Single-printer setup - keep the IP current automatically, including when
       // the restaurant switches the printer from USB to Ethernet or the router
       // hands it a new DHCP address. discoveredIps here has already been verified
       // to be real ESC/POS printers (see keepRealPrinters), so a webcam/PC that
@@ -833,13 +833,13 @@ async function autoAssignPrinterIps(discoveredIps) {
         const patch = { printer_ip: targetIp };
         if (targetFp && cfg.fingerprint !== targetFp) patch.fingerprint = targetFp;
         await stationDb('printer_config.update', { id: cfg.id, patch });
-        log('Printer auto-updated: ' + (cfg.printer_ip || '(none)') + ' â†’ ' + targetIp + (patch.fingerprint ? ' (fingerprint learned: ' + targetFp + ')' : ''));
+        log('Printer auto-updated: ' + (cfg.printer_ip || '(none)') + ' -> ' + targetIp + (patch.fingerprint ? ' (fingerprint learned: ' + targetFp + ')' : ''));
         PRINTER_IP = targetIp;
         PRINTER_PORT = Number(cfg.printer_port) || 9100;
         await new Promise(r => setTimeout(r, 1500));
         await refreshPrinters();
       } else {
-        // IP is already correct â€” make sure it's loaded into memory
+        // IP is already correct - make sure it's loaded into memory
         if (PRINTER_IP !== cfg.printer_ip) {
           PRINTER_IP = cfg.printer_ip;
           PRINTER_PORT = Number(cfg.printer_port) || 9100;
@@ -847,12 +847,12 @@ async function autoAssignPrinterIps(discoveredIps) {
         }
       }
     } else {
-      // Multiple printers â€” only fill in configs that have no IP set
+      // Multiple printers - only fill in configs that have no IP set
       const noIp = real.filter(c => !c.printer_ip);
       let changed = false;
       for (let i = 0; i < Math.min(noIp.length, discoveredIps.length); i++) {
         await stationDb('printer_config.update', { id: noIp[i].id, patch: { printer_ip: discoveredIps[i] } });
-        log('Assigned IP ' + discoveredIps[i] + ' â†’ ' + noIp[i].name);
+        log('Assigned IP ' + discoveredIps[i] + ' -> ' + noIp[i].name);
         changed = true;
       }
       if (changed) await refreshPrinters();
@@ -936,14 +936,14 @@ async function runNetworkScan() {
     const delay = _scanCount <= 10 ? 30 * 1000 : 2 * 60 * 1000;
     if (_scanTimer) clearTimeout(_scanTimer);
     _scanTimer = setTimeout(runNetworkScan, delay);
-    log('No printer found â€” will rescan in ' + (delay / 1000) + 's (attempt ' + _scanCount + ')');
+    log('No printer found - will rescan in ' + (delay / 1000) + 's (attempt ' + _scanCount + ')');
 
     // After ~2 minutes of no printer, show a Windows notification so the user knows
     if (_scanCount === 4 && !_notifiedNotFound) {
       _notifiedNotFound = true;
       log('Showing printer-not-found notification to user');
       showWindowsNotification(
-        'LightMenu â€” Printer not found',
+        'LightMenu - Printer not found',
         'No thermal printer detected on the network. Make sure the printer is on and connected to the same WiFi router, then open http://localhost:3000 to scan again or enter the IP manually.'
       );
       // Also auto-open the dashboard so the user sees it
@@ -969,14 +969,14 @@ async function refreshPrinters() {
       const first = list.find(p => p.printer_ip) || list[0];
       if (first.printer_ip) PRINTER_IP = first.printer_ip;
       if (first.printer_port) PRINTER_PORT = Number(first.printer_port);
-      log('Synced ' + list.length + ' printer(s) â€” default: ' + PRINTER_IP + ':' + PRINTER_PORT);
+      log('Synced ' + list.length + ' printer(s) - default: ' + PRINTER_IP + ':' + PRINTER_PORT);
     }
   } catch (e) { log('Printer sync failed: ' + e.message); }
 }
 setInterval(refreshPrinters, 30000);
 setTimeout(refreshPrinters, 1000);
 
-// â”€â”€â”€ PRINT QUEUE POLLING â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// --- PRINT QUEUE POLLING ------------------------------------------------------
 async function fetchPendingJobs() {
   if (!RESTAURANT_ID) return [];
   const cutoff = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString();
@@ -1091,7 +1091,7 @@ async function pollAndPrint() {
         }
 
         if (!printerIp && !usbWinPrinter && !usbDirectPort) {
-          log('Waiting for printer IP â€” job ' + job.id + ' will retry (scan in progress)');
+          log('Waiting for printer IP - job ' + job.id + ' will retry (scan in progress)');
           processingJobs.delete(job.id);
           continue;
         }
@@ -1353,7 +1353,7 @@ function sendToPrinter(data, ip, port) {
   // Strategy 1: direct write (no driver needed)
   if (usbDirectPort) {
     return sendViaDirectUsb(data, usbDirectPort).catch(e => {
-      log('USB direct write failed (' + e.message + ') â€” retrying via spooler or network');
+      log('USB direct write failed (' + e.message + ') - retrying via spooler or network');
       usbDirectPort = null;
       return sendToPrinter(data, ip, port); // retry with next available method
     });
@@ -1361,7 +1361,7 @@ function sendToPrinter(data, ip, port) {
   // Strategy 2: Windows spooler (Generic/Text-Only driver)
   if (usbWinPrinter) {
     return sendViaSpooler(data, usbWinPrinter).catch(e => {
-      log('USB spooler failed (' + e.message + ') â€” switching to network');
+      log('USB spooler failed (' + e.message + ') - switching to network');
       usbWinPrinter = null;
       return sendViaNetwork(data, ip, port);
     });
@@ -1436,7 +1436,7 @@ function sendViaSpooler(data, printerName) {
   });
 }
 
-// â”€â”€â”€ ESC/POS â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// --- ESC/POS ------------------------------------------------------------------
 const E = '\x1B', G = '\x1D';
 const W = 48;
 const FONT_NORMAL  = E + '!' + '\x00';
@@ -2181,7 +2181,7 @@ function buildKitchenTicket(t) {
 }
 
 
-// â”€â”€â”€ CANCEL TICKET â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// --- CANCEL TICKET ------------------------------------------------------------
 function buildCancelTicket(t) {
   var s = t.settings || {};
   var d = new Date(t.time || Date.now());
@@ -2204,7 +2204,7 @@ function buildCancelTicket(t) {
   return logo ? Buffer.concat([Buffer.from(INIT, 'binary'), logo, textBuf]) : textBuf;
 }
 
-// â”€â”€â”€ TRANSFER TICKET â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// --- TRANSFER TICKET ----------------------------------------------------------
 function buildTransferTicket(t) {
   var s = t.settings || {};
   var d = new Date(t.time || Date.now());
@@ -2356,7 +2356,7 @@ function buildCheckTicket(t) {
   return logo ? Buffer.concat([Buffer.from(ALIGN_CENTER, 'binary'), logo, textBuf]) : textBuf;
 }
 
-// â”€â”€â”€ HTTP SERVER (for direct /print calls from LightMenu frontend) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// --- HTTP SERVER (for direct /print calls from LightMenu frontend) ------------
 function setCORS(res) {
   res.setHeader('Access-Control-Allow-Origin', '*');
   res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
@@ -2369,8 +2369,9 @@ http.createServer((req, res) => {
   if (req.method === 'OPTIONS') { res.writeHead(204); res.end(); return; }
 
   if (req.method === 'GET' && req.url === '/status') {
+    const configured = !!(RESTAURANT_ID && RESTAURANT_ID !== '__RESTAURANT_ID__' && API_TOKEN && API_TOKEN !== '__API_TOKEN__');
     res.writeHead(200, { 'Content-Type': 'application/json' });
-    res.end(JSON.stringify({ status: 'running', version: AGENT_VERSION, restaurant_name: RESTAURANT_NAME, printer: { usb: usbDirectPort || usbWinPrinter || null, ip: PRINTER_IP, port: PRINTER_PORT, mode: usbDirectPort ? 'usb-direct' : usbWinPrinter ? 'usb-spooler' : 'network' }, printed, failed, analytics_queued: _readQueue().length }));
+    res.end(JSON.stringify({ status: 'running', configured, version: AGENT_VERSION, restaurant_name: RESTAURANT_NAME, printer: { usb: usbDirectPort || usbWinPrinter || null, ip: PRINTER_IP, port: PRINTER_PORT, mode: usbDirectPort ? 'usb-direct' : usbWinPrinter ? 'usb-spooler' : 'network' }, printed, failed, analytics_queued: _readQueue().length }));
     return;
   }
 
@@ -3461,7 +3462,7 @@ http.createServer((req, res) => {
     log('Manual rescan triggered from dashboard');
     runNetworkScan();
     res.writeHead(200, { 'Content-Type': 'application/json' });
-    res.end(JSON.stringify({ ok: true, message: 'Scan started â€” check console for results' }));
+    res.end(JSON.stringify({ ok: true, message: 'Scan started - check console for results' }));
     return;
   }
 
@@ -3608,7 +3609,7 @@ async function rescan(){
   document.getElementById('msg').textContent='Scanning...';
   const r=await fetch('/rescan',{method:'POST'});
   const j=await r.json();
-  document.getElementById('msg').textContent=j.message||'Done â€” check console';
+  document.getElementById('msg').textContent=j.message||'Done - check console';
   setTimeout(()=>location.reload(),4000);
 }
 async function setIp(){
@@ -3626,7 +3627,20 @@ async function setIp(){
 
   res.writeHead(404); res.end();
 }).listen(SERVER_PORT, '0.0.0.0', () => {
-  log('LightMenu Print Agent v' + AGENT_VERSION + ' | Restaurant: ' + RESTAURANT_ID + ' | Network: ' + PRINTER_IP + ':' + PRINTER_PORT + ' | USB: direct + spooler fallback');
+  log('LightMenu Station v' + AGENT_VERSION + ' | Restaurant: ' + RESTAURANT_ID + ' | Network: ' + PRINTER_IP + ':' + PRINTER_PORT + ' | USB: direct + spooler fallback');
   log('Dashboard: http://localhost:' + SERVER_PORT);
+  // Loud, actionable warning when the install has no restaurant identity. This
+  // happens when config.json was not next to Setup.exe at install time (e.g. the
+  // downloaded .zip was not fully extracted before running the installer). Without
+  // it the agent runs but is attached to no restaurant, so nothing prints.
+  if (!RESTAURANT_ID || RESTAURANT_ID === '__RESTAURANT_ID__' || !API_TOKEN || API_TOKEN === '__API_TOKEN__') {
+    log('==================================================================');
+    log('  NOT CONFIGURED: no restaurant credentials found (config.json).');
+    log('  This install is not linked to any restaurant, so nothing will');
+    log('  print. Fix: fully UNZIP the download, then run the installer from');
+    log('  the extracted folder (config.json must sit next to Setup.exe).');
+    log('  Then re-download LightMenu Station from your dashboard if needed.');
+    log('==================================================================');
+  }
   try { track('agent_start', { port: SERVER_PORT, platform: process.platform, node_version: process.version }); } catch {}
 });

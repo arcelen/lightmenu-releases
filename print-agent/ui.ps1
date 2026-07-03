@@ -1832,8 +1832,16 @@ function Update-Status {
             (ctl 'UpdateText').Text  = ('checked ' + (Get-Date -Format 'HH:mm'))
             return
         }
-        (ctl 'StatusDot').Fill = [System.Windows.Media.Brushes]::LimeGreen
-        (ctl 'StatusText').Text = 'Connected'
+        # configured is false when the install has no restaurant credentials
+        # (config.json missing at install time). Show that clearly rather than a
+        # green "Connected" that hides why nothing prints.
+        if ($r.PSObject.Properties.Name -contains 'configured' -and -not $r.configured) {
+            (ctl 'StatusDot').Fill  = [System.Windows.Media.Brushes]::Orange
+            (ctl 'StatusText').Text = 'Not configured - re-download from your dashboard'
+        } else {
+            (ctl 'StatusDot').Fill  = [System.Windows.Media.Brushes]::LimeGreen
+            (ctl 'StatusText').Text = 'Connected'
+        }
         (ctl 'VersionText').Text = "Station v$($r.version)"
         if ($r.restaurant_name) { (ctl 'RestaurantName').Text = $r.restaurant_name }
 

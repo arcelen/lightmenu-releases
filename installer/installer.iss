@@ -126,6 +126,20 @@ var
 begin
   if CurStep = ssDone then
   begin
+    // Warn immediately if this install has no restaurant credentials. config.json
+    // is copied from {srcexe} (next to Setup.exe); if the download .zip wasn't
+    // fully extracted before running the installer, it's missing and the Station
+    // would run linked to no restaurant. config.enc means a prior install already
+    // sealed its credentials, so only warn when BOTH are absent.
+    if (not FileExists(ExpandConstant('{app}\.internal\app\config.json')))
+       and (not FileExists(ExpandConstant('{app}\.internal\app\config.enc'))) then
+    begin
+      MsgBox('Setup could not find this restaurant''s configuration (config.json).'
+        + #13#10#13#10 + 'LightMenu Station will install but won''t be linked to your restaurant, so nothing will print.'
+        + #13#10#13#10 + 'Fix: fully UNZIP the download first, then run this installer from the extracted folder (config.json must be next to Setup.exe). If needed, re-download LightMenu Station from your dashboard.',
+        mbError, MB_OK);
+    end;
+
     // Hide .internal so it doesn't clutter the install folder
     SetFileAttributesW(ExpandConstant('{app}\.internal'), 2);
 
