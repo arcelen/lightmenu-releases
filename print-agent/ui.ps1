@@ -22,6 +22,14 @@ trap {
 [System.Reflection.Assembly]::LoadWithPartialName('WindowsBase')           | Out-Null
 [System.Reflection.Assembly]::LoadWithPartialName('Microsoft.VisualBasic') | Out-Null  # InputBox for quick prompts
 
+# .NET caps concurrent connections per host at 2 by default. Our 4-5s polling
+# timers (status/floor/analytics) hold both slots open via keep-alive, so a slow
+# request like the AI chat (POST /local/ai, ~4s) would queue forever waiting for
+# a slot that never frees — the completion event never fires and the UI hangs on
+# "Thinking...". Raise the ceiling so long requests always get their own socket.
+[System.Net.ServicePointManager]::DefaultConnectionLimit = 20
+[System.Net.ServicePointManager]::Expect100Continue      = $false
+
 # Give this process its own taskbar identity. Without it Windows ties the taskbar
 # button to the PowerShell host and shows the PowerShell icon; with an explicit
 # AppUserModelID it uses the window's own icon (the LightMenu logo) instead.
@@ -1800,22 +1808,40 @@ function Invoke-AsyncGet {
     catch { try { $wc.Dispose() } catch {}; & $OnDone $null $true }
 }
 function Invoke-AsyncPost {
-    param([string]$Url, [string]$Body, [string]$Method = 'POST', [scriptblock]$OnDone)
+    param([string]$Url, [string]$Body, [string]$Method = 'POST', [scriptblock]$OnDone, [int]$TimeoutSec = 60)
     $wc = New-Object System.Net.WebClient
     $wc.Encoding = [System.Text.Encoding]::UTF8
     $wc.Headers.Add('Content-Type', 'application/json')
+    # Shared done-guard so the completion handler and the watchdog can never both
+    # fire OnDone (and so a genuine response after a watchdog abort is ignored).
+    $state = [pscustomobject]@{ Done = $false }
+    # Watchdog: if nothing has come back within TimeoutSec, abort and surface a
+    # timeout so the caller (e.g. the AI "Thinking..." bubble) can never hang.
+    $timer = New-Object System.Windows.Threading.DispatcherTimer
+    $timer.Interval = [TimeSpan]::FromSeconds($TimeoutSec)
+    $timer.Add_Tick({
+        $timer.Stop()
+        if ($state.Done) { return }
+        $state.Done = $true
+        try { $wc.CancelAsync() } catch {}
+        try { $wc.Dispose() } catch {}
+        & $OnDone $null $true 'timed out'
+    }.GetNewClosure())
     $handler = {
         param($s, $e)
+        try { $timer.Stop() } catch {}
         try { $s.Dispose() } catch {}
         if ($e.Cancelled) { return }
+        if ($state.Done) { return }
+        $state.Done = $true
         $res = $null; $bad = $true; $emsg = ''
         if ($e.Error) { $emsg = $e.Error.Message }
         else { $bad = $false; try { $res = $e.Result | ConvertFrom-Json } catch {} }
         try { $window.Dispatcher.Invoke([action]{ & $OnDone $res $bad $emsg }) | Out-Null } catch {}
     }.GetNewClosure()
     $wc.Add_UploadStringCompleted($handler)
-    try { $wc.UploadStringAsync([Uri]$Url, $Method, $Body) }
-    catch { try { $wc.Dispose() } catch {}; & $OnDone $null $true $_.Exception.Message }
+    try { $wc.UploadStringAsync([Uri]$Url, $Method, $Body); $timer.Start() }
+    catch { try { $timer.Stop() } catch {}; try { $wc.Dispose() } catch {}; if (-not $state.Done) { $state.Done = $true; & $OnDone $null $true $_.Exception.Message } }
 }
 
 $script:statusBusy = $false
