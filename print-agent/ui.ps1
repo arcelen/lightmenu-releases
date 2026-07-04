@@ -1842,7 +1842,9 @@ function Invoke-AsyncPost {
         $state.Done = $true
         $timer.Stop()
         try { $ps.Dispose() } catch {}
-        & $OnDone $res $bad $emsg
+        # Contain callback errors: a throw here must not bubble to the global trap
+        # and take down the whole window (it did once — a null bubble ref).
+        try { & $OnDone $res $bad $emsg } catch { try { Add-Content -Path $errorLog -Value ("[" + (Get-Date -Format 'HH:mm:ss') + "] async cb error: " + $_.Exception.Message) } catch {} }
     }.GetNewClosure()
     $timer.Add_Tick({
         if ($state.Done) { $timer.Stop(); return }
@@ -4433,6 +4435,10 @@ function Send-AiMessage {
     # Fully async: the user bubble + "Thinking..." render immediately and the UI
     # stays responsive while the (up to 45s) AI request runs on a pool thread.
     $body = @{ message = $msg; history = $script:aiHistory } | ConvertTo-Json -Depth 5
+    # The callback fires AFTER this function has already returned, so $thinking and
+    # $msg (locals) would be out of scope by then. GetNewClosure() snapshots them
+    # into the callback so it can still reach the "Thinking..." bubble and the
+    # original message. Without this the callback throws "property 'Text' not found".
     Invoke-AsyncPost "$base/local/ai" $body 'POST' {
         param($r, $bad, $emsg)
         try {
@@ -4461,7 +4467,7 @@ function Send-AiMessage {
             (ctl 'AiSendText').Text = 'Send'
             (ctl 'AiScroller').ScrollToBottom()
         }
-    }
+    }.GetNewClosure()
 }
 (ctl 'AiSend').Add_Click({ Send-AiMessage })
 (ctl 'AiInput').Add_KeyDown({ if ($_.Key -eq 'Return') { Send-AiMessage } })
