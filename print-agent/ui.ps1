@@ -4431,14 +4431,17 @@ function Send-AiMessage {
     Add-AiBubble 'user' $msg | Out-Null
     $script:aiBusy = $true
     (ctl 'AiSendText').Text = '...'
-    $thinking = Add-AiBubble 'assistant' 'Thinking...'
+    # The callback fires AFTER this function returns, so it can't see locals. Use
+    # $script:-scoped state instead of a closure: a GetNewClosure() callback runs
+    # in its own module where "$script:" points at the module (so "$script:aiBusy
+    # = $false" wouldn't reach the real flag and the Send button would stay dead).
+    # Only one AI request runs at a time (guarded by $script:aiBusy), so a single
+    # shared pending-bubble/message is safe.
+    $script:aiThinking   = Add-AiBubble 'assistant' 'Thinking...'
+    $script:aiPendingMsg = $msg
     # Fully async: the user bubble + "Thinking..." render immediately and the UI
     # stays responsive while the (up to 45s) AI request runs on a pool thread.
     $body = @{ message = $msg; history = $script:aiHistory } | ConvertTo-Json -Depth 5
-    # The callback fires AFTER this function has already returned, so $thinking and
-    # $msg (locals) would be out of scope by then. GetNewClosure() snapshots them
-    # into the callback so it can still reach the "Thinking..." bubble and the
-    # original message. Without this the callback throws "property 'Text' not found".
     Invoke-AsyncPost "$base/local/ai" $body 'POST' {
         param($r, $bad, $emsg)
         try {
@@ -4447,17 +4450,17 @@ function Send-AiMessage {
             elseif ($r -and -not $r.ok -and $r.error) { $errMsg = [string]$r.error }
 
             if ($errMsg) {
-                if ($errMsg -match 'quota|limit reached') { $thinking.Text = "You've hit your monthly AI limit. Upgrade your plan for more." }
-                elseif ($errMsg -match '401|Invalid station') { $thinking.Text = 'The Station could not authenticate with the AI service. Make sure the agent is set up for this restaurant.' }
-                elseif ($errMsg -match 'timed out') { $thinking.Text = "The AI took too long to respond. Please try again." }
-                else { $thinking.Text = "Sorry, I couldn't reach the AI service. Check the internet connection and try again." }
+                if ($errMsg -match 'quota|limit reached') { $script:aiThinking.Text = "You've hit your monthly AI limit. Upgrade your plan for more." }
+                elseif ($errMsg -match '401|Invalid station') { $script:aiThinking.Text = 'The Station could not authenticate with the AI service. Make sure the agent is set up for this restaurant.' }
+                elseif ($errMsg -match 'timed out') { $script:aiThinking.Text = "The AI took too long to respond. Please try again." }
+                else { $script:aiThinking.Text = "Sorry, I couldn't reach the AI service. Check the internet connection and try again." }
             } else {
                 $reply = if ($r -and $r.reply) { [string]$r.reply } else { 'Done.' }
-                $thinking.Text = $reply
+                $script:aiThinking.Text = $reply
                 if ($r -and $r.actions -and @($r.actions).Count -gt 0) {
                     Add-AiBubble 'system' ('actions: ' + (@($r.actions) -join ', ')) | Out-Null
                 }
-                $script:aiHistory += @{ role = 'user'; text = $msg }
+                $script:aiHistory += @{ role = 'user'; text = $script:aiPendingMsg }
                 $script:aiHistory += @{ role = 'assistant'; text = $reply }
                 if (@($script:aiHistory).Count -gt 12) { $script:aiHistory = @($script:aiHistory)[-12..-1] }
                 $script:menuData = $null
@@ -4467,7 +4470,7 @@ function Send-AiMessage {
             (ctl 'AiSendText').Text = 'Send'
             (ctl 'AiScroller').ScrollToBottom()
         }
-    }.GetNewClosure()
+    }
 }
 (ctl 'AiSend').Add_Click({ Send-AiMessage })
 (ctl 'AiInput').Add_KeyDown({ if ($_.Key -eq 'Return') { Send-AiMessage } })
