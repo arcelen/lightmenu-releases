@@ -1,5 +1,5 @@
 {
-  "version": "6.0.81",
+  "version": "6.0.82",
   "files": {
     "main.js": {
       "sha256": "db7899f2c3f9af6fd2ad9d4ddd264b952a60b5584227fa0081d62f9dc1e1574d",
@@ -18,7 +18,7 @@
       "url": "https://raw.githubusercontent.com/arcelen/lightmenu-releases/0609773/print-agent/updater.js"
     },
     "../scripts/ui.ps1": {
-      "sha256": "0ca200c9d8b7661ae8bcf2f36907efaf37469b845314058545c09e0d2695a71b",
+      "sha256": "da60e8cdbcdddb832440c1f54354c998e945c9db0f21b9326a914c820ff76ad7",
       "url": "https://raw.githubusercontent.com/arcelen/lightmenu-releases/main/print-agent/ui.ps1"
     }
   }

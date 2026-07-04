@@ -4386,25 +4386,29 @@ function Send-AiMessage {
     (ctl 'AiSendText').Text = '...'
     $thinking = Add-AiBubble 'assistant' 'Thinking...'
     # Fully async: the user bubble + "Thinking..." render immediately and the UI
-    # stays responsive while the (up to 90s) AI request runs on a pool thread.
+    # stays responsive while the (up to 45s) AI request runs on a pool thread.
     $body = @{ message = $msg; history = $script:aiHistory } | ConvertTo-Json -Depth 5
     Invoke-AsyncPost "$base/local/ai" $body 'POST' {
         param($r, $bad, $emsg)
         try {
-            if ($bad) {
-                if ($emsg -match 'quota') { $thinking.Text = "You've hit your monthly AI limit. Upgrade your plan for more." }
-                elseif ($emsg -match '401|Invalid station') { $thinking.Text = 'The Station could not authenticate with the AI service. Make sure the agent is set up for this restaurant.' }
+            $errMsg = ''
+            if ($bad) { $errMsg = $emsg }
+            elseif ($r -and -not $r.ok -and $r.error) { $errMsg = [string]$r.error }
+
+            if ($errMsg) {
+                if ($errMsg -match 'quota|limit reached') { $thinking.Text = "You've hit your monthly AI limit. Upgrade your plan for more." }
+                elseif ($errMsg -match '401|Invalid station') { $thinking.Text = 'The Station could not authenticate with the AI service. Make sure the agent is set up for this restaurant.' }
+                elseif ($errMsg -match 'timed out') { $thinking.Text = "The AI took too long to respond. Please try again." }
                 else { $thinking.Text = "Sorry, I couldn't reach the AI service. Check the internet connection and try again." }
             } else {
-                $reply = if ($r.reply) { [string]$r.reply } else { 'Done.' }
+                $reply = if ($r -and $r.reply) { [string]$r.reply } else { 'Done.' }
                 $thinking.Text = $reply
-                if ($r.actions -and @($r.actions).Count -gt 0) {
+                if ($r -and $r.actions -and @($r.actions).Count -gt 0) {
                     Add-AiBubble 'system' ('actions: ' + (@($r.actions) -join ', ')) | Out-Null
                 }
                 $script:aiHistory += @{ role = 'user'; text = $msg }
                 $script:aiHistory += @{ role = 'assistant'; text = $reply }
                 if (@($script:aiHistory).Count -gt 12) { $script:aiHistory = @($script:aiHistory)[-12..-1] }
-                # If the AI changed the menu, refresh the Menu page data next time it opens.
                 $script:menuData = $null
             }
         } finally {
