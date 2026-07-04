@@ -1809,39 +1809,58 @@ function Invoke-AsyncGet {
 }
 function Invoke-AsyncPost {
     param([string]$Url, [string]$Body, [string]$Method = 'POST', [scriptblock]$OnDone, [int]$TimeoutSec = 60)
-    $wc = New-Object System.Net.WebClient
-    $wc.Encoding = [System.Text.Encoding]::UTF8
-    $wc.Headers.Add('Content-Type', 'application/json')
-    # Shared done-guard so the completion handler and the watchdog can never both
-    # fire OnDone (and so a genuine response after a watchdog abort is ignored).
-    $state = [pscustomobject]@{ Done = $false }
-    # Watchdog: if nothing has come back within TimeoutSec, abort and surface a
-    # timeout so the caller (e.g. the AI "Thinking..." bubble) can never hang.
+    # WebClient's event-based async (UploadStringAsync + UploadStringCompleted) is
+    # unreliable in this WPF/PowerShell host: for a fast call the completion fires
+    # fine, but for a slow one (the AI chat, ~5s) the completion event frequently
+    # never fires, leaving the caller (the "Thinking..." bubble) hung forever.
+    # A synchronous UploadString, by contrast, is rock-solid. So run the request
+    # SYNCHRONOUSLY on a background runspace and poll it from a DispatcherTimer on
+    # the UI thread — no completion event, no SynchronizationContext dependency,
+    # no chance of a lost callback. A hard TimeoutSec guarantees resolution.
+    $ps = [PowerShell]::Create()
+    [void]$ps.AddScript({
+        param($u, $m, $b)
+        try {
+            $wc = New-Object System.Net.WebClient
+            $wc.Encoding = [System.Text.Encoding]::UTF8
+            $wc.Headers.Add('Content-Type', 'application/json')
+            $r = $wc.UploadString($u, $m, $b)
+            [pscustomobject]@{ ok = $true; body = $r; err = '' }
+        } catch {
+            [pscustomobject]@{ ok = $false; body = ''; err = $_.Exception.Message }
+        } finally { if ($wc) { $wc.Dispose() } }
+    })
+    [void]$ps.AddArgument($Url); [void]$ps.AddArgument($Method); [void]$ps.AddArgument($Body)
+    $handle = $ps.BeginInvoke()
+
+    $state = [pscustomobject]@{ Done = $false; Elapsed = 0 }
     $timer = New-Object System.Windows.Threading.DispatcherTimer
-    $timer.Interval = [TimeSpan]::FromSeconds($TimeoutSec)
-    $timer.Add_Tick({
+    $timer.Interval = [TimeSpan]::FromMilliseconds(250)
+    $finish = {
+        param($res, $bad, $emsg)
+        if ($state.Done) { return }
+        $state.Done = $true
         $timer.Stop()
-        if ($state.Done) { return }
-        $state.Done = $true
-        try { $wc.CancelAsync() } catch {}
-        try { $wc.Dispose() } catch {}
-        & $OnDone $null $true 'timed out'
-    }.GetNewClosure())
-    $handler = {
-        param($s, $e)
-        try { $timer.Stop() } catch {}
-        try { $s.Dispose() } catch {}
-        if ($e.Cancelled) { return }
-        if ($state.Done) { return }
-        $state.Done = $true
-        $res = $null; $bad = $true; $emsg = ''
-        if ($e.Error) { $emsg = $e.Error.Message }
-        else { $bad = $false; try { $res = $e.Result | ConvertFrom-Json } catch {} }
-        try { $window.Dispatcher.Invoke([action]{ & $OnDone $res $bad $emsg }) | Out-Null } catch {}
+        try { $ps.Dispose() } catch {}
+        & $OnDone $res $bad $emsg
     }.GetNewClosure()
-    $wc.Add_UploadStringCompleted($handler)
-    try { $wc.UploadStringAsync([Uri]$Url, $Method, $Body); $timer.Start() }
-    catch { try { $timer.Stop() } catch {}; try { $wc.Dispose() } catch {}; if (-not $state.Done) { $state.Done = $true; & $OnDone $null $true $_.Exception.Message } }
+    $timer.Add_Tick({
+        if ($state.Done) { $timer.Stop(); return }
+        $state.Elapsed += 250
+        if ($handle.IsCompleted) {
+            $res = $null; $bad = $true; $emsg = ''
+            try {
+                $out = $ps.EndInvoke($handle) | Select-Object -Last 1
+                if ($out.ok) { $bad = $false; try { $res = $out.body | ConvertFrom-Json } catch {} }
+                else { $emsg = $out.err }
+            } catch { $emsg = $_.Exception.Message }
+            & $finish $res $bad $emsg
+        } elseif ($state.Elapsed -ge ($TimeoutSec * 1000)) {
+            try { $ps.Stop() } catch {}
+            & $finish $null $true 'timed out'
+        }
+    }.GetNewClosure())
+    $timer.Start()
 }
 
 $script:statusBusy = $false
