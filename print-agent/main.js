@@ -2017,17 +2017,31 @@ setInterval(() => { stationVerify().catch(() => {}); }, 5 * 60 * 1000); // every
 
 const STATION_AI_SYSTEM =
   'You are StationAI, the on-site assistant for a restaurant POS/print station. ' +
-  'You read and modify the menu. Reply in the SAME language as the user. ' +
+  'You can do everything the LightMenu Station can: manage the menu, manage printers, ' +
+  'run test prints, reprint bills, report sales, and manage staff. ' +
+  'Reply in the SAME language as the user. ' +
   'Return ONLY JSON: {"reasoning":"...","tool_name":"...","tool_args":{}}. ' +
-  'Tools: ' +
+  'MENU tools: ' +
   'list_menu{} -> current categories+items with ids; ' +
   'add_item{name,price,description?,category_id?,is_available?,is_addon?}; ' +
   'update_item{id,name?,price?,description?,menu_category_id?,is_available?,is_addon?}; ' +
   'delete_item{id}; move_item{id,category_id}; ' +
   'add_category{name,section?}; rename_category{id,name}; move_category{id,section}; delete_category{id}; ' +
+  'PRINTER tools: ' +
+  'list_printers{} -> configured printers with ids/type/ip; ' +
+  'test_print{printer_type?,ip?} -> print a test ticket (printer_type is "kitchen" or "bar"; omit both to use the active/default printer); ' +
+  'add_printer{name,type?,ip?}; update_printer{id,name?,type?,ip?,is_active?}; delete_printer{id}; ' +
+  'SALES/BILLS tools: ' +
+  'sales_summary{period?} -> revenue, order count and average ticket for today|week|month|all; ' +
+  'list_recent_bills{limit?} -> most recent bills with ids and totals; ' +
+  'reprint_bill{id?} -> reprint a saved bill (omit id to reprint the most recent one); ' +
+  'STAFF tools: ' +
+  'list_staff{} -> team members with ids and roles; ' +
+  'add_staff{name,role_id?}; remove_staff{staff_id}; toggle_staff{staff_id}; ' +
   'say{message} -> the final answer for the user. ' +
-  'Rules: ALWAYS finish with say{}. Use the FEWEST tool calls. Call list_menu first if you need ids — NEVER invent ids. ' +
-  'Only run delete_* when the user clearly asked to delete.';
+  'Rules: ALWAYS finish with say{}. Use the FEWEST tool calls. Before acting on something by id, call the matching ' +
+  'list_* tool first (list_menu / list_printers / list_staff / list_recent_bills) — NEVER invent ids. ' +
+  'Only run delete_* / remove_* when the user clearly asked. State the concrete result (name, price, printer, amount) in your say{} message.';
 
 async function stationExecTool(name, args) {
   args = args || {};
@@ -2073,6 +2087,89 @@ async function stationExecTool(name, args) {
       await stationDb('menu_category.delete', { id: args.id });
       return { ok: true };
     }
+
+    // ── Printers ──────────────────────────────────────────────────────────
+    case 'list_printers': {
+      const rows = await supabaseGet('printer_configs', { restaurant_id: RESTAURANT_ID }, 100);
+      return { printers: (Array.isArray(rows) ? rows : [])
+        .filter(c => c.printer_type !== 'scan')
+        .map(c => ({ id: c.id, name: c.name || 'Printer', type: c.printer_type || 'kitchen', ip: c.printer_ip || '', active: c.is_active !== false })) };
+    }
+    case 'test_print': {
+      const label = args.printer_type ? (String(args.printer_type) + ' printer') : 'Printer';
+      const ticket = buildTestTicket(label);
+      let ip = (args.ip || '').trim();
+      // If a printer_type was named but no IP, look up that printer's IP.
+      if (!ip && args.printer_type) {
+        const rows = await supabaseGet('printer_configs', { restaurant_id: RESTAURANT_ID }, 100);
+        const match = (Array.isArray(rows) ? rows : []).find(c => c.printer_type === args.printer_type && c.printer_ip);
+        if (match) ip = match.printer_ip;
+      }
+      if (ip && /^\d+\.\d+\.\d+\.\d+$/.test(ip)) await sendViaNetwork(ticket, ip, 9100);
+      else await sendToPrinter(ticket);
+      return { ok: true, target: ip || 'active printer' };
+    }
+    case 'add_printer': {
+      if (!args.name) throw new Error('name required');
+      const ip = (args.ip || '').trim();
+      if (ip && !/^\d+\.\d+\.\d+\.\d+$/.test(ip)) throw new Error('Invalid IP');
+      const r = await stationDb('printer_config.create', { values: {
+        name: String(args.name).slice(0, 60), printer_type: args.type || 'kitchen', printer_ip: ip || null, is_active: true } });
+      return { ok: true, id: r && r.printer && r.printer.id };
+    }
+    case 'update_printer': {
+      if (!args.id) throw new Error('id required');
+      const patch = {};
+      if (args.name !== undefined) patch.name = String(args.name).slice(0, 60);
+      if (args.type !== undefined) patch.printer_type = args.type;
+      if (args.ip !== undefined) { const ip = String(args.ip).trim(); if (ip && !/^\d+\.\d+\.\d+\.\d+$/.test(ip)) throw new Error('Invalid IP'); patch.printer_ip = ip || null; }
+      if (args.is_active !== undefined) patch.is_active = args.is_active !== false;
+      await stationDb('printer_config.update', { id: args.id, patch });
+      return { ok: true };
+    }
+    case 'delete_printer': { if (!args.id) throw new Error('id required'); await stationDb('printer_config.delete', { id: args.id }); return { ok: true }; }
+
+    // ── Sales / bills ─────────────────────────────────────────────────────
+    case 'sales_summary': {
+      const period = ['today', 'week', 'month', 'all'].includes(args.period) ? args.period : 'today';
+      const s = store.getStats(period) || {};
+      return { period, total_revenue: s.total_revenue || 0, total_orders: s.total_orders || 0, avg_ticket: Number((s.avg_ticket || 0).toFixed(2)) };
+    }
+    case 'list_recent_bills': {
+      const limit = Math.min(Number(args.limit) || 10, 30);
+      const bills = store.getBills() || [];
+      return { bills: bills.slice(-limit).reverse().map(b => ({ id: b.id, table: b.table, total: b.total, date: b.date, payment: b.payment_method })) };
+    }
+    case 'reprint_bill': {
+      let bill = null;
+      if (args.id) bill = store.findBill(args.id);
+      else { const bills = store.getBills() || []; bill = bills.length ? bills[bills.length - 1] : null; }
+      if (!bill) throw new Error('No matching bill found');
+      const ticket = {
+        type: 'check', restaurant_id: RESTAURANT_ID, restaurant_name: RESTAURANT_NAME,
+        table_number: bill.table, waiter_name: bill.waiter, currency: bill.currency || 'EUR',
+        time: bill.date, order_id: bill.order_id, payment_method: bill.payment_method,
+        total: bill.total, guest_count: bill.guest_count, bill_url: bill.bill_url,
+        items: bill.items || [], settings: {},
+      };
+      await sendToPrinter(buildCheckTicket(ticket));
+      return { ok: true, bill_id: bill.id };
+    }
+
+    // ── Staff ─────────────────────────────────────────────────────────────
+    case 'list_staff': {
+      const r = await stationDb('staff.list', {});
+      const members = (r && Array.isArray(r.members)) ? r.members : [];
+      return { staff: members.map(m => ({ id: m.id, name: m.display_name || m.user_email || m.full_name || 'Staff', role: m.role || 'Waiter' })) };
+    }
+    case 'add_staff': {
+      if (!args.name) throw new Error('name required');
+      const r = await stationDb('staff.create', { name: String(args.name), role_id: args.role_id || null });
+      return { ok: true, id: r && r.id };
+    }
+    case 'remove_staff': { const id = args.staff_id || args.id; if (!id) throw new Error('staff_id required'); await stationDb('staff.delete', { staff_id: id }); return { ok: true }; }
+    case 'toggle_staff': { const id = args.staff_id || args.id; if (!id) throw new Error('staff_id required'); const r = await stationDb('staff.toggle', { staff_id: id }); return { ok: true, active: r ? r.active : null }; }
+
     default: throw new Error('Unknown tool: ' + name);
   }
 }
@@ -2082,7 +2179,7 @@ async function runStationAgent(userMessage, history) {
   (history || []).forEach(h => convo.push((h.role === 'user' ? 'User: ' : 'Assistant: ') + h.text));
   convo.push('User: ' + userMessage);
   const actions = [];
-  for (let step = 0; step < 6; step++) {
+  for (let step = 0; step < 8; step++) {
     const prompt = convo.join('\n') + '\n\nDecide your next action. Return ONLY the JSON.';
     const resp = await stationAI(prompt, STATION_AI_SYSTEM);
     let obj = resp;
