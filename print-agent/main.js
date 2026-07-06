@@ -2034,6 +2034,7 @@ const STATION_AI_SYSTEM =
   'SALES/BILLS tools: ' +
   'sales_summary{period?} -> revenue, order count and average ticket for today|week|month|all; ' +
   'list_recent_bills{limit?} -> most recent bills with ids and totals; ' +
+  'bill_details{id} -> full breakdown of one bill: table, waiter, payment, line items and total; ' +
   'reprint_bill{id?} -> reprint a saved bill (omit id to reprint the most recent one); ' +
   'STAFF tools: ' +
   'list_staff{} -> team members with ids and roles; ' +
@@ -2139,6 +2140,20 @@ async function stationExecTool(name, args) {
       const limit = Math.min(Number(args.limit) || 10, 30);
       const bills = store.getBills() || [];
       return { bills: bills.slice(-limit).reverse().map(b => ({ id: b.id, table: b.table, total: b.total, date: b.date, payment: b.payment_method })) };
+    }
+    case 'bill_details': {
+      const bill = args.id ? store.findBill(args.id) : null;
+      if (!bill) throw new Error('No matching bill found');
+      return {
+        id: bill.id, table: bill.table, waiter: bill.waiter, date: bill.date,
+        payment: bill.payment_method, currency: bill.currency || 'EUR',
+        guest_count: bill.guest_count, total: bill.total,
+        items: (bill.items || []).map(i => ({
+          name: i.name || i.menu_item_name || 'Item',
+          qty: i.qty || i.quantity || 1,
+          price: i.price != null ? i.price : (i.price_at_order_time != null ? i.price_at_order_time : 0),
+        })),
+      };
     }
     case 'reprint_bill': {
       let bill = null;

@@ -2484,16 +2484,109 @@ function Update-Bills-Page {
     }
 })
 
+function Invoke-Reprint($id) {
+    try {
+        $body = @{ id = $id } | ConvertTo-Json
+        Invoke-RestMethod -Uri "$base/local/reprint" -Method Post -Body $body -ContentType 'application/json' -TimeoutSec 10 -ErrorAction Stop | Out-Null
+        [System.Windows.MessageBox]::Show("Reprint sent: $id", 'LightMenu', 'OK', 'Information') | Out-Null
+        return $true
+    } catch {
+        [System.Windows.MessageBox]::Show("Reprint failed: $($_.Exception.Message)", 'LightMenu', 'OK', 'Warning') | Out-Null
+        return $false
+    }
+}
+
+# Bill details popup — opens on double-click; shows the full bill and a Reprint
+# button that fires /local/reprint for that bill.
+function Show-BillDetails($row) {
+    if (-not $row) { return }
+    $b   = $row.Raw
+    $sym = if ($b.currency) { $b.currency } else { 'EUR' }
+    $dt  = try { [datetime]::Parse($b.date).ToString('yyyy-MM-dd HH:mm') } catch { "$($b.date)" }
+    $pay = if ($b.payment_method) { $b.payment_method } else { '-' }
+    $cov = if ($b.guest_count) { " . $($b.guest_count) covers" } else { '' }
+
+    $itemRows = New-Object System.Collections.ArrayList
+    if ($b.items) {
+        foreach ($it in $b.items) {
+            $q  = if ($it.qty) { [int]$it.qty } elseif ($it.quantity) { [int]$it.quantity } else { 1 }
+            $nm = if ($it.name) { "$($it.name)" } elseif ($it.menu_item_name) { "$($it.menu_item_name)" } else { 'Item' }
+            $up = if ($it.price -ne $null) { [double]$it.price } elseif ($it.price_at_order_time -ne $null) { [double]$it.price_at_order_time } else { 0 }
+            [void]$itemRows.Add([PSCustomObject]@{ Qty = "$q x"; Name = $nm; Line = ('{0} {1:N2}' -f $sym, ($up * $q)) })
+        }
+    }
+
+    [xml]$dxaml = @"
+<Window xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Title="Bill Details" Height="560" Width="440"
+        WindowStartupLocation="CenterOwner" ResizeMode="NoResize"
+        Background="#0F1117" TextElement.Foreground="#FFFFFF">
+  <Border Margin="16" Background="#1A1D29" BorderBrush="#2A2D3A" BorderThickness="1" CornerRadius="10" Padding="18">
+    <Grid>
+      <Grid.RowDefinitions>
+        <RowDefinition Height="Auto"/>
+        <RowDefinition Height="Auto"/>
+        <RowDefinition Height="Auto"/>
+        <RowDefinition Height="*"/>
+        <RowDefinition Height="Auto"/>
+        <RowDefinition Height="Auto"/>
+      </Grid.RowDefinitions>
+      <TextBlock x:Name="DlgBillNum" Grid.Row="0" FontSize="16" FontWeight="Bold" Foreground="#FFFFFF"/>
+      <TextBlock x:Name="DlgMeta"    Grid.Row="1" FontSize="12" Foreground="#9CA3AF" Margin="0,4,0,0"/>
+      <Border Grid.Row="2" Background="#0F1117" BorderBrush="#2A2D3A" BorderThickness="0,1,0,1" Padding="0,8" Margin="0,12,0,0">
+        <Grid>
+          <Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions>
+          <TextBlock Grid.Column="0" Text="ITEM" FontSize="10" FontWeight="Bold" Foreground="#7A8295"/>
+          <TextBlock Grid.Column="1" Text="AMOUNT" FontSize="10" FontWeight="Bold" Foreground="#7A8295"/>
+        </Grid>
+      </Border>
+      <ListView x:Name="DlgItems" Grid.Row="3" Background="Transparent" BorderThickness="0" Foreground="#D1D5DB" Margin="0,4,0,0">
+        <ListView.View>
+          <GridView>
+            <GridViewColumn Header="" DisplayMemberBinding="{Binding Qty}"  Width="44"/>
+            <GridViewColumn Header="" DisplayMemberBinding="{Binding Name}" Width="250"/>
+            <GridViewColumn Header="" DisplayMemberBinding="{Binding Line}" Width="90"/>
+          </GridView>
+        </ListView.View>
+      </ListView>
+      <Border Grid.Row="4" BorderBrush="#2A2D3A" BorderThickness="0,1,0,0" Padding="0,10,0,0" Margin="0,8,0,0">
+        <Grid>
+          <Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions>
+          <TextBlock Grid.Column="0" Text="TOTAL" FontSize="14" FontWeight="Bold" Foreground="#FFFFFF"/>
+          <TextBlock x:Name="DlgTotal" Grid.Column="1" FontSize="16" FontWeight="Bold" Foreground="#14B8A6"/>
+        </Grid>
+      </Border>
+      <Grid Grid.Row="5" Margin="0,16,0,0">
+        <Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="12"/><ColumnDefinition Width="*"/></Grid.ColumnDefinitions>
+        <Button x:Name="DlgClose"   Grid.Column="0" Content="Close"        Height="38" Background="#374151" Foreground="#FFFFFF" BorderThickness="0" Cursor="Hand"/>
+        <Button x:Name="DlgReprint" Grid.Column="2" Content="Reprint Check" Height="38" Background="#14B8A6" Foreground="#FFFFFF" BorderThickness="0" Cursor="Hand" FontWeight="Bold"/>
+      </Grid>
+    </Grid>
+  </Border>
+</Window>
+"@
+    $dr  = New-Object System.Xml.XmlNodeReader $dxaml
+    $dlg = [Windows.Markup.XamlReader]::Load($dr)
+    $dlg.Owner = $window
+    $dlg.FindName('DlgBillNum').Text = "$($b.id)"
+    $dlg.FindName('DlgMeta').Text    = "$dt  .  Table #$($b.table)  .  $($b.waiter)  .  $pay$cov"
+    $dlg.FindName('DlgItems').ItemsSource = $itemRows
+    $dlg.FindName('DlgTotal').Text   = ('{0} {1:N2}' -f $sym, [double]$b.total)
+    $dlg.FindName('DlgClose').Add_Click({ $dlg.Close() })
+    $dlg.FindName('DlgReprint').Add_Click({ if (Invoke-Reprint $b.id) { $dlg.Close() } }.GetNewClosure())
+    $dlg.ShowDialog() | Out-Null
+}
+
 (ctl 'MenuReprint').Add_Click({
     $sel = (ctl 'BillList').SelectedItem
     if (-not $sel) { return }
-    try {
-        $body = @{ id = $sel.BillNum } | ConvertTo-Json
-        Invoke-RestMethod -Uri "$base/local/reprint" -Method Post -Body $body -ContentType 'application/json' -TimeoutSec 10 -ErrorAction Stop | Out-Null
-        [System.Windows.MessageBox]::Show("Reprint sent: $($sel.BillNum)", 'LightMenu', 'OK', 'Information') | Out-Null
-    } catch {
-        [System.Windows.MessageBox]::Show("Reprint failed: $($_.Exception.Message)", 'LightMenu', 'OK', 'Warning') | Out-Null
-    }
+    Invoke-Reprint $sel.BillNum | Out-Null
+})
+
+(ctl 'BillList').Add_MouseDoubleClick({
+    $sel = (ctl 'BillList').SelectedItem
+    if ($sel) { Show-BillDetails $sel }
 })
 
 # ─── DAILY REPORT PAGE ──────────────────────────────────────────────────────
