@@ -1456,6 +1456,122 @@ const INIT = E + '@';
 const qrcode = require('./qrcode.js');
 const store  = require('./store.js');
 
+// ─── OFFLINE-FIRST ACTIVE ORDERS ──────────────────────────────────────────────
+// Local file tracks open orders per table. All ordering operations write here
+// first, print locally, then sync to Supabase in the background. Survives
+// full internet outages — the kitchen keeps getting tickets.
+const ACTIVE_ORDERS_FILE = path.join(__dirname, 'active-orders.json');
+
+function _loadActiveOrders() {
+  try { const d = JSON.parse(fs.readFileSync(ACTIVE_ORDERS_FILE, 'utf8')); return d && typeof d === 'object' ? d : {}; }
+  catch { return {}; }
+}
+function _saveActiveOrders(data) {
+  try { fs.writeFileSync(ACTIVE_ORDERS_FILE, JSON.stringify(data)); } catch {}
+}
+function _activeOrder(tableNum) {
+  return _loadActiveOrders()[String(tableNum)] || null;
+}
+function _saveActiveOrder(tableNum, order) {
+  const all = _loadActiveOrders();
+  all[String(tableNum)] = order;
+  _saveActiveOrders(all);
+}
+function _removeActiveOrder(tableNum) {
+  const all = _loadActiveOrders();
+  delete all[String(tableNum)];
+  _saveActiveOrders(all);
+}
+
+function _getTicketSettings() {
+  const cfg = printersCache.find(c => c.printer_type === 'kitchen' && c.is_active);
+  return (cfg?.settings) || {};
+}
+
+async function _syncOrderToSupabase(tableNum) {
+  const local = _activeOrder(tableNum);
+  if (!local) return;
+
+  let remoteId = local.remote_order_id;
+
+  // Create or find remote order
+  if (!remoteId) {
+    try {
+      const existing = await supabaseGetRaw(
+        'orders?restaurant_id=eq.' + encodeURIComponent(RESTAURANT_ID) +
+        '&table_number=eq.' + encodeURIComponent(tableNum) +
+        '&status=not.in.(paid,cancelled)&select=id&limit=1&order=created_at.desc'
+      );
+      if (existing?.length) {
+        remoteId = existing[0].id;
+      } else {
+        const total = local.items.reduce((s, i) => s + (i.price_at_order_time || 0) * (i.quantity || 1), 0);
+        const rows = await supabasePost('orders', {
+          restaurant_id: RESTAURANT_ID, table_number: tableNum,
+          waiter_id: 'station', waiter_name: 'Station',
+          status: 'sent_to_kitchen', total_amount: total,
+          guest_count: local.guest_count || 1,
+        });
+        remoteId = Array.isArray(rows) ? rows[0]?.id : rows?.id;
+      }
+    } catch { return; } // offline — will retry later
+  }
+  if (!remoteId) return;
+
+  local.remote_order_id = remoteId;
+
+  // Sync unsynced items
+  for (const item of local.items) {
+    if (item.synced) continue;
+    try {
+      await supabasePost('order_items', {
+        order_id: remoteId, menu_item_id: item.menu_item_id,
+        menu_item_name: item.menu_item_name, price_at_order_time: item.price_at_order_time,
+        quantity: item.quantity, status: item.status, course: item.course,
+        special_requests: item.special_requests, is_invitation: item.is_invitation,
+        selected_addons: item.selected_addons,
+      });
+      item.synced = true;
+    } catch { break; } // offline — stop trying
+  }
+
+  // Mark table occupied
+  try {
+    const tables = await supabaseGet('tables', { restaurant_id: RESTAURANT_ID, table_number: tableNum }, 1);
+    if (tables?.length) await supabasePatch('tables', tables[0].id, { status: 'occupied', current_order_id: remoteId });
+  } catch {}
+
+  local.synced = local.items.every(i => i.synced);
+  _saveActiveOrder(tableNum, local);
+  log('Sync OK: Mesa ' + tableNum + ' → remote ' + remoteId);
+}
+
+async function _syncReclaimToSupabase(local, courseItems) {
+  if (!local?.remote_order_id) return;
+  // Find remote items by matching order_id + course + name and update status
+  try {
+    const remoteItems = await supabaseGetRaw(
+      'order_items?order_id=eq.' + encodeURIComponent(local.remote_order_id) +
+      '&status=eq.pending&select=id,course,menu_item_name&limit=500'
+    );
+    if (!remoteItems?.length) return;
+    for (const ci of courseItems) {
+      const match = remoteItems.find(r => r.course === ci.course && r.menu_item_name === ci.menu_item_name);
+      if (match) await supabasePatch('order_items', match.id, { status: 'preparing' });
+    }
+  } catch (e) { log('Reclaim sync to Supabase failed: ' + e.message); }
+}
+
+// Periodic sync: retry any unsynced active orders every 30s
+setInterval(() => {
+  const all = _loadActiveOrders();
+  for (const tableNum of Object.keys(all)) {
+    if (!all[tableNum].synced) {
+      _syncOrderToSupabase(tableNum).catch(() => {});
+    }
+  }
+}, 30000);
+
 // ─── MULTI-LANGUAGE ENCODING ──────────────────────────────────────────────────
 // Thermal printers use ESC/POS, which is byte-based. JS strings are Unicode.
 // Buffer.from(s, 'binary') = Latin-1 — safe for ASCII/ESC commands, but silently
@@ -2658,6 +2774,228 @@ http.createServer((req, res) => {
         res.end(JSON.stringify({ ok: true }));
       } catch(e) { res.writeHead(500); res.end(JSON.stringify({ error: e.message })); }
     })();
+    return;
+  }
+
+  // ─── ORDERING — Station POS (offline-first) ─────────────────────────────
+  // Local-first ordering: all state lives in active-orders.json, printing is
+  // always local, Supabase sync is best-effort in the background. The Station
+  // keeps taking orders even with zero internet.
+
+  if (req.method === 'GET' && req.url.startsWith('/local/order/items')) {
+    const u = new URL(req.url, 'http://x');
+    const tableNum = u.searchParams.get('table');
+    if (!tableNum) { res.writeHead(400); res.end(JSON.stringify({ error: 'table required' })); return; }
+    const local = _activeOrder(tableNum);
+    res.writeHead(200, { 'Content-Type': 'application/json' });
+    res.end(JSON.stringify({
+      order_id: local ? local.order_id : null,
+      items: local ? local.items : [],
+    }));
+    return;
+  }
+
+  if (req.method === 'POST' && req.url === '/local/order/send') {
+    let body = '';
+    req.on('data', c => body += c);
+    req.on('end', async () => {
+      try {
+        const b = JSON.parse(body || '{}');
+        const tableNum = b.table_number;
+        const cartItems = b.items || [];
+        const guestCount = b.guest_count || 1;
+        if (!tableNum || !cartItems.length) {
+          res.writeHead(400); res.end(JSON.stringify({ error: 'table_number and items required' }));
+          return;
+        }
+
+        // 1. Local state first — always succeeds
+        let local = _activeOrder(tableNum);
+        if (!local) {
+          local = {
+            order_id: 'local-' + crypto.randomUUID(),
+            table_number: tableNum,
+            guest_count: guestCount,
+            items: [],
+            synced: false,
+            remote_order_id: null,
+            created_at: new Date().toISOString(),
+          };
+        }
+        const newItems = cartItems.map(i => ({
+          id: 'li-' + crypto.randomUUID(),
+          menu_item_id: i.menu_item_id || null,
+          menu_item_name: i.menu_item_name || i.name || 'Item',
+          price_at_order_time: i.price || 0,
+          quantity: i.quantity || 1,
+          status: (!i.course || i.course === 'direct') ? 'preparing' : 'pending',
+          course: i.course || 'direct',
+          special_requests: i.special_requests || null,
+          is_invitation: i.is_invitation || false,
+          selected_addons: i.selected_addons || null,
+          synced: false,
+        }));
+        local.items = local.items.concat(newItems);
+        _saveActiveOrder(tableNum, local);
+
+        // 2. Print kitchen ticket for direct items — always local
+        const directItems = cartItems.filter(i => !i.course || i.course === 'direct');
+        if (directItems.length) {
+          try {
+            const settings = _getTicketSettings();
+            const ticket = {
+              type: 'kitchen', restaurant_id: RESTAURANT_ID,
+              restaurant_name: RESTAURANT_NAME, table_number: tableNum,
+              waiter_name: 'Station', currency: settings.currency || 'EUR',
+              time: new Date().toISOString(), order_id: local.order_id,
+              items: directItems.map(i => ({
+                name: i.menu_item_name || i.name || 'Item', qty: i.quantity || 1,
+                price: i.price || 0, special_requests: i.special_requests,
+                is_invitation: i.is_invitation, selected_addons: i.selected_addons,
+              })),
+              settings,
+            };
+            const data = buildKitchenTicket(ticket);
+            const copies = settings.order_copies || 1;
+            for (let i = 0; i < Math.min(copies, 3); i++) await sendToPrinter(data);
+            printed++; updateDailyStats('printed');
+            log('STATION ORDER: Mesa ' + tableNum + ' (' + directItems.length + ' direct items)');
+          } catch (pe) { log('Station order print failed: ' + pe.message); }
+        }
+
+        // 3. Save to local store (analytics/bills)
+        try {
+          store.addOrder({
+            order_id: local.order_id, date: new Date().toISOString(),
+            table: tableNum, waiter: 'Station',
+            items: cartItems.map(i => ({ name: i.menu_item_name || i.name, qty: i.quantity || 1, price: i.price || 0 })),
+            printer_type: 'kitchen',
+            total: cartItems.reduce((s, i) => s + (i.price || 0) * (i.quantity || 1), 0),
+            guest_count: guestCount, currency: 'EUR', source: 'station',
+          });
+        } catch (_) {}
+
+        // 4. Background sync to Supabase (non-blocking, best-effort)
+        _syncOrderToSupabase(tableNum).catch(e => log('Sync failed (will retry): ' + e.message));
+
+        res.writeHead(200, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ ok: true, order_id: local.order_id }));
+      } catch (e) {
+        res.writeHead(500, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ ok: false, error: e.message }));
+      }
+    });
+    return;
+  }
+
+  if (req.method === 'POST' && req.url === '/local/order/reclaim') {
+    let body = '';
+    req.on('data', c => body += c);
+    req.on('end', async () => {
+      try {
+        const b = JSON.parse(body || '{}');
+        const tableNum = b.table_number;
+        if (!tableNum) { res.writeHead(400); res.end(JSON.stringify({ error: 'table_number required' })); return; }
+
+        const local = _activeOrder(tableNum);
+        if (!local) {
+          res.writeHead(200, { 'Content-Type': 'application/json' });
+          res.end(JSON.stringify({ ok: false, error: 'No open order' }));
+          return;
+        }
+
+        // Find next held course from local state
+        const courseOrder = ['first_plate', 'second_plate', 'third_plate', 'fourth_plate'];
+        let nextCourse = null;
+        for (const c of courseOrder) {
+          if (local.items.some(i => i.status === 'pending' && i.course === c)) { nextCourse = c; break; }
+        }
+        if (!nextCourse) {
+          res.writeHead(200, { 'Content-Type': 'application/json' });
+          res.end(JSON.stringify({ ok: false, error: 'Nothing to reclaim' }));
+          return;
+        }
+
+        // Update local state
+        const courseItems = [];
+        for (const item of local.items) {
+          if (item.status === 'pending' && item.course === nextCourse) {
+            item.status = 'preparing';
+            item.synced = false;
+            courseItems.push(item);
+          }
+        }
+        _saveActiveOrder(tableNum, local);
+
+        // Print kitchen ticket
+        try {
+          const settings = _getTicketSettings();
+          const courseLbl = { first_plate: 'S1', second_plate: 'S2', third_plate: 'S3', fourth_plate: 'S4' }[nextCourse] || nextCourse;
+          const ticket = {
+            type: 'kitchen', restaurant_id: RESTAURANT_ID,
+            restaurant_name: RESTAURANT_NAME, table_number: tableNum,
+            waiter_name: 'Station', kitchen_name: courseLbl,
+            currency: settings.currency || 'EUR',
+            time: new Date().toISOString(), order_id: local.order_id,
+            items: courseItems.map(i => ({
+              name: i.menu_item_name || 'Item', qty: i.quantity || 1,
+              price: i.price_at_order_time || 0, special_requests: i.special_requests,
+              is_invitation: i.is_invitation,
+              selected_addons: i.selected_addons ? (typeof i.selected_addons === 'string' ? JSON.parse(i.selected_addons) : i.selected_addons) : null,
+            })),
+            settings,
+          };
+          const data = buildKitchenTicket(ticket);
+          const copies = settings.order_copies || 1;
+          for (let j = 0; j < Math.min(copies, 3); j++) await sendToPrinter(data);
+          printed++; updateDailyStats('printed');
+          log('STATION RECLAIM: Mesa ' + tableNum + ' course=' + courseLbl + ' (' + courseItems.length + ' items)');
+        } catch (pe) { log('Station reclaim print failed: ' + pe.message); }
+
+        // Background sync
+        _syncReclaimToSupabase(local, courseItems).catch(e => log('Reclaim sync failed: ' + e.message));
+
+        res.writeHead(200, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ ok: true, course: nextCourse, items: courseItems }));
+      } catch (e) {
+        res.writeHead(500, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ ok: false, error: e.message }));
+      }
+    });
+    return;
+  }
+
+  if (req.method === 'POST' && req.url === '/local/order/close') {
+    let body = '';
+    req.on('data', c => body += c);
+    req.on('end', async () => {
+      try {
+        const b = JSON.parse(body || '{}');
+        const tableNum = b.table_number;
+        if (!tableNum) { res.writeHead(400); res.end(JSON.stringify({ error: 'table_number required' })); return; }
+
+        // Remove from local active orders
+        const local = _activeOrder(tableNum);
+        _removeActiveOrder(tableNum);
+
+        // Background sync close to Supabase
+        if (local?.remote_order_id) {
+          (async () => {
+            try {
+              await supabasePatch('orders', local.remote_order_id, { status: 'paid' });
+              const tables = await supabaseGet('tables', { restaurant_id: RESTAURANT_ID, table_number: tableNum }, 1);
+              if (tables?.length) await supabasePatch('tables', tables[0].id, { status: 'available', current_order_id: null });
+            } catch (e) { log('Close sync failed: ' + e.message); }
+          })();
+        }
+
+        res.writeHead(200, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ ok: true }));
+      } catch (e) {
+        res.writeHead(500, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ ok: false, error: e.message }));
+      }
+    });
     return;
   }
 
