@@ -147,6 +147,29 @@ function Format-Money($amount) {
       <Setter Property="Padding" Value="14,6"/>
       <Setter Property="FontSize" Value="12"/>
     </Style>
+    <!-- Control Center homepage card (icon + title + description, hover lift) -->
+    <Style x:Key="HomeCard" TargetType="Button">
+      <Setter Property="Background" Value="#1A1D29"/>
+      <Setter Property="Cursor" Value="Hand"/>
+      <Setter Property="Margin" Value="7"/>
+      <Setter Property="HorizontalContentAlignment" Value="Stretch"/>
+      <Setter Property="Template">
+        <Setter.Value>
+          <ControlTemplate TargetType="Button">
+            <Border x:Name="bd" Background="{TemplateBinding Background}" BorderBrush="#2A2D3A"
+                    BorderThickness="1" CornerRadius="14" Padding="18">
+              <ContentPresenter VerticalAlignment="Center" HorizontalAlignment="Stretch"/>
+            </Border>
+            <ControlTemplate.Triggers>
+              <Trigger Property="IsMouseOver" Value="True">
+                <Setter TargetName="bd" Property="Background" Value="#20242F"/>
+                <Setter TargetName="bd" Property="BorderBrush" Value="#14B8A6"/>
+              </Trigger>
+            </ControlTemplate.Triggers>
+          </ControlTemplate>
+        </Setter.Value>
+      </Setter>
+    </Style>
   </Window.Resources>
 
   <Grid Margin="16">
@@ -245,7 +268,7 @@ function Format-Money($amount) {
     </Border>
 
     <!-- ───────── NAV BAR ───────── -->
-    <Border Grid.Row="1" Background="#0F1117" Margin="0,0,0,12">
+    <Border x:Name="NavBar" Grid.Row="1" Background="#0F1117" Margin="0,0,0,12">
       <Grid>
         <Grid.ColumnDefinitions>
           <ColumnDefinition Width="*"/>
@@ -253,6 +276,7 @@ function Format-Money($amount) {
         </Grid.ColumnDefinitions>
         <ScrollViewer Grid.Column="0" VerticalScrollBarVisibility="Disabled" HorizontalScrollBarVisibility="Auto">
         <StackPanel Orientation="Horizontal">
+          <Button x:Name="NavHome"       Style="{StaticResource NavBtn}" Content="Home" Margin="0,0,4,0"/>
           <Button x:Name="NavDashboard"  Style="{StaticResource NavBtn}" Content="Dashboard"/>
           <Button x:Name="NavAssistant"  Style="{StaticResource NavBtn}" Content="LightMenu AI" Margin="4,0,0,0"/>
           <Button x:Name="NavMenu"       Style="{StaticResource NavBtn}" Content="Menu"         Margin="4,0,0,0"/>
@@ -302,8 +326,23 @@ function Format-Money($amount) {
     <!-- ───────── PAGE CONTAINER ───────── -->
     <Grid Grid.Row="2">
 
+      <!-- ════════ PAGE 0: HOME — Control Center ════════ -->
+      <Grid x:Name="PageHome" Visibility="Visible">
+        <Grid.RowDefinitions>
+          <RowDefinition Height="Auto"/>
+          <RowDefinition Height="*"/>
+        </Grid.RowDefinitions>
+        <StackPanel Grid.Row="0" Margin="4,2,0,16">
+          <TextBlock x:Name="HomeTitle" Text="Control Center" FontSize="26" FontWeight="Bold" Foreground="#FFFFFF"/>
+          <TextBlock x:Name="HomeSubtitle" Text="Choose a section to get started" FontSize="13" Foreground="#7A8295" Margin="0,6,0,0"/>
+        </StackPanel>
+        <ScrollViewer Grid.Row="1" VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
+          <UniformGrid x:Name="HomeGrid" Columns="3" Margin="-7,0,-7,0"/>
+        </ScrollViewer>
+      </Grid>
+
       <!-- ════════ PAGE 1: DASHBOARD — Floor Plan ════════ -->
-      <Grid x:Name="PageDashboard" Visibility="Visible">
+      <Grid x:Name="PageDashboard" Visibility="Collapsed">
         <Grid.RowDefinitions>
           <RowDefinition Height="Auto"/>
           <RowDefinition Height="*"/>
@@ -1411,6 +1450,18 @@ function Tint($hex, $aa) { return '#' + $aa + ($hex -replace '^#','') }
 # ─── LANGUAGE SYSTEM ────────────────────────────────────────────────────────
 $script:i18n = @{
     en = @{
+        nav_home='Home'
+        home_title='Control Center'; home_choose='Choose a section to get started'
+        home_no_orders='No orders yet today'; home_orders_today='orders today'
+        home_orders_t='Orders';            home_orders_d='Take table orders, fire courses, and close checks.'
+        home_floor_t='Floor Plan';         home_floor_d="Live floor map — every table's status at a glance."
+        home_menu_t='Menu';                home_menu_d='Add and edit items, categories, pricing, and availability.'
+        home_kitchen_t='Kitchen & Printing'; home_kitchen_d='Connect thermal printers and customize kitchen tickets.'
+        home_ai_t='LightMenu AI';          home_ai_d='Ask the assistant to run the whole station for you.'
+        home_staff_t='Team & Roles';       home_staff_d='Manage your staff, roles, and waiter access.'
+        home_analytics_t='Analytics';      home_analytics_d='Revenue, payment breakdown, and sales trends.'
+        home_bills_t='Bills';              home_bills_d='Browse saved bills and reprint any receipt.'
+        home_report_t='Daily Report';      home_report_d='End-of-day revenue and top-selling items.'
         nav_dashboard='Dashboard'; nav_analytics='Analytics'; nav_bills='Bills'; nav_report='Daily Report'; nav_staff='Staff'
         lbl_printer='PRINTER'; lbl_last_update='LAST UPDATE'; lbl_free='Free'; lbl_dishes='Dishes out'; lbl_reclaim='To reclaim'; lbl_check='Check printed'
         lbl_drag_hint='Drag to arrange · tap to edit'; btn_add_floor='+ Floor'; btn_add_table='+ Table'; btn_del_floor='Delete Floor'
@@ -1719,6 +1770,14 @@ function Apply-Language {
     (ctl 'NavAnalytics').Content = NavIcon 0x1F4CA (T 'nav_analytics')   # bar chart
     (ctl 'NavBills').Content     = NavIcon 0x1F9FE (T 'nav_bills')       # receipt
     (ctl 'NavReport').Content    = NavIcon 0x1F4C5 (T 'nav_report')      # calendar
+    (ctl 'NavHome').Content      = NavIcon 0x1F3E0 (T 'nav_home')        # house
+
+    # Home / Control Center
+    (ctl 'HomeTitle').Text = T 'home_title'
+    if ($script:activePage -ne 'Home') { (ctl 'HomeSubtitle').Text = T 'home_choose' }
+    if ($script:homeLabels) {
+        foreach ($h in $script:homeLabels) { $h.Title.Text = (T $h.titleKey); $h.Desc.Text = (T $h.descKey) }
+    }
 
     # Menu page
     (ctl 'MenuRefresh').Content = T 'menu_refresh'
@@ -1835,6 +1894,7 @@ if ($initText) { $initText.Text = $script:langMeta[$script:lang].name }
 # ─── PAGE SWITCHING ─────────────────────────────────────────────────────────
 $script:activePage  = 'Dashboard'
 $script:navButtons  = @{
+    'Home'      = (ctl 'NavHome')
     'Dashboard' = (ctl 'NavDashboard')
     'Assistant' = (ctl 'NavAssistant')
     'Menu'      = (ctl 'NavMenu')
@@ -1846,6 +1906,7 @@ $script:navButtons  = @{
     'Staff'     = (ctl 'NavStaff')
 }
 $script:pages = @{
+    'Home'      = (ctl 'PageHome')
     'Dashboard' = (ctl 'PageDashboard')
     'Assistant' = (ctl 'PageAssistant')
     'Menu'      = (ctl 'PageMenu')
@@ -1870,9 +1931,13 @@ function Switch-Page($name) {
         }
     }
     $script:activePage = $name
+    # The homepage is the clean landing — hide the tab bar there; show it once
+    # the user is inside a section so switching stays one tap.
+    (ctl 'NavBar').Visibility = if ($name -eq 'Home') { 'Collapsed' } else { 'Visible' }
     # Defer the (network-bound) page loads until AFTER the page has rendered, so
     # switching tabs is instant instead of freezing the UI while data loads.
     $loader = switch ($name) {
+        'Home'      { { Update-Home-Page } }
         'Dashboard' { { Update-FloorPlan } }
         'Analytics' { { Update-Analytics-Page } }
         'Bills'     { { Update-Bills-Page } }
@@ -1896,6 +1961,92 @@ function Switch-Page($name) {
 (ctl 'NavBills').Add_Click(    { Switch-Page 'Bills' })
 (ctl 'NavReport').Add_Click(   { Switch-Page 'Report' })
 (ctl 'NavStaff').Add_Click(    { Switch-Page 'Staff' })
+(ctl 'NavHome').Add_Click(     { Switch-Page 'Home' })
+
+# ─── HOME: Control Center card grid ──────────────────────────────────────────
+# A web-app-style landing. Each card routes into a section via Switch-Page.
+# icon = emoji code point (built with ConvertFromUtf32 — above-BMP glyphs throw
+# on a plain [char] cast). target = the Switch-Page key the card opens.
+$script:homeCards = @(
+    @{ target='Orders';    icon=0x1F4CB; color='#14B8A6'; titleKey='home_orders_t';    descKey='home_orders_d' }
+    @{ target='Dashboard'; icon=0x1F5FA; color='#22C55E'; titleKey='home_floor_t';     descKey='home_floor_d' }
+    @{ target='Menu';      icon=0x1F37D; color='#F97316'; titleKey='home_menu_t';      descKey='home_menu_d' }
+    @{ target='Kitchen';   icon=0x1F5A8; color='#3B82F6'; titleKey='home_kitchen_t';   descKey='home_kitchen_d' }
+    @{ target='Assistant'; icon=0x2728;  color='#8B5CF6'; titleKey='home_ai_t';        descKey='home_ai_d' }
+    @{ target='Staff';     icon=0x1F465; color='#6366F1'; titleKey='home_staff_t';     descKey='home_staff_d' }
+    @{ target='Analytics'; icon=0x1F4CA; color='#A855F7'; titleKey='home_analytics_t'; descKey='home_analytics_d' }
+    @{ target='Bills';     icon=0x1F9FE; color='#EC4899'; titleKey='home_bills_t';     descKey='home_bills_d' }
+    @{ target='Report';    icon=0x1F4C5; color='#F59E0B'; titleKey='home_report_t';    descKey='home_report_d' }
+)
+$script:homeLabels = @()
+
+function Build-HomeCards {
+    $grid = ctl 'HomeGrid'
+    $grid.Children.Clear()
+    $script:homeLabels = @()
+    foreach ($c in $script:homeCards) {
+        $btn = New-Object System.Windows.Controls.Button
+        $btn.Style = $window.FindResource('HomeCard')
+        $btn.Tag   = $c.target
+
+        $g = New-Object System.Windows.Controls.Grid
+        $cd0 = New-Object System.Windows.Controls.ColumnDefinition; $cd0.Width = 'Auto'
+        $cd1 = New-Object System.Windows.Controls.ColumnDefinition
+        $g.ColumnDefinitions.Add($cd0); $g.ColumnDefinitions.Add($cd1)
+
+        $iconBorder = New-Object System.Windows.Controls.Border
+        $iconBorder.Width = 46; $iconBorder.Height = 46
+        $iconBorder.CornerRadius = [System.Windows.CornerRadius]::new(12)
+        $iconBorder.Background = SolidBrush $c.color
+        $iconBorder.VerticalAlignment = 'Top'
+        $iconTb = New-Object System.Windows.Controls.TextBlock
+        $iconTb.Text = [System.Char]::ConvertFromUtf32([int]$c.icon)
+        $iconTb.FontSize = 22
+        $iconTb.Foreground = [System.Windows.Media.Brushes]::White
+        $iconTb.HorizontalAlignment = 'Center'; $iconTb.VerticalAlignment = 'Center'
+        $iconBorder.Child = $iconTb
+        [System.Windows.Controls.Grid]::SetColumn($iconBorder, 0)
+        $g.Children.Add($iconBorder) | Out-Null
+
+        $sp = New-Object System.Windows.Controls.StackPanel
+        $sp.Margin = [System.Windows.Thickness]::new(14,2,0,0)
+        $sp.VerticalAlignment = 'Center'
+        $title = New-Object System.Windows.Controls.TextBlock
+        $title.FontSize = 15; $title.FontWeight = 'Bold'
+        $title.Foreground = [System.Windows.Media.Brushes]::White
+        $title.Text = (T $c.titleKey)
+        $desc = New-Object System.Windows.Controls.TextBlock
+        $desc.FontSize = 12; $desc.Foreground = (SolidBrush '#7A8295')
+        $desc.TextWrapping = 'Wrap'; $desc.Margin = [System.Windows.Thickness]::new(0,4,0,0)
+        $desc.Text = (T $c.descKey)
+        $sp.Children.Add($title) | Out-Null; $sp.Children.Add($desc) | Out-Null
+        [System.Windows.Controls.Grid]::SetColumn($sp, 1)
+        $g.Children.Add($sp) | Out-Null
+
+        $btn.Content = $g
+        $btn.Add_Click({
+            $t = $this.Tag
+            Switch-Page $t
+            if ($t -eq 'Assistant') { Init-Assistant }
+        })
+        $grid.Children.Add($btn) | Out-Null
+        $script:homeLabels += @{ Title=$title; Desc=$desc; titleKey=$c.titleKey; descKey=$c.descKey }
+    }
+}
+
+# Fill the subtitle with today's order count (mirrors the web app's
+# "No orders yet today"). Best-effort — silent on any failure.
+function Update-Home-Page {
+    Invoke-AsyncGet "$base/local/stats?period=today" {
+        param($r, $bad)
+        if ($bad -or -not $r) { return }
+        $n = [int]$r.total_orders
+        if ($n -le 0) { (ctl 'HomeSubtitle').Text = (T 'home_no_orders') }
+        else { (ctl 'HomeSubtitle').Text = "$n " + (T 'home_orders_today') }
+    }
+}
+
+Build-HomeCards
 
 # ─── DASHBOARD: floor plan ───────────────────────────────────────────────────
 
@@ -5138,7 +5289,7 @@ $analyticsTimer.Start()
 
 # ─── Initial state ──────────────────────────────────────────────────────────
 Apply-Language
-Switch-Page 'Dashboard'
+Switch-Page 'Home'
 Set-Active-Period 'today'
 # The first status refresh must run only AFTER ShowDialog starts the dispatcher.
 # Calling the async Update-Status before the message loop is pumping makes the
