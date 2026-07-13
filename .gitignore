@@ -1,6 +1,10 @@
 installer/dist/
 installer/staging/
 
+# Build-only dependency (javascript-obfuscator) — installed on demand by
+# build-release.js, never shipped or committed.
+print-agent/node_modules/
+
 # Cloudflare tunnel private key — NEVER commit (public repo). Drop the real
 # cloudflared-creds.json into print-agent/tunnel/ locally before building.
 print-agent/tunnel/cloudflared-creds.json

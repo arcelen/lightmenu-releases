@@ -1488,6 +1488,161 @@ function _getTicketSettings() {
   return (cfg?.settings) || {};
 }
 
+// ─── Ordering core (shared by the POS HTTP endpoints and StationAI) ──────────
+// Extracted so both the WPF Orders page and the AI drive the exact same
+// offline-first path: local state first, always-local printing, best-effort
+// background sync to Supabase.
+async function stationSendOrder(tableNum, cartItems, guestCount) {
+  guestCount = guestCount || 1;
+  if (!tableNum || !Array.isArray(cartItems) || !cartItems.length) {
+    throw new Error('table_number and items required');
+  }
+  // 1. Local state first — always succeeds
+  let local = _activeOrder(tableNum);
+  if (!local) {
+    local = {
+      order_id: 'local-' + crypto.randomUUID(),
+      table_number: tableNum,
+      guest_count: guestCount,
+      items: [],
+      synced: false,
+      remote_order_id: null,
+      created_at: new Date().toISOString(),
+    };
+  }
+  const newItems = cartItems.map(i => ({
+    id: 'li-' + crypto.randomUUID(),
+    menu_item_id: i.menu_item_id || null,
+    menu_item_name: i.menu_item_name || i.name || 'Item',
+    price_at_order_time: i.price || 0,
+    quantity: i.quantity || 1,
+    status: (!i.course || i.course === 'direct') ? 'preparing' : 'pending',
+    course: i.course || 'direct',
+    special_requests: i.special_requests || null,
+    is_invitation: i.is_invitation || false,
+    selected_addons: i.selected_addons || null,
+    synced: false,
+  }));
+  local.items = local.items.concat(newItems);
+  _saveActiveOrder(tableNum, local);
+
+  // 2. Print kitchen ticket for direct items — always local
+  const directItems = cartItems.filter(i => !i.course || i.course === 'direct');
+  if (directItems.length) {
+    try {
+      const settings = _getTicketSettings();
+      const ticket = {
+        type: 'kitchen', restaurant_id: RESTAURANT_ID,
+        restaurant_name: RESTAURANT_NAME, table_number: tableNum,
+        waiter_name: 'Station', currency: settings.currency || 'EUR',
+        time: new Date().toISOString(), order_id: local.order_id,
+        items: directItems.map(i => ({
+          name: i.menu_item_name || i.name || 'Item', qty: i.quantity || 1,
+          price: i.price || 0, special_requests: i.special_requests,
+          is_invitation: i.is_invitation, selected_addons: i.selected_addons,
+        })),
+        settings,
+      };
+      const data = buildKitchenTicket(ticket);
+      const copies = settings.order_copies || 1;
+      for (let i = 0; i < Math.min(copies, 3); i++) await sendToPrinter(data);
+      printed++; updateDailyStats('printed');
+      log('STATION ORDER: Mesa ' + tableNum + ' (' + directItems.length + ' direct items)');
+    } catch (pe) { log('Station order print failed: ' + pe.message); }
+  }
+
+  // 3. Save to local store (analytics/bills)
+  try {
+    store.addOrder({
+      order_id: local.order_id, date: new Date().toISOString(),
+      table: tableNum, waiter: 'Station',
+      items: cartItems.map(i => ({ name: i.menu_item_name || i.name, qty: i.quantity || 1, price: i.price || 0 })),
+      printer_type: 'kitchen',
+      total: cartItems.reduce((s, i) => s + (i.price || 0) * (i.quantity || 1), 0),
+      guest_count: guestCount, currency: 'EUR', source: 'station',
+    });
+  } catch (_) {}
+
+  // 4. Background sync to Supabase (non-blocking, best-effort)
+  _syncOrderToSupabase(tableNum).catch(e => log('Sync failed (will retry): ' + e.message));
+
+  return { ok: true, order_id: local.order_id, printed_now: directItems.length, held: newItems.length - directItems.length };
+}
+
+async function stationReclaimOrder(tableNum) {
+  if (!tableNum) throw new Error('table_number required');
+  const local = _activeOrder(tableNum);
+  if (!local) return { ok: false, error: 'No open order' };
+
+  // Find next held course from local state
+  const courseOrder = ['first_plate', 'second_plate', 'third_plate', 'fourth_plate'];
+  let nextCourse = null;
+  for (const c of courseOrder) {
+    if (local.items.some(i => i.status === 'pending' && i.course === c)) { nextCourse = c; break; }
+  }
+  if (!nextCourse) return { ok: false, error: 'Nothing to reclaim' };
+
+  // Update local state
+  const courseItems = [];
+  for (const item of local.items) {
+    if (item.status === 'pending' && item.course === nextCourse) {
+      item.status = 'preparing';
+      item.synced = false;
+      courseItems.push(item);
+    }
+  }
+  _saveActiveOrder(tableNum, local);
+
+  // Print kitchen ticket
+  try {
+    const settings = _getTicketSettings();
+    const courseLbl = { first_plate: 'S1', second_plate: 'S2', third_plate: 'S3', fourth_plate: 'S4' }[nextCourse] || nextCourse;
+    const ticket = {
+      type: 'kitchen', restaurant_id: RESTAURANT_ID,
+      restaurant_name: RESTAURANT_NAME, table_number: tableNum,
+      waiter_name: 'Station', kitchen_name: courseLbl,
+      currency: settings.currency || 'EUR',
+      time: new Date().toISOString(), order_id: local.order_id,
+      items: courseItems.map(i => ({
+        name: i.menu_item_name || 'Item', qty: i.quantity || 1,
+        price: i.price_at_order_time || 0, special_requests: i.special_requests,
+        is_invitation: i.is_invitation,
+        selected_addons: i.selected_addons ? (typeof i.selected_addons === 'string' ? JSON.parse(i.selected_addons) : i.selected_addons) : null,
+      })),
+      settings,
+    };
+    const data = buildKitchenTicket(ticket);
+    const copies = settings.order_copies || 1;
+    for (let j = 0; j < Math.min(copies, 3); j++) await sendToPrinter(data);
+    printed++; updateDailyStats('printed');
+    log('STATION RECLAIM: Mesa ' + tableNum + ' course=' + courseLbl + ' (' + courseItems.length + ' items)');
+  } catch (pe) { log('Station reclaim print failed: ' + pe.message); }
+
+  // Background sync
+  _syncReclaimToSupabase(local, courseItems).catch(e => log('Reclaim sync failed: ' + e.message));
+
+  return { ok: true, course: nextCourse, items: courseItems };
+}
+
+async function stationCloseOrder(tableNum) {
+  if (!tableNum) throw new Error('table_number required');
+  // Remove from local active orders
+  const local = _activeOrder(tableNum);
+  _removeActiveOrder(tableNum);
+
+  // Background sync close to Supabase
+  if (local?.remote_order_id) {
+    (async () => {
+      try {
+        await supabasePatch('orders', local.remote_order_id, { status: 'paid' });
+        const tables = await supabaseGet('tables', { restaurant_id: RESTAURANT_ID, table_number: tableNum }, 1);
+        if (tables?.length) await supabasePatch('tables', tables[0].id, { status: 'available', current_order_id: null });
+      } catch (e) { log('Close sync failed: ' + e.message); }
+    })();
+  }
+  return { ok: true, had_order: !!local };
+}
+
 async function _syncOrderToSupabase(tableNum) {
   const local = _activeOrder(tableNum);
   if (!local) return;
@@ -2132,33 +2287,68 @@ setTimeout(() => { stationVerify().catch(() => {}); }, 2500);            // shor
 setInterval(() => { stationVerify().catch(() => {}); }, 5 * 60 * 1000); // every 5 min
 
 const STATION_AI_SYSTEM =
-  'You are StationAI, the on-site assistant for a restaurant POS/print station. ' +
-  'You can do everything the LightMenu Station can: manage the menu, manage printers, ' +
-  'run test prints, reprint bills, report sales, and manage staff. ' +
+  'You are StationAI, the on-site operator of a restaurant POS/print station. ' +
+  'You have FULL control of the station — everything a human standing at the station can do, you can do: ' +
+  'manage the menu, run the floor plan and tables, take and fire and close orders, drive the printers, ' +
+  'configure ticket/receipt settings, read live sales & bills, and manage staff. Act decisively. ' +
   'Reply in the SAME language as the user. ' +
   'Return ONLY JSON: {"reasoning":"...","tool_name":"...","tool_args":{}}. ' +
+
+  'THINK/FINISH: ' +
+  'think{note} -> record a private planning note and continue (no user-visible effect; use it to plan multi-step work); ' +
+  'say{message} -> the final answer for the user (ALWAYS end here). ' +
+
   'MENU tools: ' +
   'list_menu{} -> current categories+items with ids; ' +
   'add_item{name,price,description?,category_id?,is_available?,is_addon?}; ' +
   'update_item{id,name?,price?,description?,menu_category_id?,is_available?,is_addon?}; ' +
-  'delete_item{id}; move_item{id,category_id}; ' +
+  'delete_item{id}; move_item{id,category_id}; set_item_availability{id,available} -> 86 / restore an item live; ' +
   'add_category{name,section?}; rename_category{id,name}; move_category{id,section}; delete_category{id}; ' +
+
+  'FLOOR/TABLE tools: ' +
+  'list_tables{} -> every table with id, table_number, zone, and live state (free / occupied / has_held_items); ' +
+  'create_table{zone?,capacity?,shape?,table_number?} -> add a table (server assigns the number if omitted); ' +
+  'update_table{id,zone?,capacity?,shape?,table_number?,status?}; delete_table{id}; ' +
+  'delete_floor{zone,confirm} -> delete EVERY table in a zone (needs confirm:true); ' +
+
+  'ORDER tools (offline-first; printing is always local): ' +
+  'get_order{table_number} -> the open order on a table: line items with course + status; ' +
+  'send_order{table_number,items:[{name,price?,quantity?,menu_item_id?,course?,special_requests?}],guest_count?} ' +
+  '-> add items to a table and fire the kitchen ticket. course is "direct" (fire now) or ' +
+  'first_plate|second_plate|third_plate|fourth_plate (held until reclaimed); ' +
+  'reclaim_order{table_number} -> fire the next held course for a table and print its ticket; ' +
+  'close_order{table_number} -> mark the table paid/closed and free it; ' +
+
   'PRINTER tools: ' +
-  'list_printers{} -> configured printers with ids/type/ip; ' +
-  'test_print{printer_type?,ip?} -> print a test ticket (printer_type is "kitchen" or "bar"; omit both to use the active/default printer); ' +
+  'list_printers{} -> configured printers with ids/type/ip and live state; ' +
+  'test_print{printer_type?,ip?} -> print a test ticket (printer_type is "kitchen" or "bar"; omit both for the active printer); ' +
   'add_printer{name,type?,ip?}; update_printer{id,name?,type?,ip?,is_active?}; delete_printer{id}; ' +
+  'rescan_printers{} -> rescan the network for printers; ' +
+
+  'TICKET SETTINGS tools: ' +
+  'get_ticket_settings{} -> current kitchen/receipt settings (language, header/footer, copies, layout); ' +
+  'update_ticket_settings{patch} -> merge changes, e.g. {ticket_language:"fr"} or {order_copies:2} or {header_text:"..."}; ' +
+
   'SALES/BILLS tools: ' +
   'sales_summary{period?} -> revenue, order count and average ticket for today|week|month|all; ' +
+  'get_analytics{period?} -> deeper breakdown: payment split (cash/card/mixed), best day, 7-day trend; ' +
   'list_recent_bills{limit?} -> most recent bills with ids and totals; ' +
-  'bill_details{id} -> full breakdown of one bill: table, waiter, payment, line items and total; ' +
-  'reprint_bill{id?} -> reprint a saved bill (omit id to reprint the most recent one); ' +
+  'list_bills{start?,end?,limit?} -> bills in a YYYY-MM-DD..YYYY-MM-DD range; ' +
+  'bill_details{id} -> full breakdown of one bill; ' +
+  'reprint_bill{id?} -> reprint a saved bill (omit id for the most recent); ' +
+
   'STAFF tools: ' +
   'list_staff{} -> team members with ids and roles; ' +
-  'add_staff{name,role_id?}; remove_staff{staff_id}; toggle_staff{staff_id}; ' +
-  'say{message} -> the final answer for the user. ' +
-  'Rules: ALWAYS finish with say{}. Use the FEWEST tool calls. Before acting on something by id, call the matching ' +
-  'list_* tool first (list_menu / list_printers / list_staff / list_recent_bills) — NEVER invent ids. ' +
-  'Only run delete_* / remove_* when the user clearly asked. State the concrete result (name, price, printer, amount) in your say{} message.';
+  'add_staff{name,role_id?}; remove_staff{staff_id}; toggle_staff{staff_id}; set_staff_role{staff_id,role_id}; ' +
+
+  'RULES: ' +
+  '(1) ALWAYS finish with say{}. ' +
+  '(2) Before acting on anything by id, call the matching list_* tool first (list_menu / list_tables / list_printers / list_staff / list_recent_bills) — NEVER invent ids. ' +
+  '(3) When sending an order, resolve item names to menu_item_id + real price via list_menu first, so the kitchen ticket and revenue are correct. ' +
+  '(4) A table that has_held_items should usually be reclaimed (fire the next course) rather than sent brand-new items — check get_order if unsure. ' +
+  '(5) Destructive actions (delete_*, remove_staff, close_order, delete_floor): only when the user clearly asked. For delete_floor and any bulk/irreversible action, confirm what you are about to do in a say{} first UNLESS the user was already explicit; delete_floor additionally requires confirm:true. ' +
+  '(6) Use think{} to plan before long multi-step jobs (e.g. "close every table and print the nightly report"). ' +
+  '(7) State the concrete result (name, price, table, printer, amount) in your say{}.';
 
 async function stationExecTool(name, args) {
   args = args || {};
@@ -2300,6 +2490,109 @@ async function stationExecTool(name, args) {
     }
     case 'remove_staff': { const id = args.staff_id || args.id; if (!id) throw new Error('staff_id required'); await stationDb('staff.delete', { staff_id: id }); return { ok: true }; }
     case 'toggle_staff': { const id = args.staff_id || args.id; if (!id) throw new Error('staff_id required'); const r = await stationDb('staff.toggle', { staff_id: id }); return { ok: true, active: r ? r.active : null }; }
+    case 'set_staff_role': { const id = args.staff_id || args.id; if (!id) throw new Error('staff_id required'); await stationDb('staff.role', { staff_id: id, role_id: args.role_id || null }); return { ok: true }; }
+
+    // ── Menu availability (86 / restore) ──────────────────────────────────
+    case 'set_item_availability': {
+      if (!args.id) throw new Error('id required');
+      await stationDb('menu_item.update', { id: args.id, patch: { is_available: args.available !== false } });
+      return { ok: true, available: args.available !== false };
+    }
+
+    // ── Floor / tables ────────────────────────────────────────────────────
+    case 'list_tables': {
+      const rows = await supabaseGet('tables', { restaurant_id: RESTAURANT_ID }, 300);
+      const active = _loadActiveOrders();
+      const courseHeld = ['first_plate', 'second_plate', 'third_plate', 'fourth_plate'];
+      return { tables: (Array.isArray(rows) ? rows : []).map(t => {
+        const local = active[String(t.table_number)];
+        const occupied = !!local || !!t.current_order_id || (t.status && t.status !== 'available');
+        const has_held_items = !!(local && (local.items || []).some(i => i.status === 'pending' && courseHeld.includes(i.course)));
+        return { id: t.id, table_number: t.table_number, zone: t.zone || null, shape: t.shape || 'square',
+                 capacity: t.capacity || null, status: t.status || 'available', occupied, has_held_items,
+                 check_printed: !!t.check_printed_at };
+      }) };
+    }
+    case 'create_table': {
+      const r = await stationDb('table.create', {
+        zone: args.zone || null, pos_x: args.pos_x, pos_y: args.pos_y,
+        capacity: args.capacity, shape: args.shape, table_number: args.table_number,
+      });
+      return { ok: true, table: r || null };
+    }
+    case 'update_table': {
+      if (!args.id) throw new Error('id required');
+      const patch = {};
+      ['zone', 'capacity', 'shape', 'table_number', 'status', 'pos_x', 'pos_y'].forEach(k => { if (args[k] !== undefined) patch[k] = args[k]; });
+      await stationDb('table.update', { id: args.id, patch });
+      return { ok: true };
+    }
+    case 'delete_table': { if (!args.id) throw new Error('id required'); await stationDb('table.delete', { id: args.id }); return { ok: true }; }
+    case 'delete_floor': {
+      if (!args.zone) throw new Error('zone required');
+      if (args.confirm !== true) return { ok: false, needs_confirmation: true, message: 'delete_floor removes every table in "' + args.zone + '". Confirm with the user, then call again with confirm:true.' };
+      await stationDb('table.delete_zone', { zone: args.zone });
+      return { ok: true, zone: args.zone };
+    }
+
+    // ── Live orders ───────────────────────────────────────────────────────
+    case 'get_order': {
+      const t = args.table_number || args.table;
+      if (!t) throw new Error('table_number required');
+      const local = _activeOrder(t);
+      if (!local) return { open: false, table_number: t, items: [] };
+      return { open: true, table_number: t, order_id: local.order_id, guest_count: local.guest_count,
+        items: (local.items || []).map(i => ({ name: i.menu_item_name, qty: i.quantity, price: i.price_at_order_time, course: i.course, status: i.status })) };
+    }
+    case 'send_order': {
+      const t = args.table_number || args.table;
+      const items = Array.isArray(args.items) ? args.items : [];
+      if (!t || !items.length) throw new Error('table_number and items required');
+      return await stationSendOrder(t, items, args.guest_count || 1);
+    }
+    case 'reclaim_order': {
+      const t = args.table_number || args.table;
+      if (!t) throw new Error('table_number required');
+      return await stationReclaimOrder(t);
+    }
+    case 'close_order': {
+      const t = args.table_number || args.table;
+      if (!t) throw new Error('table_number required');
+      return await stationCloseOrder(t);
+    }
+
+    // ── Printers (rescan) ─────────────────────────────────────────────────
+    case 'rescan_printers': { runNetworkScan(); return { ok: true, message: 'Network scan started.' }; }
+
+    // ── Ticket / receipt settings ─────────────────────────────────────────
+    case 'get_ticket_settings': {
+      const rows = await supabaseGet('printer_configs', { restaurant_id: RESTAURANT_ID, printer_type: 'kitchen' }, 5);
+      const cfg = Array.isArray(rows) ? rows.find(c => c.printer_type === 'kitchen') : null;
+      return { settings: pickTicketSettings((cfg && cfg.settings) || {}) };
+    }
+    case 'update_ticket_settings': {
+      const incoming = pickTicketSettings(args.patch || args.settings || args);
+      const rows = await supabaseGet('printer_configs', { restaurant_id: RESTAURANT_ID, printer_type: 'kitchen' }, 5);
+      const cfg = Array.isArray(rows) ? rows.find(c => c.printer_type === 'kitchen') : null;
+      const merged = { ...((cfg && cfg.settings) || {}), ...incoming };
+      merged.labels = resolveTicketLabels(merged.ticket_language || 'en', merged.label_overrides);
+      await stationDb('kitchen_settings.save', { settings: merged });
+      return { ok: true, language: merged.ticket_language || 'en' };
+    }
+
+    // ── Analytics / bills ─────────────────────────────────────────────────
+    case 'get_analytics': {
+      const period = ['today', 'week', 'month', 'all'].includes(args.period) ? args.period : 'today';
+      const s = store.getStats(period) || {};
+      return { period, currency: s.currency || 'EUR', total_revenue: s.total_revenue || 0, total_orders: s.total_orders || 0,
+        avg_ticket: Number((s.avg_ticket || 0).toFixed(2)), best_day: s.best_day, best_amount: s.best_amount,
+        payment: s.payment, daily: s.daily };
+    }
+    case 'list_bills': {
+      const limit = Math.min(Number(args.limit) || 30, 100);
+      const bills = store.getBills(args.start || null, args.end || null) || [];
+      return { count: bills.length, bills: bills.slice(-limit).reverse().map(b => ({ id: b.id, table: b.table, waiter: b.waiter, total: b.total, date: b.date, payment: b.payment_method })) };
+    }
 
     default: throw new Error('Unknown tool: ' + name);
   }
@@ -2310,7 +2603,8 @@ async function runStationAgent(userMessage, history) {
   (history || []).forEach(h => convo.push((h.role === 'user' ? 'User: ' : 'Assistant: ') + h.text));
   convo.push('User: ' + userMessage);
   const actions = [];
-  for (let step = 0; step < 8; step++) {
+  const MAX_STEPS = 20;
+  for (let step = 0; step < MAX_STEPS; step++) {
     const prompt = convo.join('\n') + '\n\nDecide your next action. Return ONLY the JSON.';
     const resp = await stationAI(prompt, STATION_AI_SYSTEM);
     let obj = resp;
@@ -2320,17 +2614,22 @@ async function runStationAgent(userMessage, history) {
     }
     const tool = obj && obj.tool_name, targs = (obj && obj.tool_args) || {};
     if (tool === 'say' || !tool) { return { reply: targs.message || 'Done.', actions }; }
+    // Private planning step — no side effect, just fold the note back into context.
+    if (tool === 'think') {
+      convo.push('(thought: ' + String(targs.note || targs.message || '').slice(0, 500) + ')');
+      continue;
+    }
     try {
       const result = await stationExecTool(tool, targs);
       actions.push(tool);
-      // list_menu can be large (full catalogue) — keep enough for accurate counts.
-      const cap = tool === 'list_menu' ? 12000 : 1500;
+      // Large catalogue/floor reads need room; everything else stays compact.
+      const cap = (tool === 'list_menu' || tool === 'list_tables' || tool === 'get_analytics') ? 12000 : 1500;
       convo.push('(called ' + tool + ' -> ' + JSON.stringify(result).slice(0, cap) + ')');
     } catch (e) {
       convo.push('(called ' + tool + ' -> ERROR: ' + e.message + ')');
     }
   }
-  return { reply: 'I did several steps but ran out of moves — please check the menu.', actions };
+  return { reply: 'I ran through many steps without finishing — please narrow the request or check the result.', actions };
 }
 
 // Simple diagnostic ticket fired from the Station's Kitchen & Printing tab so
@@ -2808,78 +3107,9 @@ http.createServer((req, res) => {
           res.writeHead(400); res.end(JSON.stringify({ error: 'table_number and items required' }));
           return;
         }
-
-        // 1. Local state first — always succeeds
-        let local = _activeOrder(tableNum);
-        if (!local) {
-          local = {
-            order_id: 'local-' + crypto.randomUUID(),
-            table_number: tableNum,
-            guest_count: guestCount,
-            items: [],
-            synced: false,
-            remote_order_id: null,
-            created_at: new Date().toISOString(),
-          };
-        }
-        const newItems = cartItems.map(i => ({
-          id: 'li-' + crypto.randomUUID(),
-          menu_item_id: i.menu_item_id || null,
-          menu_item_name: i.menu_item_name || i.name || 'Item',
-          price_at_order_time: i.price || 0,
-          quantity: i.quantity || 1,
-          status: (!i.course || i.course === 'direct') ? 'preparing' : 'pending',
-          course: i.course || 'direct',
-          special_requests: i.special_requests || null,
-          is_invitation: i.is_invitation || false,
-          selected_addons: i.selected_addons || null,
-          synced: false,
-        }));
-        local.items = local.items.concat(newItems);
-        _saveActiveOrder(tableNum, local);
-
-        // 2. Print kitchen ticket for direct items — always local
-        const directItems = cartItems.filter(i => !i.course || i.course === 'direct');
-        if (directItems.length) {
-          try {
-            const settings = _getTicketSettings();
-            const ticket = {
-              type: 'kitchen', restaurant_id: RESTAURANT_ID,
-              restaurant_name: RESTAURANT_NAME, table_number: tableNum,
-              waiter_name: 'Station', currency: settings.currency || 'EUR',
-              time: new Date().toISOString(), order_id: local.order_id,
-              items: directItems.map(i => ({
-                name: i.menu_item_name || i.name || 'Item', qty: i.quantity || 1,
-                price: i.price || 0, special_requests: i.special_requests,
-                is_invitation: i.is_invitation, selected_addons: i.selected_addons,
-              })),
-              settings,
-            };
-            const data = buildKitchenTicket(ticket);
-            const copies = settings.order_copies || 1;
-            for (let i = 0; i < Math.min(copies, 3); i++) await sendToPrinter(data);
-            printed++; updateDailyStats('printed');
-            log('STATION ORDER: Mesa ' + tableNum + ' (' + directItems.length + ' direct items)');
-          } catch (pe) { log('Station order print failed: ' + pe.message); }
-        }
-
-        // 3. Save to local store (analytics/bills)
-        try {
-          store.addOrder({
-            order_id: local.order_id, date: new Date().toISOString(),
-            table: tableNum, waiter: 'Station',
-            items: cartItems.map(i => ({ name: i.menu_item_name || i.name, qty: i.quantity || 1, price: i.price || 0 })),
-            printer_type: 'kitchen',
-            total: cartItems.reduce((s, i) => s + (i.price || 0) * (i.quantity || 1), 0),
-            guest_count: guestCount, currency: 'EUR', source: 'station',
-          });
-        } catch (_) {}
-
-        // 4. Background sync to Supabase (non-blocking, best-effort)
-        _syncOrderToSupabase(tableNum).catch(e => log('Sync failed (will retry): ' + e.message));
-
+        const r = await stationSendOrder(tableNum, cartItems, guestCount);
         res.writeHead(200, { 'Content-Type': 'application/json' });
-        res.end(JSON.stringify({ ok: true, order_id: local.order_id }));
+        res.end(JSON.stringify(r));
       } catch (e) {
         res.writeHead(500, { 'Content-Type': 'application/json' });
         res.end(JSON.stringify({ ok: false, error: e.message }));
@@ -2896,67 +3126,9 @@ http.createServer((req, res) => {
         const b = JSON.parse(body || '{}');
         const tableNum = b.table_number;
         if (!tableNum) { res.writeHead(400); res.end(JSON.stringify({ error: 'table_number required' })); return; }
-
-        const local = _activeOrder(tableNum);
-        if (!local) {
-          res.writeHead(200, { 'Content-Type': 'application/json' });
-          res.end(JSON.stringify({ ok: false, error: 'No open order' }));
-          return;
-        }
-
-        // Find next held course from local state
-        const courseOrder = ['first_plate', 'second_plate', 'third_plate', 'fourth_plate'];
-        let nextCourse = null;
-        for (const c of courseOrder) {
-          if (local.items.some(i => i.status === 'pending' && i.course === c)) { nextCourse = c; break; }
-        }
-        if (!nextCourse) {
-          res.writeHead(200, { 'Content-Type': 'application/json' });
-          res.end(JSON.stringify({ ok: false, error: 'Nothing to reclaim' }));
-          return;
-        }
-
-        // Update local state
-        const courseItems = [];
-        for (const item of local.items) {
-          if (item.status === 'pending' && item.course === nextCourse) {
-            item.status = 'preparing';
-            item.synced = false;
-            courseItems.push(item);
-          }
-        }
-        _saveActiveOrder(tableNum, local);
-
-        // Print kitchen ticket
-        try {
-          const settings = _getTicketSettings();
-          const courseLbl = { first_plate: 'S1', second_plate: 'S2', third_plate: 'S3', fourth_plate: 'S4' }[nextCourse] || nextCourse;
-          const ticket = {
-            type: 'kitchen', restaurant_id: RESTAURANT_ID,
-            restaurant_name: RESTAURANT_NAME, table_number: tableNum,
-            waiter_name: 'Station', kitchen_name: courseLbl,
-            currency: settings.currency || 'EUR',
-            time: new Date().toISOString(), order_id: local.order_id,
-            items: courseItems.map(i => ({
-              name: i.menu_item_name || 'Item', qty: i.quantity || 1,
-              price: i.price_at_order_time || 0, special_requests: i.special_requests,
-              is_invitation: i.is_invitation,
-              selected_addons: i.selected_addons ? (typeof i.selected_addons === 'string' ? JSON.parse(i.selected_addons) : i.selected_addons) : null,
-            })),
-            settings,
-          };
-          const data = buildKitchenTicket(ticket);
-          const copies = settings.order_copies || 1;
-          for (let j = 0; j < Math.min(copies, 3); j++) await sendToPrinter(data);
-          printed++; updateDailyStats('printed');
-          log('STATION RECLAIM: Mesa ' + tableNum + ' course=' + courseLbl + ' (' + courseItems.length + ' items)');
-        } catch (pe) { log('Station reclaim print failed: ' + pe.message); }
-
-        // Background sync
-        _syncReclaimToSupabase(local, courseItems).catch(e => log('Reclaim sync failed: ' + e.message));
-
+        const r = await stationReclaimOrder(tableNum);
         res.writeHead(200, { 'Content-Type': 'application/json' });
-        res.end(JSON.stringify({ ok: true, course: nextCourse, items: courseItems }));
+        res.end(JSON.stringify(r));
       } catch (e) {
         res.writeHead(500, { 'Content-Type': 'application/json' });
         res.end(JSON.stringify({ ok: false, error: e.message }));
@@ -2973,24 +3145,9 @@ http.createServer((req, res) => {
         const b = JSON.parse(body || '{}');
         const tableNum = b.table_number;
         if (!tableNum) { res.writeHead(400); res.end(JSON.stringify({ error: 'table_number required' })); return; }
-
-        // Remove from local active orders
-        const local = _activeOrder(tableNum);
-        _removeActiveOrder(tableNum);
-
-        // Background sync close to Supabase
-        if (local?.remote_order_id) {
-          (async () => {
-            try {
-              await supabasePatch('orders', local.remote_order_id, { status: 'paid' });
-              const tables = await supabaseGet('tables', { restaurant_id: RESTAURANT_ID, table_number: tableNum }, 1);
-              if (tables?.length) await supabasePatch('tables', tables[0].id, { status: 'available', current_order_id: null });
-            } catch (e) { log('Close sync failed: ' + e.message); }
-          })();
-        }
-
+        const r = await stationCloseOrder(tableNum);
         res.writeHead(200, { 'Content-Type': 'application/json' });
-        res.end(JSON.stringify({ ok: true }));
+        res.end(JSON.stringify(r));
       } catch (e) {
         res.writeHead(500, { 'Content-Type': 'application/json' });
         res.end(JSON.stringify({ ok: false, error: e.message }));

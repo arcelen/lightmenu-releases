@@ -1,16 +1,16 @@
 {
-  "version": "6.0.89",
+  "version": "6.0.90",
   "files": {
     "main.js": {
-      "sha256": "b7f76ae727bda43459de4786e9890bcef40433fda590fd54828678274a4c8a54",
+      "sha256": "8e6bcf230f8d6a468340f0ebdd3e00ec972d1a3bbc327b6bedf65fc8969b768e",
       "url": "https://raw.githubusercontent.com/arcelen/lightmenu-releases/main/print-agent/dist/main.js"
     },
     "store.js": {
-      "sha256": "003aa3e42b81b67f77f81c0b102571a3f1fae602976aaff9b56483b660fe6702",
+      "sha256": "bc5d196d35d4a9b5f289b45842df8b52d1eba343e3bfaa1614fbdf30fb9db70f",
       "url": "https://raw.githubusercontent.com/arcelen/lightmenu-releases/main/print-agent/dist/store.js"
     },
     "qrcode.js": {
-      "sha256": "0f42d3f928c6c956d47b0bdea2bccc7237a74f69231b191b04dfc68355590107",
+      "sha256": "81b52aa4bf446b2dc017a4a6a8749992a111e3cacfc8e409c2b9a20a5d005b47",
       "url": "https://raw.githubusercontent.com/arcelen/lightmenu-releases/main/print-agent/dist/qrcode.js"
     },
     "../scripts/updater.js": {
