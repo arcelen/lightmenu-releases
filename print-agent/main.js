@@ -976,6 +976,23 @@ async function refreshPrinters() {
 setInterval(refreshPrinters, 30000);
 setTimeout(refreshPrinters, 1000);
 
+// ─── Restaurant branding (header logo) ───────────────────────────────────────
+// The Station header shows the restaurant's own logo — the same image uploaded
+// through the web builder (e.g. pulled in via the Instagram-import flow) —
+// instead of a static LightMenu icon. logo_url rarely changes, so this is
+// cached and refreshed on a slow interval rather than on every /status poll.
+let BRANDING_LOGO_URL = null;
+async function refreshBranding() {
+  try {
+    if (!RESTAURANT_ID) return;
+    const rows = await supabaseGet('restaurants', { id: RESTAURANT_ID }, 1);
+    const row = Array.isArray(rows) ? rows[0] : null;
+    BRANDING_LOGO_URL = (row && row.logo_url) ? row.logo_url : null;
+  } catch (e) { log('Branding sync failed: ' + e.message); }
+}
+setInterval(refreshBranding, 5 * 60 * 1000);
+setTimeout(refreshBranding, 1000);
+
 // --- PRINT QUEUE POLLING ------------------------------------------------------
 async function fetchPendingJobs() {
   if (!RESTAURANT_ID) return [];
@@ -3000,7 +3017,7 @@ http.createServer((req, res) => {
   if (req.method === 'GET' && req.url === '/status') {
     const configured = !!(RESTAURANT_ID && RESTAURANT_ID !== '__RESTAURANT_ID__' && API_TOKEN && API_TOKEN !== '__API_TOKEN__');
     res.writeHead(200, { 'Content-Type': 'application/json' });
-    res.end(JSON.stringify({ status: 'running', configured, version: AGENT_VERSION, restaurant_name: RESTAURANT_NAME, printer: { usb: usbDirectPort || usbWinPrinter || null, ip: PRINTER_IP, port: PRINTER_PORT, mode: usbDirectPort ? 'usb-direct' : usbWinPrinter ? 'usb-spooler' : 'network' }, printed, failed, analytics_queued: _readQueue().length }));
+    res.end(JSON.stringify({ status: 'running', configured, version: AGENT_VERSION, restaurant_name: RESTAURANT_NAME, logo_url: BRANDING_LOGO_URL, printer: { usb: usbDirectPort || usbWinPrinter || null, ip: PRINTER_IP, port: PRINTER_PORT, mode: usbDirectPort ? 'usb-direct' : usbWinPrinter ? 'usb-spooler' : 'network' }, printed, failed, analytics_queued: _readQueue().length }));
     return;
   }
 

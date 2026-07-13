@@ -1387,6 +1387,9 @@ $window = [Windows.Markup.XamlReader]::Load($reader)
 function ctl($name) { $window.FindName($name) }
 
 # ─── Logo + icon ────────────────────────────────────────────────────────────
+# Default: the bundled LightMenu icon. Update-Status swaps this for the
+# restaurant's own uploaded logo (restaurants.logo_url) once /status reports
+# one — same image the web builder shows in its header.
 if (Test-Path $logoPath) {
     try {
         $bi = New-Object System.Windows.Media.Imaging.BitmapImage
@@ -1397,6 +1400,7 @@ if (Test-Path $logoPath) {
         (ctl 'LogoImage').Source = $bi
     } catch {}
 }
+$script:lastLogoUrl = $null   # tracks the remote logo currently shown, so we don't re-download every poll
 
 $icoPath = Join-Path $appDir 'lightmenu.ico'
 if (Test-Path $icoPath) {
@@ -2161,6 +2165,35 @@ function Update-Status {
         }
         (ctl 'VersionText').Text = "Station v$($r.version)"
         if ($r.restaurant_name) { (ctl 'RestaurantName').Text = $r.restaurant_name }
+
+        # Header logo: swap to the restaurant's own uploaded logo when one is
+        # set; fall back to the bundled LightMenu icon otherwise. Only touch
+        # the image when the URL actually changed, so we're not re-decoding
+        # on every 2s status poll. BitmapImage downloads remote URIs on its
+        # own thread — no manual WebClient fetch needed.
+        $newLogoUrl = if ($r.PSObject.Properties.Name -contains 'logo_url') { $r.logo_url } else { $null }
+        if ($newLogoUrl -ne $script:lastLogoUrl) {
+            $script:lastLogoUrl = $newLogoUrl
+            if ($newLogoUrl) {
+                try {
+                    $rbi = New-Object System.Windows.Media.Imaging.BitmapImage
+                    $rbi.BeginInit()
+                    $rbi.UriSource = New-Object System.Uri($newLogoUrl, [System.UriKind]::Absolute)
+                    $rbi.CacheOption = [System.Windows.Media.Imaging.BitmapCacheOption]::OnLoad
+                    $rbi.EndInit()
+                    (ctl 'LogoImage').Source = $rbi
+                } catch { $script:lastLogoUrl = $null }   # bad/unreachable URL — retry next poll, keep current image
+            } elseif (Test-Path $logoPath) {
+                try {
+                    $bi2 = New-Object System.Windows.Media.Imaging.BitmapImage
+                    $bi2.BeginInit()
+                    $bi2.UriSource = New-Object System.Uri($logoPath, [System.UriKind]::Absolute)
+                    $bi2.CacheOption = [System.Windows.Media.Imaging.BitmapCacheOption]::OnLoad
+                    $bi2.EndInit()
+                    (ctl 'LogoImage').Source = $bi2
+                } catch {}
+            }
+        }
 
         $printerInfo = '-'
         if ($r.printer) {
