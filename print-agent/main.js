@@ -1717,6 +1717,67 @@ async function _syncReclaimToSupabase(local, courseItems) {
   } catch (e) { log('Reclaim sync to Supabase failed: ' + e.message); }
 }
 
+// Pull the current OPEN order for a table FROM Supabase into local state. This
+// is the read-side counterpart to _syncOrderToSupabase (the write side): it is
+// what makes orders taken on the waiter web/Flutter apps appear on the Station,
+// and keeps status changes made there (reclaimed courses, added items) in sync.
+//
+// Merge rule: Supabase is authoritative for the items it knows about. Any local
+// items still flagged unsynced (added on the Station while offline and not yet
+// pushed) are preserved on top, so nothing typed on the Station is ever lost.
+// On any network error we fall back to whatever local state we have — the
+// Station keeps working fully offline.
+async function _pullOrderFromSupabase(tableNum) {
+  let remoteOrder = null;
+  try {
+    const orders = await supabaseGetRaw(
+      'orders?restaurant_id=eq.' + encodeURIComponent(RESTAURANT_ID) +
+      '&table_number=eq.' + encodeURIComponent(tableNum) +
+      '&status=not.in.(paid,cancelled)&select=id,guest_count&limit=1&order=created_at.desc'
+    );
+    remoteOrder = (orders && orders.length) ? orders[0] : null;
+  } catch { return _activeOrder(tableNum); }   // offline — trust local
+
+  // No open order in Supabase for this table → nothing to merge; local wins.
+  if (!remoteOrder) return _activeOrder(tableNum);
+
+  let remoteItems = [];
+  try {
+    remoteItems = await supabaseGetRaw(
+      'order_items?order_id=eq.' + encodeURIComponent(remoteOrder.id) +
+      '&select=id,menu_item_id,menu_item_name,price_at_order_time,quantity,status,course,special_requests,is_invitation,selected_addons&limit=500'
+    ) || [];
+  } catch { return _activeOrder(tableNum); }
+
+  const local = _activeOrder(tableNum);
+  // Local items not yet pushed to Supabase — keep them (offline-added).
+  const pendingLocal = (local && Array.isArray(local.items)) ? local.items.filter(i => !i.synced) : [];
+
+  const merged = {
+    order_id:        (local && local.order_id) || ('local-' + remoteOrder.id),
+    table_number:    tableNum,
+    guest_count:     remoteOrder.guest_count || (local && local.guest_count) || 1,
+    remote_order_id: remoteOrder.id,
+    created_at:      (local && local.created_at) || new Date().toISOString(),
+    synced:          pendingLocal.length === 0,
+    items: remoteItems.map(r => ({
+      id:                  r.id,
+      menu_item_id:        r.menu_item_id || null,
+      menu_item_name:      r.menu_item_name || 'Item',
+      price_at_order_time: r.price_at_order_time || 0,
+      quantity:            r.quantity || 1,
+      status:              r.status || 'preparing',
+      course:              r.course || 'direct',
+      special_requests:    r.special_requests || null,
+      is_invitation:       r.is_invitation || false,
+      selected_addons:     r.selected_addons || null,
+      synced:              true,
+    })).concat(pendingLocal),
+  };
+  _saveActiveOrder(tableNum, merged);
+  return merged;
+}
+
 // Periodic sync: retry any unsynced active orders every 30s
 setInterval(() => {
   const all = _loadActiveOrders();
@@ -2539,7 +2600,8 @@ async function stationExecTool(name, args) {
     case 'get_order': {
       const t = args.table_number || args.table;
       if (!t) throw new Error('table_number required');
-      const local = _activeOrder(t);
+      let local;
+      try { local = await _pullOrderFromSupabase(t); } catch { local = _activeOrder(t); }
       if (!local) return { open: false, table_number: t, items: [] };
       return { open: true, table_number: t, order_id: local.order_id, guest_count: local.guest_count,
         items: (local.items || []).map(i => ({ name: i.menu_item_name, qty: i.quantity, price: i.price_at_order_time, course: i.course, status: i.status })) };
@@ -2971,11 +3033,14 @@ http.createServer((req, res) => {
         // still waiting to be fired/reclaimed (yellow). Best-effort: any failure
         // just leaves the map on the occupied/free colours.
         const heldTables = new Set();
+        const remoteOccupied = new Set();
         try {
           const activeOrders = await supabaseGetRaw(
             'orders?restaurant_id=eq.' + encodeURIComponent(RESTAURANT_ID) +
             '&status=not.in.(paid,cancelled)&select=id,table_number&limit=300'
           );
+          // Any open order (incl. ones taken on the waiter apps) occupies its table.
+          for (const o of (activeOrders || [])) remoteOccupied.add(String(o.table_number));
           const orderById = new Map((activeOrders || []).map(o => [o.id, o]));
           const orderIds = (activeOrders || []).map(o => o.id);
           if (orderIds.length) {
@@ -3001,7 +3066,7 @@ http.createServer((req, res) => {
           pos_y:            t.pos_y,
           shape:            t.shape || 'square',
           zone:             t.zone || null,
-          occupied:         occupiedNums.has(String(t.table_number)) || !!t.current_order_id,
+          occupied:         occupiedNums.has(String(t.table_number)) || !!t.current_order_id || remoteOccupied.has(String(t.table_number)),
           has_held_items:   heldTables.has(String(t.table_number)),
           check_printed_at: t.check_printed_at || null,
         }));
@@ -3085,12 +3150,18 @@ http.createServer((req, res) => {
     const u = new URL(req.url, 'http://x');
     const tableNum = u.searchParams.get('table');
     if (!tableNum) { res.writeHead(400); res.end(JSON.stringify({ error: 'table required' })); return; }
-    const local = _activeOrder(tableNum);
-    res.writeHead(200, { 'Content-Type': 'application/json' });
-    res.end(JSON.stringify({
-      order_id: local ? local.order_id : null,
-      items: local ? local.items : [],
-    }));
+    // Reconcile with Supabase first so orders taken on the waiter web/Flutter
+    // apps show up here. Falls back to local state when offline.
+    (async () => {
+      let order;
+      try { order = await _pullOrderFromSupabase(tableNum); }
+      catch { order = _activeOrder(tableNum); }
+      res.writeHead(200, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({
+        order_id: order ? order.order_id : null,
+        items: order ? order.items : [],
+      }));
+    })();
     return;
   }
 
