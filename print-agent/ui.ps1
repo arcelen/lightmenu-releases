@@ -1477,6 +1477,7 @@ $script:i18n = @{
         report_empty='Generate a report to see the breakdown.'
         staff_title='Staff'; btn_add_staff='+ Add Staff'; lbl_staff_name='Name'; lbl_staff_role='Role'
         staff_last_used='Last used:'; staff_never_used='Never used'; staff_active='Active'; staff_inactive='Inactive'
+        staff_set_pin='Set PIN'; staff_pin_invalid='PIN must be 4 to 6 digits.'
         btn_remove='Remove'; btn_toggle='Toggle'; btn_copy_link='Copy link'
         confirm_remove='Remove this staff member?'; confirm_restart='Restart the print agent now? Any in-flight prints will be retried.'
         rescan_info='Rescan started. Check the live log for results.'
@@ -3004,7 +3005,9 @@ function New-StaffCard($member) {
     $linkBox.Background = SolidBrush '#0F1117'; $linkBox.Foreground = SolidBrush '#9CA3AF'; $linkBox.BorderBrush = SolidBrush '#2A2D3A'
     $linkBox.Text = if ($member.waiter_link) { $member.waiter_link } else { '- no link -' }
     $copyBtn = New-Object System.Windows.Controls.Button
-    $copyBtn.Content = [char]0x2398; $copyBtn.FontSize = 13; $copyBtn.Margin = New-Object System.Windows.Thickness(6,0,0,0)
+    $copyBtn.Content = [char]0xE8C8
+    $copyBtn.FontFamily = New-Object System.Windows.Media.FontFamily('Segoe MDL2 Assets')
+    $copyBtn.FontSize = 12; $copyBtn.Margin = New-Object System.Windows.Thickness(6,0,0,0)
     $copyBtn.Background = SolidBrush '#2A2D3A'; $copyBtn.Foreground = [System.Windows.Media.Brushes]::White
     $copyBtn.BorderThickness = New-Object System.Windows.Thickness(0); $copyBtn.Cursor = 'Hand'
     $copyBtn.Padding = New-Object System.Windows.Thickness(8,4,8,4)
@@ -3039,14 +3042,14 @@ function New-StaffCard($member) {
     $memberData = $member
 
     # SHARE — opens QR popup
-    $shareBtn = Make-PillButton 'Share' '#4ADE80' $member.id
+    $shareBtn = Make-PillButton 'Share' '#4ADE80' $member.id ([char]0xE72D)
     $shareBtn.Add_Click({ Show-QrDialog $memberData.id $memberData.name $memberData.waiter_link }.GetNewClosure())
     $btnRow.Children.Add($shareBtn) | Out-Null
 
     # ON/OFF toggle
     $toggleText = if ($member.active) { 'Off' } else { 'On' }
     $toggleColor = if ($member.active) { '#F87171' } else { '#4ADE80' }
-    $toggleBtn = Make-PillButton $toggleText $toggleColor $member.id
+    $toggleBtn = Make-PillButton $toggleText $toggleColor $member.id ([char]0xE7E8)
     $toggleBtn.Add_Click({
         $mid = $this.Tag
         try {
@@ -3057,7 +3060,7 @@ function New-StaffCard($member) {
     $btnRow.Children.Add($toggleBtn) | Out-Null
 
     # NEW LINK
-    $newLinkBtn = Make-PillButton 'New Link' '#9CA3AF' $member.id
+    $newLinkBtn = Make-PillButton 'New Link' '#9CA3AF' $member.id ([char]0xE72C)
     $newLinkBtn.Add_Click({
         $mid = $this.Tag
         $res = [System.Windows.MessageBox]::Show("Generate a new link? The old link will stop working.", 'LightMenu', 'YesNo', 'Question')
@@ -3070,12 +3073,17 @@ function New-StaffCard($member) {
     $btnRow.Children.Add($newLinkBtn) | Out-Null
 
     # ROLE
-    $roleBtn = Make-PillButton 'Role' '#60A5FA' $member.id
+    $roleBtn = Make-PillButton 'Role' '#60A5FA' $member.id ([char]0xE77B)
     $roleBtn.Add_Click({ Show-RoleDialog $memberData.id $memberData.role }.GetNewClosure())
     $btnRow.Children.Add($roleBtn) | Out-Null
 
+    # PIN — set/replace the waiter's login PIN
+    $pinBtn = Make-PillButton 'PIN' '#A78BFA' $member.id ([char]0xE192)
+    $pinBtn.Add_Click({ Show-PinDialog $memberData.id $memberData.name }.GetNewClosure())
+    $btnRow.Children.Add($pinBtn) | Out-Null
+
     # DELETE
-    $removeBtn = Make-PillButton 'Delete' '#F87171' $member.id
+    $removeBtn = Make-PillButton 'Delete' '#F87171' $member.id ([char]0xE74D)
     $removeBtn.Add_Click({
         $mid = $this.Tag
         $res = [System.Windows.MessageBox]::Show((T 'confirm_remove'), 'LightMenu', 'YesNo', 'Question')
@@ -3099,15 +3107,34 @@ function Show-SupabaseError($errorRecord, $action) {
     [System.Windows.MessageBox]::Show($msg, 'LightMenu', 'OK', 'Warning') | Out-Null
 }
 
-function Make-PillButton($content, $color, $tag) {
+function Make-PillButton($content, $color, $tag, $iconGlyph) {
     # Web-matching tinted pill: colour/10 background, colour/30 border, colour text
-    # (alpha PREFIXED for WPF). Hover deepens the tint.
+    # (alpha PREFIXED for WPF). Hover deepens the tint. An optional Segoe MDL2
+    # Assets glyph (monochrome, inherits the pill colour) sits left of the label,
+    # matching the web app's icon buttons.
     $bg      = Tint $color '1A'   # ~10%
     $bd      = Tint $color '4D'   # ~30%
     $hoverBg = Tint $color '2E'   # ~18%
     $hoverBd = Tint $color '80'   # ~50%
     $b = New-Object System.Windows.Controls.Button
-    $b.Content     = $content
+    if ($iconGlyph) {
+        $stack = New-Object System.Windows.Controls.StackPanel
+        $stack.Orientation = 'Horizontal'
+        $ico = New-Object System.Windows.Controls.TextBlock
+        $ico.Text = [string]$iconGlyph
+        $ico.FontFamily = New-Object System.Windows.Media.FontFamily('Segoe MDL2 Assets')
+        $ico.FontSize = 11; $ico.VerticalAlignment = 'Center'
+        $ico.Foreground = SolidBrush $color
+        $ico.Margin = New-Object System.Windows.Thickness(0,0,5,0)
+        $txt = New-Object System.Windows.Controls.TextBlock
+        $txt.Text = [string]$content; $txt.VerticalAlignment = 'Center'
+        $txt.Foreground = SolidBrush $color
+        $stack.Children.Add($ico) | Out-Null
+        $stack.Children.Add($txt) | Out-Null
+        $b.Content = $stack
+    } else {
+        $b.Content = $content
+    }
     $b.FontSize    = 11
     $b.FontWeight  = 'Medium'
     $b.Cursor      = 'Hand'
@@ -3296,6 +3323,62 @@ function Show-RoleDialog($staffId, $currentRole) {
             $dlg.Close()
             Update-Staff-Page
         } catch { [System.Windows.MessageBox]::Show("Role update failed: $($_.Exception.Message)", 'LightMenu', 'OK', 'Warning') | Out-Null }
+    }.GetNewClosure())
+    $dlg.ShowDialog() | Out-Null
+}
+
+function Show-PinDialog($staffId, $staffName) {
+    [xml]$pinXaml = @"
+<Window xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Height="250" Width="360" ResizeMode="NoResize"
+        WindowStartupLocation="CenterOwner"
+        Background="#0F1117" TextElement.Foreground="#FFFFFF">
+  <Border Background="#161922" CornerRadius="12">
+    <StackPanel Margin="28">
+      <TextBlock x:Name="PinTitle" Text="Set PIN" FontSize="17" FontWeight="Bold" Foreground="#FFFFFF" Margin="0,0,0,6"/>
+      <TextBlock x:Name="PinHint" Text="4-digit login PIN for this waiter" Foreground="#9CA3AF" FontSize="11" Margin="0,0,0,16"/>
+      <TextBox x:Name="PinBox" MaxLength="6" FontSize="22" FontWeight="Bold" Padding="10,8"
+               HorizontalContentAlignment="Center" Background="#0F1117" Foreground="#FFFFFF" BorderBrush="#2A2D3A" BorderThickness="1"/>
+      <StackPanel Orientation="Horizontal" HorizontalAlignment="Right" Margin="0,20,0,0">
+        <Button x:Name="PinCancel" Padding="14,7" Margin="0,0,8,0" Background="#2A2D3A" Foreground="#FFFFFF" BorderThickness="0" Cursor="Hand" Content="Cancel" FontSize="12"/>
+        <Button x:Name="PinOk" Padding="18,7" BorderThickness="0" Cursor="Hand" Foreground="#FFFFFF" FontSize="12" FontWeight="SemiBold" Content="Save">
+          <Button.Background>
+            <LinearGradientBrush StartPoint="0,0" EndPoint="1,0">
+              <GradientStop Color="#14B8A6" Offset="0"/>
+              <GradientStop Color="#06B6D4" Offset="1"/>
+            </LinearGradientBrush>
+          </Button.Background>
+        </Button>
+      </StackPanel>
+    </StackPanel>
+  </Border>
+</Window>
+"@
+    $reader = New-Object System.Xml.XmlNodeReader $pinXaml
+    $dlg    = [Windows.Markup.XamlReader]::Load($reader)
+    $dlg.Owner = $window
+    $dlg.Title = "Set PIN"
+    if ($staffName) { $dlg.FindName('PinTitle').Text = (T 'staff_set_pin') + " - $staffName" }
+
+    $pinBox = $dlg.FindName('PinBox')
+    # Digits only
+    $pinBox.Add_PreviewTextInput({ param($s,$e) if ($e.Text -notmatch '^[0-9]+$') { $e.Handled = $true } })
+    $pinBox.Focus() | Out-Null
+
+    $dlg.FindName('PinCancel').Add_Click({ $dlg.Close() }.GetNewClosure())
+    $dlg.FindName('PinOk').Add_Click({
+        $pin = ($pinBox.Text).Trim()
+        if ($pin -notmatch '^\d{4,6}$') {
+            [System.Windows.MessageBox]::Show((T 'staff_pin_invalid'), 'LightMenu', 'OK', 'Warning') | Out-Null
+            return
+        }
+        try {
+            $body = @{ pin = $pin } | ConvertTo-Json
+            Invoke-RestMethod -Uri "$base/local/staff/$([System.Uri]::EscapeDataString($staffId))/pin" -Method Post -Body $body -ContentType 'application/json' -TimeoutSec 8 -ErrorAction Stop | Out-Null
+            $dlg.Close()
+            Update-Staff-Page
+        } catch { Show-SupabaseError $_ 'PIN' }
     }.GetNewClosure())
     $dlg.ShowDialog() | Out-Null
 }

@@ -4043,6 +4043,35 @@ http.createServer((req, res) => {
     return;
   }
 
+  // Set / replace a staff member's 4-digit login PIN. Mirrors the web app's PIN
+  // button — the write goes through the token-authed backend (staff.set_pin).
+  if (req.method === 'POST' && req.url.match(/^\/local\/staff\/[^/]+\/pin$/)) {
+    const staffId = decodeURIComponent(req.url.split('/')[3]);
+    let body = '';
+    req.on('data', c => body += c);
+    req.on('end', async () => {
+      try {
+        const data = JSON.parse(body || '{}');
+        const pin = String(data.pin || '').trim();
+        if (!/^\d{4,6}$/.test(pin)) {
+          res.writeHead(400, { 'Content-Type': 'application/json' });
+          res.end(JSON.stringify({ error: 'PIN must be 4 to 6 digits' }));
+          return;
+        }
+        const result = await stationDb('staff.set_pin', { staff_id: staffId, pin });
+        if (result && result.error) throw new Error(result.error);
+        res.writeHead(200, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ ok: true }));
+      } catch (e) {
+        const msg = e.message || String(e);
+        const sqlMissing = /404|not found|does not exist|unknown action|PGRST20[12]/i.test(msg);
+        res.writeHead(500, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ error: sqlMissing ? 'sql_not_installed' : msg, detail: msg }));
+      }
+    });
+    return;
+  }
+
   // Wipe local-only staff entries (STAFF- prefixed) — useful after switching to Supabase
   if (req.method === 'POST' && req.url === '/local/staff/wipe-local') {
     const local = store.getStaff();
