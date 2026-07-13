@@ -261,20 +261,50 @@ function Format-Money($amount) {
           <TextBlock x:Name="VersionText" Text="Station v6.0.0" FontSize="11" Foreground="#7A8295" Margin="0,3,0,0"/>
         </StackPanel>
         <StackPanel Grid.Column="2" Orientation="Horizontal" VerticalAlignment="Center">
+          <Grid VerticalAlignment="Center" Width="150" Margin="0,0,16,0">
+            <Button x:Name="LangBtn" Background="#0F1117" Foreground="#FFFFFF" BorderThickness="0" Cursor="Hand" Padding="12,6" HorizontalContentAlignment="Stretch">
+              <Button.Template>
+                <ControlTemplate TargetType="Button">
+                  <Border Background="{TemplateBinding Background}" BorderBrush="#2A2D3A" BorderThickness="1" CornerRadius="6" Padding="{TemplateBinding Padding}">
+                    <Grid>
+                      <TextBlock x:Name="LangBtnText" Text="English" Foreground="#FFFFFF" FontSize="12" VerticalAlignment="Center"/>
+                      <TextBlock Text="v" Foreground="#9CA3AF" FontSize="10" HorizontalAlignment="Right" VerticalAlignment="Center"/>
+                    </Grid>
+                  </Border>
+                </ControlTemplate>
+              </Button.Template>
+            </Button>
+            <Popup x:Name="LangPopup" PlacementTarget="{Binding ElementName=LangBtn}" Placement="Bottom" StaysOpen="False" AllowsTransparency="True">
+              <Border Background="#1A1D29" BorderBrush="#2A2D3A" BorderThickness="1" CornerRadius="6" Padding="4" Margin="0,4,0,0">
+                <ListBox x:Name="LangList" Background="Transparent" BorderThickness="0" Foreground="#FFFFFF" Width="200" MaxHeight="320">
+                  <ListBox.ItemContainerStyle>
+                    <Style TargetType="ListBoxItem">
+                      <Setter Property="Background" Value="Transparent"/>
+                      <Setter Property="Foreground" Value="#FFFFFF"/>
+                      <Setter Property="Padding" Value="12,8"/>
+                      <Setter Property="FontSize" Value="12"/>
+                      <Style.Triggers>
+                        <Trigger Property="IsMouseOver" Value="True"><Setter Property="Background" Value="#2A2D3A"/></Trigger>
+                        <Trigger Property="IsSelected" Value="True"><Setter Property="Background" Value="#14B8A6"/></Trigger>
+                      </Style.Triggers>
+                    </Style>
+                  </ListBox.ItemContainerStyle>
+                </ListBox>
+              </Border>
+            </Popup>
+          </Grid>
           <Ellipse x:Name="StatusDot" Width="10" Height="10" Fill="#6B7280" Margin="0,0,8,0"/>
           <TextBlock x:Name="StatusText" Text="Connecting..." FontSize="12" FontWeight="SemiBold" Foreground="#FFFFFF"/>
         </StackPanel>
       </Grid>
     </Border>
 
-    <!-- ───────── NAV BAR ───────── -->
+    <!-- ───────── SECTION BACK BAR ───────── -->
+    <!-- Inside a section only a Back-to-Control-Center button shows. The old tab
+         buttons are kept (collapsed) so existing wiring/ctl lookups still work. -->
     <Border x:Name="NavBar" Grid.Row="1" Background="#0F1117" Margin="0,0,0,12">
       <Grid>
-        <Grid.ColumnDefinitions>
-          <ColumnDefinition Width="*"/>
-          <ColumnDefinition Width="Auto"/>
-        </Grid.ColumnDefinitions>
-        <ScrollViewer Grid.Column="0" VerticalScrollBarVisibility="Disabled" HorizontalScrollBarVisibility="Auto">
+        <ScrollViewer x:Name="NavTabs" Visibility="Collapsed" VerticalScrollBarVisibility="Disabled" HorizontalScrollBarVisibility="Auto">
         <StackPanel Orientation="Horizontal">
           <Button x:Name="NavHome"       Style="{StaticResource NavBtn}" Content="Home" Margin="0,0,4,0"/>
           <Button x:Name="NavDashboard"  Style="{StaticResource NavBtn}" Content="Dashboard"/>
@@ -288,38 +318,8 @@ function Format-Money($amount) {
           <Button x:Name="NavReport"     Style="{StaticResource NavBtn}" Content="Daily Report" Margin="4,0,0,0"/>
         </StackPanel>
         </ScrollViewer>
-        <Grid Grid.Column="1" VerticalAlignment="Center" Width="170" Margin="8,0,0,0">
-          <Button x:Name="LangBtn" Background="#1A1D29" Foreground="#FFFFFF" BorderThickness="0" Cursor="Hand" Padding="12,6" HorizontalContentAlignment="Stretch">
-            <Button.Template>
-              <ControlTemplate TargetType="Button">
-                <Border Background="{TemplateBinding Background}" BorderBrush="#2A2D3A" BorderThickness="1" CornerRadius="6" Padding="{TemplateBinding Padding}">
-                  <Grid>
-                    <TextBlock x:Name="LangBtnText" Text="English" Foreground="#FFFFFF" FontSize="12" VerticalAlignment="Center"/>
-                    <TextBlock Text="v" Foreground="#9CA3AF" FontSize="10" HorizontalAlignment="Right" VerticalAlignment="Center"/>
-                  </Grid>
-                </Border>
-              </ControlTemplate>
-            </Button.Template>
-          </Button>
-          <Popup x:Name="LangPopup" PlacementTarget="{Binding ElementName=LangBtn}" Placement="Bottom" StaysOpen="False" AllowsTransparency="True">
-            <Border Background="#1A1D29" BorderBrush="#2A2D3A" BorderThickness="1" CornerRadius="6" Padding="4" Margin="0,4,0,0">
-              <ListBox x:Name="LangList" Background="Transparent" BorderThickness="0" Foreground="#FFFFFF" Width="200" MaxHeight="320">
-                <ListBox.ItemContainerStyle>
-                  <Style TargetType="ListBoxItem">
-                    <Setter Property="Background" Value="Transparent"/>
-                    <Setter Property="Foreground" Value="#FFFFFF"/>
-                    <Setter Property="Padding" Value="12,8"/>
-                    <Setter Property="FontSize" Value="12"/>
-                    <Style.Triggers>
-                      <Trigger Property="IsMouseOver" Value="True"><Setter Property="Background" Value="#2A2D3A"/></Trigger>
-                      <Trigger Property="IsSelected" Value="True"><Setter Property="Background" Value="#14B8A6"/></Trigger>
-                    </Style.Triggers>
-                  </Style>
-                </ListBox.ItemContainerStyle>
-              </ListBox>
-            </Border>
-          </Popup>
-        </Grid>
+        <Button x:Name="BackBtn" HorizontalAlignment="Left" Style="{StaticResource NavBtn}"
+                FontSize="14" Foreground="#FFFFFF" Content="Control Center"/>
       </Grid>
     </Border>
 
@@ -1773,6 +1773,7 @@ function Apply-Language {
     (ctl 'NavHome').Content      = NavIcon 0x1F3E0 (T 'nav_home')        # house
 
     # Home / Control Center
+    (ctl 'BackBtn').Content = ([char]0x2190) + '   ' + (T 'home_title')   # ← Control Center
     (ctl 'HomeTitle').Text = T 'home_title'
     if ($script:activePage -ne 'Home') { (ctl 'HomeSubtitle').Text = T 'home_choose' }
     if ($script:homeLabels) {
@@ -1962,6 +1963,7 @@ function Switch-Page($name) {
 (ctl 'NavReport').Add_Click(   { Switch-Page 'Report' })
 (ctl 'NavStaff').Add_Click(    { Switch-Page 'Staff' })
 (ctl 'NavHome').Add_Click(     { Switch-Page 'Home' })
+(ctl 'BackBtn').Add_Click(     { Switch-Page 'Home' })
 
 # ─── HOME: Control Center card grid ──────────────────────────────────────────
 # A web-app-style landing. Each card routes into a section via Switch-Page.
