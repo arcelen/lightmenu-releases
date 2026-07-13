@@ -5287,6 +5287,48 @@ $analyticsTimer.Interval = [TimeSpan]::FromSeconds(10)
 $analyticsTimer.Add_Tick({ if ($script:activePage -eq 'Analytics') { Update-Analytics-Page } })
 $analyticsTimer.Start()
 
+# ─── Self-reload on update ───────────────────────────────────────────────────
+# The auto-updater replaces this ui.ps1 on disk, but a running WPF window keeps
+# executing the copy it loaded at launch — so UI updates never showed until a
+# reboot. Here the window watches its OWN file's timestamp; when the updater
+# swaps it, we launch a fresh copy and close this one. Deferred while a table
+# order is open so an update never interrupts someone taking an order.
+$script:selfPath = $PSCommandPath
+if (-not $script:selfPath) { try { $script:selfPath = $MyInvocation.MyCommand.Path } catch {} }
+$script:selfMTime = $null
+try { if ($script:selfPath) { $script:selfMTime = (Get-Item $script:selfPath).LastWriteTimeUtc } } catch {}
+$script:restarting = $false
+
+function Restart-Self {
+    if ($script:restarting -or -not $script:selfPath) { return }
+    if ($script:orderTable) { return }   # mid-order — try again on the next tick
+    $script:restarting = $true
+    try {
+        $argStr = '-NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -File "' + $script:selfPath + '"'
+        Start-Process 'powershell.exe' -WindowStyle Hidden -ArgumentList $argStr | Out-Null
+    } catch { $script:restarting = $false; return }
+    # Let the new window spin up before this one disappears (avoids a visible gap).
+    $script:restartTimer = New-Object System.Windows.Threading.DispatcherTimer
+    $script:restartTimer.Interval = [TimeSpan]::FromMilliseconds(1500)
+    $script:restartTimer.Add_Tick({
+        $script:restartTimer.Stop()
+        try { $window.Close() } catch {}
+        [System.Environment]::Exit(0)
+    })
+    $script:restartTimer.Start()
+}
+
+$updateWatchTimer = New-Object System.Windows.Threading.DispatcherTimer
+$updateWatchTimer.Interval = [TimeSpan]::FromSeconds(15)
+$updateWatchTimer.Add_Tick({
+    if (-not $script:selfPath -or $script:restarting) { return }
+    try {
+        $m = (Get-Item $script:selfPath).LastWriteTimeUtc
+        if ($script:selfMTime -and $m -gt $script:selfMTime) { Restart-Self }
+    } catch {}
+})
+$updateWatchTimer.Start()
+
 # ─── Initial state ──────────────────────────────────────────────────────────
 Apply-Language
 Switch-Page 'Home'

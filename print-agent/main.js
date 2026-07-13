@@ -1240,6 +1240,7 @@ setInterval(pollAndPrint, 3000);
 setTimeout(pollAndPrint, 2000);
 
 let printed = 0, failed = 0;
+let LAST_ACTIVITY_TS = 0;   // updated on every print; the auto-updater waits for a quiet window
 const processingJobs = new Set();
 // Per-job failure counter + per-printer cooldown — stops a single dead
 // printer from being hammered every 3s forever and gives jobs a real
@@ -1350,6 +1351,7 @@ function sendViaNetwork(data, ip, port) {
 }
 
 function sendToPrinter(data, ip, port) {
+  LAST_ACTIVITY_TS = Date.now();   // let the auto-updater avoid exiting mid-print
   // Strategy 1: direct write (no driver needed)
   if (usbDirectPort) {
     return sendViaDirectUsb(data, usbDirectPort).catch(e => {
@@ -2346,6 +2348,44 @@ function stationVerify() {
 }
 setTimeout(() => { stationVerify().catch(() => {}); }, 2500);            // shortly after boot
 setInterval(() => { stationVerify().catch(() => {}); }, 5 * 60 * 1000); // every 5 min
+
+// ─── AUTO-UPDATE CHECK ───────────────────────────────────────────────────────
+// The runner (agent-runner.ps1) only pulls updates when node exits, so before
+// this a new release sat unfetched until a reboot or crash. Here main.js polls
+// the published version.json and, when a NEWER version is out, exits cleanly so
+// the runner re-runs the updater and relaunches on the new build. ui.ps1 then
+// notices its own file changed and reloads itself — so a push reaches the screen
+// on its own, no reboot. We only exit during a quiet window (no print in the
+// last few seconds) so an update never interrupts a ticket mid-flight.
+const UPDATE_MANIFEST_URL = 'https://raw.githubusercontent.com/arcelen/lightmenu-releases/main/print-agent/version.json';
+function _semverGt(a, b) {
+  const pa = String(a).split('.').map(n => parseInt(n, 10) || 0);
+  const pb = String(b).split('.').map(n => parseInt(n, 10) || 0);
+  for (let i = 0; i < 3; i++) { const x = pa[i] || 0, y = pb[i] || 0; if (x > y) return true; if (x < y) return false; }
+  return false;
+}
+function checkForUpdate() {
+  https.get(UPDATE_MANIFEST_URL, { headers: { 'User-Agent': 'LightMenu-Agent-UpdateCheck' }, timeout: 10000 }, (res) => {
+    if (res.statusCode !== 200) { res.resume(); return; }
+    let body = '';
+    res.on('data', c => body += c);
+    res.on('end', () => {
+      let remote = null;
+      try { remote = JSON.parse(body); } catch { return; }
+      if (!remote || !remote.version || !_semverGt(remote.version, AGENT_VERSION)) return;
+      // A newer build is published. Wait for a quiet moment, then exit so the
+      // runner pulls it. If a ticket just printed, defer to the next check.
+      if (Date.now() - LAST_ACTIVITY_TS < 8000) {
+        log('Update v' + remote.version + ' available — deferring (printer busy).');
+        return;
+      }
+      log('Update v' + remote.version + ' available (on v' + AGENT_VERSION + ') — exiting so the runner applies it.');
+      setTimeout(() => process.exit(0), 400);
+    });
+  }).on('error', () => {}).on('timeout', function () { this.destroy(); });
+}
+setTimeout(checkForUpdate, 60 * 1000);            // first check ~1 min after boot
+setInterval(checkForUpdate, 10 * 60 * 1000);      // then every 10 min
 
 const STATION_AI_SYSTEM =
   'You are StationAI, the on-site operator of a restaurant POS/print station. ' +
