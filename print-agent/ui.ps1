@@ -1256,11 +1256,12 @@ function Format-Money($amount) {
             <ColumnDefinition Width="*"/>
           </Grid.ColumnDefinitions>
 
-          <!-- LEFT: Cart + actions -->
+          <!-- LEFT: Cart + total + actions -->
           <Grid Grid.Column="0">
             <Grid.RowDefinitions>
               <RowDefinition Height="Auto"/>
               <RowDefinition Height="*"/>
+              <RowDefinition Height="Auto"/>
               <RowDefinition Height="Auto"/>
             </Grid.RowDefinitions>
             <!-- Table header: label + order-actions (⋮) button -->
@@ -1282,8 +1283,19 @@ function Format-Money($amount) {
                 <StackPanel x:Name="OrderCartItems"/>
               </ScrollViewer>
             </Border>
+            <!-- Order total -->
+            <Border Grid.Row="2" Background="#1A1D29" CornerRadius="0,0,8,8" Padding="12,10">
+              <Grid>
+                <Grid.ColumnDefinitions>
+                  <ColumnDefinition Width="*"/>
+                  <ColumnDefinition Width="Auto"/>
+                </Grid.ColumnDefinitions>
+                <TextBlock Grid.Column="0" Text="TOTAL" Foreground="#7A8295" FontSize="12" FontWeight="Bold" VerticalAlignment="Center"/>
+                <TextBlock x:Name="OrderTotalText" Grid.Column="1" Text="0.00 EUR" Foreground="#14B8A6" FontSize="17" FontWeight="Bold" VerticalAlignment="Center"/>
+              </Grid>
+            </Border>
             <!-- Action buttons: SEND | CHECK | RECLAIM | STOP -->
-            <Grid Grid.Row="2" Margin="0,6,0,0">
+            <Grid Grid.Row="3" Margin="0,6,0,0">
               <Grid.ColumnDefinitions>
                 <ColumnDefinition Width="*"/>
                 <ColumnDefinition Width="6"/>
@@ -4664,6 +4676,17 @@ function Render-OrderCart {
         $empty.Margin = [System.Windows.Thickness]::new(0,40,0,0)
         $panel.Children.Add($empty) | Out-Null
     }
+
+    # Running total: sent + new items, invitations excluded (they're free).
+    $total = 0.0
+    foreach ($it in $script:orderSent) {
+        if (-not $it.is_invitation) { $total += [double]$it.price_at_order_time * [double]$it.quantity }
+    }
+    foreach ($it in $script:orderCart) {
+        if (-not $it.is_invitation) { $total += [double]$it.price * [double]$it.quantity }
+    }
+    $tt = ctl 'OrderTotalText'
+    if ($tt) { $tt.Text = [string]::Format('{0:N2}', [math]::Round($total, 2)) + ' EUR' }
 }
 
 # Render the whole menu as one scrolling list — a clone of the waiter web app:
@@ -5801,7 +5824,13 @@ $script:restarting = $false
 
 function Restart-Self {
     if ($script:restarting -or -not $script:selfPath) { return }
-    if ($script:orderTable) { return }   # mid-order — try again on the next tick
+    # Defer ONLY when there are unsent items being composed in the cart — losing
+    # those would drop a waiter's in-progress work. A table merely being open
+    # (empty cart) is safe to reload through: the new window reopens at Control
+    # Center. The old guard (`if ($script:orderTable) return`) meant a station
+    # that always had some table open would NEVER apply an update — so every
+    # fix sat on disk while the stale in-memory copy kept running.
+    if (@($script:orderCart).Count -gt 0) { return }
     $script:restarting = $true
     try {
         $argStr = '-NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -File "' + $script:selfPath + '"'
