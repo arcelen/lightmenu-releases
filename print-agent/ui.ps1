@@ -1228,10 +1228,21 @@ function Format-Money($amount) {
         <Grid x:Name="OrderTableSelector" Visibility="Visible">
           <Grid.RowDefinitions>
             <RowDefinition Height="Auto"/>
+            <RowDefinition Height="Auto"/>
             <RowDefinition Height="*"/>
           </Grid.RowDefinitions>
           <TextBlock Grid.Row="0" Text="Select a table to start ordering" Foreground="#7A8295" FontSize="16" HorizontalAlignment="Center" Margin="0,20,0,12"/>
-          <ScrollViewer Grid.Row="1" VerticalScrollBarVisibility="Auto">
+          <!-- Type any table number to open it directly -->
+          <StackPanel Grid.Row="1" Orientation="Horizontal" HorizontalAlignment="Center" Margin="0,0,0,14">
+            <TextBox x:Name="OrderTableInput" Width="120" Height="40" FontSize="16" FontWeight="Bold" Foreground="#FFFFFF" Background="#161922"
+                     BorderBrush="#2A2F3A" BorderThickness="1" VerticalContentAlignment="Center" HorizontalContentAlignment="Center"
+                     Padding="8,0" MaxLength="6"/>
+            <Button x:Name="OrderTableOpen" Height="40" Width="130" Margin="8,0,0,0" Background="#14B8A6" Foreground="#FFFFFF"
+                    FontSize="14" FontWeight="Bold" BorderThickness="0" Cursor="Hand" Content="Open table">
+              <Button.Template><ControlTemplate TargetType="Button"><Border Background="{TemplateBinding Background}" CornerRadius="8"><ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center"/></Border></ControlTemplate></Button.Template>
+            </Button>
+          </StackPanel>
+          <ScrollViewer Grid.Row="2" VerticalScrollBarVisibility="Auto">
             <WrapPanel x:Name="OrderTableGrid" HorizontalAlignment="Center" Margin="8"/>
           </ScrollViewer>
         </Grid>
@@ -2242,6 +2253,57 @@ function Invoke-AsyncPost {
         } elseif ($state.Elapsed -ge ($TimeoutSec * 1000)) {
             try { $ps.Stop() } catch {}
             & $finish $null $true 'timed out'
+        }
+    }.GetNewClosure())
+    $timer.Start()
+}
+
+# Reliable GET — same proven pattern as Invoke-AsyncPost: run a *synchronous*
+# DownloadString on a background runspace and poll it from a DispatcherTimer.
+# Invoke-AsyncGet's event-based DownloadStringCompleted intermittently never
+# fires in this WPF/PowerShell host (that's why the menu categories came up
+# blank). This has no completion event to lose, so it always resolves.
+function Invoke-ReliableGet {
+    param([string]$Url, [scriptblock]$OnDone, [int]$TimeoutSec = 20)
+    $ps = [PowerShell]::Create()
+    [void]$ps.AddScript({
+        param($u)
+        try {
+            $wc = New-Object System.Net.WebClient
+            $wc.Encoding = [System.Text.Encoding]::UTF8
+            $r = $wc.DownloadString($u)
+            [pscustomobject]@{ ok = $true; body = $r }
+        } catch {
+            [pscustomobject]@{ ok = $false; body = '' }
+        } finally { if ($wc) { $wc.Dispose() } }
+    })
+    [void]$ps.AddArgument($Url)
+    $handle = $ps.BeginInvoke()
+
+    $state = [pscustomobject]@{ Done = $false; Elapsed = 0 }
+    $timer = New-Object System.Windows.Threading.DispatcherTimer
+    $timer.Interval = [TimeSpan]::FromMilliseconds(200)
+    $finish = {
+        param($res, $bad)
+        if ($state.Done) { return }
+        $state.Done = $true
+        $timer.Stop()
+        try { $ps.Dispose() } catch {}
+        try { & $OnDone $res $bad } catch { try { Add-Content -Path $errorLog -Value ("[" + (Get-Date -Format 'HH:mm:ss') + "] get cb error: " + $_.Exception.Message) } catch {} }
+    }.GetNewClosure()
+    $timer.Add_Tick({
+        if ($state.Done) { $timer.Stop(); return }
+        $state.Elapsed += 200
+        if ($handle.IsCompleted) {
+            $res = $null; $bad = $true
+            try {
+                $out = $ps.EndInvoke($handle) | Select-Object -Last 1
+                if ($out.ok) { try { $res = $out.body | ConvertFrom-Json; $bad = $false } catch { $bad = $true } }
+            } catch {}
+            & $finish $res $bad
+        } elseif ($state.Elapsed -ge ($TimeoutSec * 1000)) {
+            try { $ps.Stop() } catch {}
+            & $finish $null $true
         }
     }.GetNewClosure())
     $timer.Start()
@@ -4354,6 +4416,21 @@ function Select-Course($c) {
 (ctl 'CourseS3').Add_Click({ Select-Course 'third_plate' })
 (ctl 'CourseS4').Add_Click({ Select-Course 'fourth_plate' })
 
+# Type any table number and open it directly (no need to pre-create it in the
+# floor plan). Accepts digits only; Enter or the button both open the table.
+function Open-TypedTable {
+    $box = ctl 'OrderTableInput'
+    $val = ("$($box.Text)").Trim()
+    if ($val -notmatch '^\d+$') { return }
+    $box.Text = ''
+    Enter-OrderTable $val
+}
+(ctl 'OrderTableOpen').Add_Click({ Open-TypedTable })
+(ctl 'OrderTableInput').Add_KeyDown({
+    param($s, $e)
+    if ($e.Key -eq [System.Windows.Input.Key]::Enter) { Open-TypedTable }
+})
+
 function Render-OrderCart {
     $panel = ctl 'OrderCartItems'
     $panel.Children.Clear()
@@ -4615,7 +4692,7 @@ function Load-OrderMenu {
         if ($Then) { & $Then }
         return
     }
-    Invoke-AsyncGet "$base/local/menu" {
+    Invoke-ReliableGet "$base/local/menu" {
         param($r, $bad)
         if (-not $bad -and $r) {
             $script:orderMenuData = $r
