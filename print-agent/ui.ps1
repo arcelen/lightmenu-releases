@@ -7,6 +7,7 @@
 $ErrorActionPreference = 'Stop'
 $scriptDir = Split-Path -Parent $MyInvocation.MyCommand.Definition
 $errorLog  = Join-Path $scriptDir '..\app\ui-error.log'
+try { Add-Content -Path $errorLog -Value ("[" + (Get-Date -Format 'yyyy-MM-dd HH:mm:ss') + "] UI START build=6.0.100") } catch {}
 trap {
     $msg = "[$(Get-Date -Format 'yyyy-MM-dd HH:mm:ss')] $($_.Exception.Message)`n$($_.ScriptStackTrace)`n"
     try { Add-Content -Path $errorLog -Value $msg } catch {}
@@ -4564,10 +4565,13 @@ function Render-OrderCart {
 }
 
 function Render-OrderCategories {
+  try {
     $grid = ctl 'OrderCategoryGrid'
+    if (-not $grid) { OrderLog 'Render: OrderCategoryGrid control NOT FOUND'; return }
     $grid.Children.Clear()
     $cats = if ($script:orderMenuData) { @($script:orderMenuData.categories) } else { @() }
     $items = if ($script:orderMenuData) { @($script:orderMenuData.items) } else { @() }
+    OrderLog ("Render-OrderCategories: rendering " + $cats.Count + " categories")
 
     for ($ci = 0; $ci -lt $cats.Count; $ci++) {
         $cat = $cats[$ci]
@@ -4604,6 +4608,10 @@ function Render-OrderCategories {
         }.GetNewClosure())
         $grid.Children.Add($btn) | Out-Null
     }
+    OrderLog ("Render-OrderCategories: done, grid now has " + $grid.Children.Count + " buttons")
+  } catch {
+    OrderLog ("Render-OrderCategories ERROR: " + $_.Exception.Message + " @L" + $(if ($_.InvocationInfo) { $_.InvocationInfo.ScriptLineNumber } else { '?' }))
+  }
 }
 
 function Show-OrderItems($cat, $items, $color) {
@@ -4685,15 +4693,22 @@ function Show-OrderItems($cat, $items, $color) {
 # single request (never concurrent with another async GET) because this host
 # drops a completion callback when two DownloadStringAsync calls overlap — that
 # race is exactly why the category buttons used to come up blank.
+function OrderLog($m) {
+    try { Add-Content -Path $errorLog -Value ("[" + (Get-Date -Format 'HH:mm:ss') + "] ORDER: " + $m) } catch {}
+}
+
 function Load-OrderMenu {
     param([scriptblock]$Then)
+    OrderLog ("Load-OrderMenu called; cached=" + [bool]$script:orderMenuData)
     if ($script:orderMenuData) {
         Render-OrderCategories
         if ($Then) { & $Then }
         return
     }
+    OrderLog ("fetching " + $base + "/local/menu")
     Invoke-ReliableGet "$base/local/menu" {
         param($r, $bad)
+        OrderLog ("menu fetch done; bad=" + $bad + "; cats=" + $(if ($r) { @($r.categories).Count } else { 'null' }))
         if (-not $bad -and $r) {
             $script:orderMenuData = $r
             Render-OrderCategories
