@@ -3500,6 +3500,12 @@ http.createServer((req, res) => {
             category_id:  i.menu_category_id || null,
             available:    i.is_available !== false,
             order_index:  i.order_index ?? 0,
+            // Per-item toppings from the "Item Customization" editor
+            // (modifiers.addons = [{id,name,price}]). The Station's add-on
+            // modal shows these first, then the global add-ons below.
+            addons: (i.modifiers && Array.isArray(i.modifiers.addons) ? i.modifiers.addons : [])
+              .filter(a => a && (a.name || '').trim())
+              .map(a => ({ id: a.id || ('mod-' + a.name), name: a.name, price: Number(a.price) || 0 })),
           }))
           .sort((a, b) => a.order_index - b.order_index);
 

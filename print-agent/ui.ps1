@@ -1247,129 +1247,179 @@ function Format-Money($amount) {
           </ScrollViewer>
         </Grid>
 
-        <!-- Order view (shown when table is active) — two-column layout,
-             a clone of the waiter web app's ordering screen. -->
+        <!-- ══ ACTIVE ORDER — single-column POS, an exact clone of the waiter
+             web app's ordering screen (action bar → items → courses → menu). ══ -->
         <Grid x:Name="OrderActiveView" Visibility="Collapsed">
-          <Grid.ColumnDefinitions>
-            <ColumnDefinition Width="*"/>
-            <ColumnDefinition Width="10"/>
-            <ColumnDefinition Width="*"/>
-          </Grid.ColumnDefinitions>
+          <Grid.RowDefinitions>
+            <RowDefinition Height="Auto"/>   <!-- order bar -->
+            <RowDefinition Height="Auto"/>   <!-- SEND/RECLAIM/STOP -->
+            <RowDefinition Height="Auto"/>   <!-- items (black) -->
+            <RowDefinition Height="Auto"/>   <!-- courses -->
+            <RowDefinition Height="*"/>       <!-- category grid -->
+          </Grid.RowDefinitions>
 
-          <!-- LEFT: Cart + total + actions -->
-          <Grid Grid.Column="0">
-            <Grid.RowDefinitions>
-              <RowDefinition Height="Auto"/>
-              <RowDefinition Height="*"/>
-              <RowDefinition Height="Auto"/>
-              <RowDefinition Height="Auto"/>
-            </Grid.RowDefinitions>
-            <!-- Table header: label + order-actions (⋮) button -->
-            <Border Grid.Row="0" Background="#1A1D29" CornerRadius="8,8,0,0" Padding="12,8">
-              <Grid>
-                <Grid.ColumnDefinitions>
-                  <ColumnDefinition Width="*"/>
-                  <ColumnDefinition Width="Auto"/>
-                </Grid.ColumnDefinitions>
-                <TextBlock x:Name="OrderTableLabel" Grid.Column="0" Foreground="#FFFFFF" FontSize="18" FontWeight="Bold" VerticalAlignment="Center"/>
-                <Button x:Name="OrderActionsBtn" Grid.Column="1" Width="36" Height="30" Background="#0F1117" Foreground="#FFFFFF" FontSize="16" FontWeight="Bold" BorderThickness="0" Cursor="Hand" Content="⋮" ToolTip="Order actions">
-                  <Button.Template><ControlTemplate TargetType="Button"><Border x:Name="bd" Background="{TemplateBinding Background}" BorderBrush="#2A2D3A" BorderThickness="1" CornerRadius="6"><ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center"/></Border><ControlTemplate.Triggers><Trigger Property="IsMouseOver" Value="True"><Setter TargetName="bd" Property="Background" Value="#2A2D3A"/></Trigger></ControlTemplate.Triggers></ControlTemplate></Button.Template>
-                </Button>
-              </Grid>
+          <!-- Order bar: Table N | €total | Check | ⋮ -->
+          <Grid Grid.Row="0" Margin="0,0,0,6">
+            <Grid.ColumnDefinitions>
+              <ColumnDefinition Width="Auto"/>
+              <ColumnDefinition Width="*"/>
+              <ColumnDefinition Width="Auto"/>
+              <ColumnDefinition Width="Auto"/>
+              <ColumnDefinition Width="Auto"/>
+            </Grid.ColumnDefinitions>
+            <TextBlock x:Name="OrderTableLabel" Grid.Column="0" Foreground="#FFFFFF" FontSize="18" FontWeight="Bold" VerticalAlignment="Center"/>
+            <Border Grid.Column="2" Background="#12233A" BorderBrush="#3B82F6" BorderThickness="1" CornerRadius="8" Padding="10,4" Margin="0,0,8,0" VerticalAlignment="Center">
+              <TextBlock x:Name="OrderTotalText" Text="€0.00" Foreground="#93C5FD" FontSize="14" FontWeight="Bold"/>
             </Border>
-            <!-- Cart items -->
-            <Border Grid.Row="1" Background="#161922" Padding="6">
+            <Button x:Name="OrderCheck" Grid.Column="3" Background="#8B5CF6" Foreground="#FFFFFF" FontSize="12" FontWeight="Bold" Padding="16,7" BorderThickness="0" Cursor="Hand" Content="Check" Margin="0,0,8,0">
+              <Button.Template><ControlTemplate TargetType="Button"><Border x:Name="bd" Background="{TemplateBinding Background}" CornerRadius="8" Padding="{TemplateBinding Padding}"><ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center"/></Border><ControlTemplate.Triggers><Trigger Property="IsMouseOver" Value="True"><Setter TargetName="bd" Property="Background" Value="#7C3AED"/></Trigger></ControlTemplate.Triggers></ControlTemplate></Button.Template>
+            </Button>
+            <Button x:Name="OrderActionsBtn" Grid.Column="4" Width="34" Height="32" Background="#12233A" Foreground="#5EEAD4" FontSize="16" FontWeight="Bold" BorderThickness="0" Cursor="Hand" Content="⋮" ToolTip="Order actions">
+              <Button.Template><ControlTemplate TargetType="Button"><Border x:Name="bd" Background="{TemplateBinding Background}" BorderBrush="#14B8A6" BorderThickness="1" CornerRadius="8"><ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center"/></Border><ControlTemplate.Triggers><Trigger Property="IsMouseOver" Value="True"><Setter TargetName="bd" Property="Background" Value="#173B3B"/></Trigger></ControlTemplate.Triggers></ControlTemplate></Button.Template>
+            </Button>
+          </Grid>
+
+          <!-- Top action bar: SEND | RECLAIM | STOP -->
+          <Grid Grid.Row="1" Margin="0,0,0,6">
+            <Grid.ColumnDefinitions>
+              <ColumnDefinition Width="*"/>
+              <ColumnDefinition Width="6"/>
+              <ColumnDefinition Width="*"/>
+              <ColumnDefinition Width="6"/>
+              <ColumnDefinition Width="*"/>
+            </Grid.ColumnDefinitions>
+            <Button x:Name="OrderSend" Grid.Column="0" Background="#16A34A" Foreground="#FFFFFF" FontSize="14" FontWeight="Bold" Padding="0,12" BorderThickness="0" Cursor="Hand" Content="✈  SEND">
+              <Button.Template><ControlTemplate TargetType="Button"><Border Background="{TemplateBinding Background}" CornerRadius="8" Padding="{TemplateBinding Padding}"><ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center"/></Border></ControlTemplate></Button.Template>
+            </Button>
+            <Button x:Name="OrderReclaim" Grid.Column="2" Background="#374151" Foreground="#FFFFFF" FontSize="14" FontWeight="Bold" Padding="0,12" BorderThickness="0" Cursor="Hand" Content="RECLAIM">
+              <Button.Template><ControlTemplate TargetType="Button"><Border Background="{TemplateBinding Background}" CornerRadius="8" Padding="{TemplateBinding Padding}"><ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center"/></Border></ControlTemplate></Button.Template>
+            </Button>
+            <Button x:Name="OrderStop" Grid.Column="4" Background="#DC2626" Foreground="#FFFFFF" FontSize="14" FontWeight="Bold" Padding="0,12" BorderThickness="0" Cursor="Hand" Content="✕  STOP">
+              <Button.Template><ControlTemplate TargetType="Button"><Border Background="{TemplateBinding Background}" CornerRadius="8" Padding="{TemplateBinding Padding}"><ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center"/></Border></ControlTemplate></Button.Template>
+            </Button>
+          </Grid>
+
+          <!-- Selected items display (black screen) -->
+          <Border Grid.Row="2" Background="#000000" BorderBrush="#2A2D3A" BorderThickness="1" CornerRadius="8" Padding="4" MaxHeight="240" MinHeight="80" Margin="0,0,0,6">
+            <Grid>
+              <TextBlock x:Name="OrderItemsHint" Text="Select items to add to order..." Foreground="#4B5563" FontSize="13" HorizontalAlignment="Center" VerticalAlignment="Center"/>
               <ScrollViewer VerticalScrollBarVisibility="Auto">
                 <StackPanel x:Name="OrderCartItems"/>
               </ScrollViewer>
-            </Border>
-            <!-- Order total -->
-            <Border Grid.Row="2" Background="#1A1D29" CornerRadius="0,0,8,8" Padding="12,10">
-              <Grid>
-                <Grid.ColumnDefinitions>
-                  <ColumnDefinition Width="*"/>
-                  <ColumnDefinition Width="Auto"/>
-                </Grid.ColumnDefinitions>
-                <TextBlock Grid.Column="0" Text="TOTAL" Foreground="#7A8295" FontSize="12" FontWeight="Bold" VerticalAlignment="Center"/>
-                <TextBlock x:Name="OrderTotalText" Grid.Column="1" Text="0.00 EUR" Foreground="#14B8A6" FontSize="17" FontWeight="Bold" VerticalAlignment="Center"/>
-              </Grid>
-            </Border>
-            <!-- Action buttons: SEND | CHECK | RECLAIM | STOP -->
-            <Grid Grid.Row="3" Margin="0,6,0,0">
-              <Grid.ColumnDefinitions>
-                <ColumnDefinition Width="*"/>
-                <ColumnDefinition Width="6"/>
-                <ColumnDefinition Width="*"/>
-                <ColumnDefinition Width="6"/>
-                <ColumnDefinition Width="*"/>
-                <ColumnDefinition Width="6"/>
-                <ColumnDefinition Width="*"/>
-              </Grid.ColumnDefinitions>
-              <Button x:Name="OrderSend" Grid.Column="0" Background="#3B82F6" Foreground="#FFFFFF" FontSize="13" FontWeight="Bold" Padding="0,12" BorderThickness="0" Cursor="Hand" Content="✈  SEND">
-                <Button.Template><ControlTemplate TargetType="Button"><Border Background="{TemplateBinding Background}" CornerRadius="8" Padding="{TemplateBinding Padding}"><ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center"/></Border></ControlTemplate></Button.Template>
-              </Button>
-              <Button x:Name="OrderCheck" Grid.Column="2" Background="#8B5CF6" Foreground="#FFFFFF" FontSize="13" FontWeight="Bold" Padding="0,12" BorderThickness="0" Cursor="Hand" Content="🖨  CHECK">
-                <Button.Template><ControlTemplate TargetType="Button"><Border Background="{TemplateBinding Background}" CornerRadius="8" Padding="{TemplateBinding Padding}"><ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center"/></Border></ControlTemplate></Button.Template>
-              </Button>
-              <Button x:Name="OrderReclaim" Grid.Column="4" Background="#374151" Foreground="#FFFFFF" FontSize="13" FontWeight="Bold" Padding="0,12" BorderThickness="0" Cursor="Hand" Content="RECLAIM">
-                <Button.Template><ControlTemplate TargetType="Button"><Border Background="{TemplateBinding Background}" CornerRadius="8" Padding="{TemplateBinding Padding}"><ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center"/></Border></ControlTemplate></Button.Template>
-              </Button>
-              <Button x:Name="OrderStop" Grid.Column="6" Background="#EF4444" Foreground="#FFFFFF" FontSize="13" FontWeight="Bold" Padding="0,12" BorderThickness="0" Cursor="Hand" Content="✕  STOP">
-                <Button.Template><ControlTemplate TargetType="Button"><Border Background="{TemplateBinding Background}" CornerRadius="8" Padding="{TemplateBinding Padding}"><ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center"/></Border></ControlTemplate></Button.Template>
-              </Button>
             </Grid>
+          </Border>
+
+          <!-- Course selector -->
+          <Grid Grid.Row="3" Margin="0,0,0,6">
+            <Grid.ColumnDefinitions>
+              <ColumnDefinition Width="*"/>
+              <ColumnDefinition Width="4"/>
+              <ColumnDefinition Width="*"/>
+              <ColumnDefinition Width="4"/>
+              <ColumnDefinition Width="*"/>
+              <ColumnDefinition Width="4"/>
+              <ColumnDefinition Width="*"/>
+              <ColumnDefinition Width="4"/>
+              <ColumnDefinition Width="*"/>
+            </Grid.ColumnDefinitions>
+            <Button x:Name="CourseD"  Grid.Column="0" Background="#3B82F6" Foreground="#FFFFFF" FontSize="12" FontWeight="Bold" Padding="0,10" BorderThickness="0" Cursor="Hand" Content="Direct">
+              <Button.Template><ControlTemplate TargetType="Button"><Border Background="{TemplateBinding Background}" CornerRadius="6" Padding="{TemplateBinding Padding}"><ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center"/></Border></ControlTemplate></Button.Template>
+            </Button>
+            <Button x:Name="CourseS1" Grid.Column="2" Background="#374151" Foreground="#FFFFFF" FontSize="12" FontWeight="Bold" Padding="0,10" BorderThickness="0" Cursor="Hand" Content="S 1">
+              <Button.Template><ControlTemplate TargetType="Button"><Border Background="{TemplateBinding Background}" CornerRadius="6" Padding="{TemplateBinding Padding}"><ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center"/></Border></ControlTemplate></Button.Template>
+            </Button>
+            <Button x:Name="CourseS2" Grid.Column="4" Background="#374151" Foreground="#FFFFFF" FontSize="12" FontWeight="Bold" Padding="0,10" BorderThickness="0" Cursor="Hand" Content="S 2">
+              <Button.Template><ControlTemplate TargetType="Button"><Border Background="{TemplateBinding Background}" CornerRadius="6" Padding="{TemplateBinding Padding}"><ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center"/></Border></ControlTemplate></Button.Template>
+            </Button>
+            <Button x:Name="CourseS3" Grid.Column="6" Background="#374151" Foreground="#FFFFFF" FontSize="12" FontWeight="Bold" Padding="0,10" BorderThickness="0" Cursor="Hand" Content="S 3">
+              <Button.Template><ControlTemplate TargetType="Button"><Border Background="{TemplateBinding Background}" CornerRadius="6" Padding="{TemplateBinding Padding}"><ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center"/></Border></ControlTemplate></Button.Template>
+            </Button>
+            <Button x:Name="CourseS4" Grid.Column="8" Background="#374151" Foreground="#FFFFFF" FontSize="12" FontWeight="Bold" Padding="0,10" BorderThickness="0" Cursor="Hand" Content="S 4">
+              <Button.Template><ControlTemplate TargetType="Button"><Border Background="{TemplateBinding Background}" CornerRadius="6" Padding="{TemplateBinding Padding}"><ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center"/></Border></ControlTemplate></Button.Template>
+            </Button>
           </Grid>
 
-          <!-- RIGHT: Course selector + full scrolling menu (category headers + items) -->
-          <Grid Grid.Column="2">
-            <Grid.RowDefinitions>
-              <RowDefinition Height="Auto"/>
-              <RowDefinition Height="*"/>
-            </Grid.RowDefinitions>
-            <!-- Course selector -->
-            <Grid Grid.Row="0" Margin="0,0,0,6">
-              <Grid.ColumnDefinitions>
-                <ColumnDefinition Width="*"/>
-                <ColumnDefinition Width="4"/>
-                <ColumnDefinition Width="*"/>
-                <ColumnDefinition Width="4"/>
-                <ColumnDefinition Width="*"/>
-                <ColumnDefinition Width="4"/>
-                <ColumnDefinition Width="*"/>
-                <ColumnDefinition Width="4"/>
-                <ColumnDefinition Width="*"/>
-              </Grid.ColumnDefinitions>
-              <Button x:Name="CourseD"  Grid.Column="0" Background="#3B82F6" Foreground="#FFFFFF" FontSize="12" FontWeight="Bold" Padding="0,10" BorderThickness="0" Cursor="Hand" Content="Direct">
-                <Button.Template><ControlTemplate TargetType="Button"><Border Background="{TemplateBinding Background}" CornerRadius="6" Padding="{TemplateBinding Padding}"><ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center"/></Border></ControlTemplate></Button.Template>
-              </Button>
-              <Button x:Name="CourseS1" Grid.Column="2" Background="#374151" Foreground="#FFFFFF" FontSize="12" FontWeight="Bold" Padding="0,10" BorderThickness="0" Cursor="Hand" Content="S 1">
-                <Button.Template><ControlTemplate TargetType="Button"><Border Background="{TemplateBinding Background}" CornerRadius="6" Padding="{TemplateBinding Padding}"><ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center"/></Border></ControlTemplate></Button.Template>
-              </Button>
-              <Button x:Name="CourseS2" Grid.Column="4" Background="#374151" Foreground="#FFFFFF" FontSize="12" FontWeight="Bold" Padding="0,10" BorderThickness="0" Cursor="Hand" Content="S 2">
-                <Button.Template><ControlTemplate TargetType="Button"><Border Background="{TemplateBinding Background}" CornerRadius="6" Padding="{TemplateBinding Padding}"><ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center"/></Border></ControlTemplate></Button.Template>
-              </Button>
-              <Button x:Name="CourseS3" Grid.Column="6" Background="#374151" Foreground="#FFFFFF" FontSize="12" FontWeight="Bold" Padding="0,10" BorderThickness="0" Cursor="Hand" Content="S 3">
-                <Button.Template><ControlTemplate TargetType="Button"><Border Background="{TemplateBinding Background}" CornerRadius="6" Padding="{TemplateBinding Padding}"><ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center"/></Border></ControlTemplate></Button.Template>
-              </Button>
-              <Button x:Name="CourseS4" Grid.Column="8" Background="#374151" Foreground="#FFFFFF" FontSize="12" FontWeight="Bold" Padding="0,10" BorderThickness="0" Cursor="Hand" Content="S 4">
-                <Button.Template><ControlTemplate TargetType="Button"><Border Background="{TemplateBinding Background}" CornerRadius="6" Padding="{TemplateBinding Padding}"><ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center"/></Border></ControlTemplate></Button.Template>
-              </Button>
+          <!-- Category grid — colored category buttons; tap opens the items modal -->
+          <Border Grid.Row="4" Background="#12141C" CornerRadius="8" Padding="6">
+            <Grid>
+              <TextBlock x:Name="OrderCatHint" Text="Loading menu…" Foreground="#4B5563" FontSize="13" HorizontalAlignment="Center" VerticalAlignment="Center"/>
+              <ScrollViewer VerticalScrollBarVisibility="Auto">
+                <WrapPanel x:Name="OrderCategoryGrid"/>
+              </ScrollViewer>
             </Grid>
-            <!-- Full menu: each category renders as a colored header row followed
-                 by its item rows, all in one scroll list (no click-to-reveal). -->
-            <Border Grid.Row="1" Background="#161922" CornerRadius="8" Padding="6">
-              <Grid>
-                <TextBlock x:Name="OrderItemsHint" Text="Loading menu…" Foreground="#4B5563" FontSize="13" HorizontalAlignment="Center" VerticalAlignment="Center"/>
-                <ScrollViewer VerticalScrollBarVisibility="Auto">
-                  <StackPanel x:Name="OrderMenuPanel"/>
-                </ScrollViewer>
-              </Grid>
-            </Border>
-          </Grid>
+          </Border>
+        </Grid>
+
+        <!-- ═══ ITEMS MODAL (menu items in a tapped category) ═══ -->
+        <Grid x:Name="OrderItemsModal" Visibility="Collapsed" Panel.ZIndex="30" Background="#B3000000">
+          <Border Width="720" MaxHeight="580" HorizontalAlignment="Center" VerticalAlignment="Center" Background="#0D47A1" BorderBrush="#1D4ED8" BorderThickness="3" CornerRadius="14">
+            <Grid>
+              <Grid.RowDefinitions>
+                <RowDefinition Height="Auto"/>
+                <RowDefinition Height="*"/>
+                <RowDefinition Height="Auto"/>
+              </Grid.RowDefinitions>
+              <Border Grid.Row="0" BorderBrush="#1D4ED8" BorderThickness="0,0,0,2" Padding="16,12">
+                <TextBlock x:Name="OrderItemsModalTitle" Text="Category" Foreground="#FFFFFF" FontSize="20" FontWeight="Bold" HorizontalAlignment="Center"/>
+              </Border>
+              <ScrollViewer Grid.Row="1" VerticalScrollBarVisibility="Auto" Padding="10">
+                <WrapPanel x:Name="OrderItemsGrid"/>
+              </ScrollViewer>
+              <Border Grid.Row="2" Padding="12">
+                <Button x:Name="OrderItemsClose" Background="#DC2626" Foreground="#FFFFFF" FontSize="15" FontWeight="Bold" Padding="0,12" BorderThickness="0" Cursor="Hand" Content="CLOSE">
+                  <Button.Template><ControlTemplate TargetType="Button"><Border x:Name="bd" Background="{TemplateBinding Background}" CornerRadius="8" Padding="{TemplateBinding Padding}"><ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center"/></Border><ControlTemplate.Triggers><Trigger Property="IsMouseOver" Value="True"><Setter TargetName="bd" Property="Background" Value="#B91C1C"/></Trigger></ControlTemplate.Triggers></ControlTemplate></Button.Template>
+                </Button>
+              </Border>
+            </Grid>
+          </Border>
+        </Grid>
+
+        <!-- ═══ SPECIAL REQUEST / ADD-ONS MODAL ═══ -->
+        <Grid x:Name="OrderAddonModal" Visibility="Collapsed" Panel.ZIndex="35" Background="#CC000000">
+          <Border Width="450" MaxHeight="600" HorizontalAlignment="Center" VerticalAlignment="Center" Background="#12141C" BorderBrush="#2A2D3A" BorderThickness="1" CornerRadius="14" Padding="18">
+            <ScrollViewer VerticalScrollBarVisibility="Auto">
+              <StackPanel>
+                <TextBlock Text="Special Request" Foreground="#FFFFFF" FontSize="17" FontWeight="Bold"/>
+                <TextBlock x:Name="OrderAddonItemName" Text="" Foreground="#7A8295" FontSize="12" Margin="0,2,0,12"/>
+                <WrapPanel x:Name="OrderPresetPanel" Margin="0,0,0,12"/>
+                <TextBlock Text="PAID ADD-ONS" Foreground="#7A8295" FontSize="11" FontWeight="Bold" Margin="0,0,0,6"/>
+                <StackPanel x:Name="OrderAddonList"/>
+                <TextBlock Text="CUSTOM NOTE" Foreground="#7A8295" FontSize="11" FontWeight="Bold" Margin="0,12,0,6"/>
+                <TextBox x:Name="OrderNoteInput" Height="38" Background="#161922" Foreground="#FFFFFF" CaretBrush="#FFFFFF" BorderBrush="#2A2F3A" BorderThickness="1" VerticalContentAlignment="Center" Padding="8,0"/>
+                <Grid Margin="0,16,0,0">
+                  <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="*"/>
+                    <ColumnDefinition Width="8"/>
+                    <ColumnDefinition Width="*"/>
+                  </Grid.ColumnDefinitions>
+                  <Button x:Name="OrderAddonCancel" Grid.Column="0" Background="#1A1D29" Foreground="#FFFFFF" FontSize="13" FontWeight="SemiBold" Padding="0,11" BorderThickness="0" Cursor="Hand" Content="Cancel">
+                    <Button.Template><ControlTemplate TargetType="Button"><Border x:Name="bd" Background="{TemplateBinding Background}" BorderBrush="#2A2D3A" BorderThickness="1" CornerRadius="8" Padding="{TemplateBinding Padding}"><ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center"/></Border><ControlTemplate.Triggers><Trigger Property="IsMouseOver" Value="True"><Setter TargetName="bd" Property="Background" Value="#20242F"/></Trigger></ControlTemplate.Triggers></ControlTemplate></Button.Template>
+                  </Button>
+                  <Button x:Name="OrderAddonSave" Grid.Column="2" Background="#14B8A6" Foreground="#FFFFFF" FontSize="13" FontWeight="Bold" Padding="0,11" BorderThickness="0" Cursor="Hand" Content="Save">
+                    <Button.Template><ControlTemplate TargetType="Button"><Border x:Name="bd" Background="{TemplateBinding Background}" CornerRadius="8" Padding="{TemplateBinding Padding}"><ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center"/></Border><ControlTemplate.Triggers><Trigger Property="IsMouseOver" Value="True"><Setter TargetName="bd" Property="Background" Value="#0D9488"/></Trigger></ControlTemplate.Triggers></ControlTemplate></Button.Template>
+                  </Button>
+                </Grid>
+              </StackPanel>
+            </ScrollViewer>
+          </Border>
+        </Grid>
+
+        <!-- ═══ TOAST (order sent / reclaimed / transferred / invited / cancelled) ═══ -->
+        <Grid x:Name="ToastHost" Visibility="Collapsed" Panel.ZIndex="60" IsHitTestVisible="False">
+          <Border x:Name="ToastBox" HorizontalAlignment="Right" VerticalAlignment="Bottom" Margin="0,0,12,12" Background="#12351F" BorderBrush="#22C55E" BorderThickness="1" CornerRadius="12" Padding="14" MaxWidth="380" Opacity="0" RenderTransformOrigin="0.5,0.5">
+            <Border.RenderTransform><TranslateTransform x:Name="ToastShift" Y="40"/></Border.RenderTransform>
+            <StackPanel Orientation="Horizontal">
+              <Ellipse x:Name="ToastDot" Width="10" Height="10" Fill="#22C55E" VerticalAlignment="Top" Margin="0,4,10,0"/>
+              <StackPanel MaxWidth="330">
+                <TextBlock x:Name="OrderToastTitle" Text="" Foreground="#4ADE80" FontSize="13" FontWeight="Bold" TextWrapping="Wrap"/>
+                <TextBlock x:Name="OrderToastMsg" Text="" Foreground="#D1D5DB" FontSize="12" TextWrapping="Wrap" Margin="0,2,0,0"/>
+              </StackPanel>
+            </StackPanel>
+          </Border>
         </Grid>
 
         <!-- ═══ ORDER ACTIONS MODAL (Transfer / Cancel / Invitation) ═══ -->
-        <Grid x:Name="OrderActionsModal" Visibility="Collapsed" Panel.ZIndex="20" Background="#CC000000">
+        <Grid x:Name="OrderActionsModal" Visibility="Collapsed" Panel.ZIndex="40" Background="#CC000000">
           <Border Width="460" HorizontalAlignment="Center" VerticalAlignment="Center" Background="#12141C" BorderBrush="#2A2D3A" BorderThickness="1" CornerRadius="16" Padding="22">
             <StackPanel>
               <Grid Margin="0,0,0,18">
@@ -2173,7 +2223,15 @@ function Switch-Page($name) {
 (ctl 'NavReport').Add_Click(   { Switch-Page 'Report' })
 (ctl 'NavStaff').Add_Click(    { Switch-Page 'Staff' })
 (ctl 'NavHome').Add_Click(     { Switch-Page 'Home' })
-(ctl 'BackBtn').Add_Click(     { Switch-Page 'Home' })
+(ctl 'BackBtn').Add_Click({
+    # Inside an open table, Back returns to table selection first (like the web
+    # app) — only from the table list does it go all the way to Control Center.
+    if ($script:activePage -eq 'Orders' -and (ctl 'OrderActiveView').Visibility -eq 'Visible') {
+        Leave-OrderTable
+    } else {
+        Switch-Page 'Home'
+    }
+})
 
 # ─── HOME: Control Center card grid ──────────────────────────────────────────
 # A web-app-style landing. Each card routes into a section via Switch-Page.
@@ -4478,13 +4536,83 @@ function Show-PrinterDialog($p) {
 # ─── ORDERS: Station POS ─────────────────────────────────────────────────────
 $script:orderTable     = $null   # current table number
 $script:orderId        = $null   # current order ID (from Supabase)
-$script:orderCart      = @()     # new items not yet sent
-$script:orderSent      = @()     # items already sent (from server)
+$script:orderCart      = @()     # new items not yet sent (green)
+$script:orderSent      = @()     # fired to kitchen (gray, ✓ Sent)
+$script:orderHeld      = @()     # saved course items waiting to be reclaimed (yellow, ⏳ Held)
 $script:orderCourse    = 'direct'
 $global:orderMenuData  = $null
+$script:orderMenuAddons = @()    # global is_addon items (shown on every item's add-on modal)
 $script:orderBusy      = $false
+$script:orderAddonIdx  = -1      # cart index currently open in the add-on modal
+$script:orderAddonSel  = @()     # add-ons picked in the open modal
 
-$script:catColors = @('#3B82F6','#10B981','#F59E0B','#EF4444','#8B5CF6','#EC4899','#14B8A6','#F97316')
+$script:catColors = @('#10B981','#06B6D4','#A855F7','#22C55E','#14B8A6','#0EA5E9','#84CC16','#EAB308')
+
+# Course display labels, matching the waiter web app.
+$script:courseLabels = @{ 'direct' = 'direct'; 'first_plate' = 'S1'; 'second_plate' = 'S2'; 'third_plate' = 'S3'; 'fourth_plate' = 'S4' }
+# Preset special-request notes (identical to the web SpecialRequestModal).
+$script:notePresets = @('No salt','Extra spicy','Not spicy','Well done','Take away')
+
+# ── Toast: bottom-right slide-in notification, auto-dismiss after 3s. The
+# animated feedback for sent / reclaimed / transferred / invited / cancelled,
+# mirroring the web app's OrderingNotification. type = success|error|info.
+function Show-Toast($type, $title, $msg) {
+    $host2 = ctl 'ToastHost'; $box = ctl 'ToastBox'; $dot = ctl 'ToastDot'
+    $t = ctl 'OrderToastTitle'; $m = ctl 'OrderToastMsg'; $shift = ctl 'ToastShift'
+    if (-not $host2) { return }
+    switch ($type) {
+        'error' { $accent = '#EF4444'; $bg = '#3A1516'; $titleCol = '#FCA5A5' }
+        'info'  { $accent = '#3B82F6'; $bg = '#12233A'; $titleCol = '#93C5FD' }
+        default { $accent = '#22C55E'; $bg = '#12351F'; $titleCol = '#4ADE80' }
+    }
+    $box.Background = SolidBrush $bg
+    $box.BorderBrush = SolidBrush $accent
+    $dot.Fill = SolidBrush $accent
+    $t.Foreground = SolidBrush $titleCol
+    $t.Text = "$title"
+    $m.Text = "$msg"
+    $m.Visibility = if ($msg) { 'Visible' } else { 'Collapsed' }
+    $host2.Visibility = 'Visible'
+
+    $fade = New-Object System.Windows.Media.Animation.DoubleAnimation(0, 1, ([System.Windows.Duration][TimeSpan]::FromMilliseconds(220)))
+    $rise = New-Object System.Windows.Media.Animation.DoubleAnimation(40, 0, ([System.Windows.Duration][TimeSpan]::FromMilliseconds(260)))
+    $box.BeginAnimation([System.Windows.UIElement]::OpacityProperty, $fade)
+    $shift.BeginAnimation([System.Windows.Media.TranslateTransform]::YProperty, $rise)
+
+    if ($script:toastTimer) { $script:toastTimer.Stop() }
+    $script:toastTimer = New-Object System.Windows.Threading.DispatcherTimer
+    $script:toastTimer.Interval = [TimeSpan]::FromSeconds(3)
+    $script:toastTimer.Add_Tick({
+        $script:toastTimer.Stop()
+        $b = ctl 'ToastBox'; $h = ctl 'ToastHost'
+        $out = New-Object System.Windows.Media.Animation.DoubleAnimation(1, 0, ([System.Windows.Duration][TimeSpan]::FromMilliseconds(220)))
+        $out.Add_Completed({ (ctl 'ToastHost').Visibility = 'Collapsed' })
+        $b.BeginAnimation([System.Windows.UIElement]::OpacityProperty, $out)
+    })
+    $script:toastTimer.Start()
+}
+
+# Split a table's item list (from /local/order/items) into sent vs held, the
+# same rule the web app uses: held = pending course items (S1..S4), everything
+# else that isn't cancelled is already fired to the kitchen.
+function Set-OrderItemsFrom($items) {
+    $all = @($items | Where-Object { $_ -and $_.status -ne 'cancelled_by_admin' -and $_.status -ne 'cancelled' })
+    $script:orderHeld = @($all | Where-Object { $_.status -eq 'pending' -and $_.course -ne 'direct' })
+    $script:orderSent = @($all | Where-Object { -not ($_.status -eq 'pending' -and $_.course -ne 'direct') })
+}
+
+# Enable/disable + recolour SEND and RECLAIM based on what's in the cart / held.
+function Update-OrderButtons {
+    $send = ctl 'OrderSend'; $recl = ctl 'OrderReclaim'
+    if ($send) {
+        if (@($script:orderCart).Count -gt 0) { $send.IsEnabled = $true;  $send.Background = SolidBrush '#16A34A' }
+        else                                  { $send.IsEnabled = $false; $send.Background = SolidBrush '#374151' }
+    }
+    if ($recl) {
+        if (@($script:orderHeld).Count -gt 0) { $recl.IsEnabled = $true;  $recl.Background = SolidBrush '#059669' }
+        else                                  { $recl.IsEnabled = $false; $recl.Background = SolidBrush '#374151' }
+    }
+}
 
 function Select-Course($c) {
     $script:orderCourse = $c
@@ -4524,20 +4652,29 @@ function Open-TypedTable {
 # the write is silently lost.
 function Add-OrderItem($it) {
     if (-not $it) { return }
-    $existing = $script:orderCart | Where-Object { $_.menu_item_id -eq $it.id -and $_.course -eq $script:orderCourse }
+    # Merge only into a plain line (same item + course, no note, no add-ons) —
+    # a customised line stays separate, exactly like the web app.
+    $existing = $script:orderCart | Where-Object {
+        $_.menu_item_id -eq $it.id -and $_.course -eq $script:orderCourse -and
+        [string]::IsNullOrEmpty($_.special_requests) -and @($_.selected_addons).Count -eq 0
+    } | Select-Object -First 1
     if ($existing) {
         $existing.quantity++
     } else {
         $script:orderCart += @([pscustomobject]@{
-            menu_item_id   = $it.id
-            menu_item_name = $it.name
-            price          = $it.price
-            quantity       = 1
-            course         = $script:orderCourse
-            is_invitation  = $false
+            menu_item_id    = $it.id
+            menu_item_name  = $it.name
+            price           = $it.price
+            quantity        = 1
+            course          = $script:orderCourse
+            is_invitation   = $false
+            special_requests = ''
+            selected_addons = @()
+            item_addons     = @($it.addons)   # per-item toppings for the add-on modal
         })
     }
     Render-OrderCart
+    if ((ctl 'OrderItemsModal').Visibility -eq 'Visible') { Render-ItemsModal }
 }
 
 function Adjust-OrderQty([int]$idx, [int]$delta) {
@@ -4557,232 +4694,281 @@ function Adjust-OrderQty([int]$idx, [int]$delta) {
     Render-OrderCart
 }
 
+# Sub-line under an item name: course · note · +add-ons (matches the web app).
+function Get-OrderSubText($item) {
+    $lbl = $script:courseLabels[$item.course]; if (-not $lbl) { $lbl = $item.course }
+    $parts = @($lbl)
+    if ($item.special_requests) { $parts += "• $($item.special_requests)" }
+    $adn = @($item.selected_addons | Where-Object { $_ -and $_.name })
+    if ($adn.Count -gt 0) { $parts += ('• + ' + (($adn | ForEach-Object { $_.name }) -join ', ')) }
+    return ($parts -join ' ')
+}
+
+# A read-only item row (sent or held). $mode = 'sent' | 'held'.
+function New-OrderStaticRow($item, $mode) {
+    $inv = [bool]$item.is_invitation
+    switch ($mode) {
+        'held'  { $bg = '#2A2410'; $nameCol = '#FACC15'; $subCol = '#B08A2E'; $tag = '⏳ Held'; $tagCol = '#EAB308' }
+        default {
+            if ($inv) { $bg = '#12281B'; $nameCol = '#4ADE80'; $subCol = '#3F9E60'; $tag = '🎁 Invited'; $tagCol = '#4ADE80' }
+            else      { $bg = '#14171F'; $nameCol = '#9CA3AF'; $subCol = '#6B7280'; $tag = '✓ Sent'; $tagCol = '#22C55E' }
+        }
+    }
+    $row = New-Object System.Windows.Controls.Border
+    $row.Background = SolidBrush $bg
+    $row.CornerRadius = [System.Windows.CornerRadius]::new(6)
+    $row.Padding = [System.Windows.Thickness]::new(10,6,10,6)
+    $row.Margin  = [System.Windows.Thickness]::new(0,0,0,3)
+
+    $g = New-Object System.Windows.Controls.Grid
+    $c1 = New-Object System.Windows.Controls.ColumnDefinition; $c1.Width = [System.Windows.GridLength]::new(1, [System.Windows.GridUnitType]::Star)
+    $c2 = New-Object System.Windows.Controls.ColumnDefinition; $c2.Width = [System.Windows.GridLength]::Auto
+    $c3 = New-Object System.Windows.Controls.ColumnDefinition; $c3.Width = [System.Windows.GridLength]::Auto
+    $g.ColumnDefinitions.Add($c1); $g.ColumnDefinitions.Add($c2); $g.ColumnDefinitions.Add($c3)
+
+    $txt = New-Object System.Windows.Controls.StackPanel
+    [System.Windows.Controls.Grid]::SetColumn($txt, 0)
+    $nm = New-Object System.Windows.Controls.TextBlock
+    $nm.Text = $item.menu_item_name; $nm.Foreground = SolidBrush $nameCol; $nm.FontSize = 13; $nm.FontWeight = 'Bold'; $nm.TextTrimming = 'CharacterEllipsis'
+    $sub = New-Object System.Windows.Controls.TextBlock
+    $sub.Text = (Get-OrderSubText $item); $sub.Foreground = SolidBrush $subCol; $sub.FontSize = 11
+    $txt.Children.Add($nm) | Out-Null; $txt.Children.Add($sub) | Out-Null
+    $g.Children.Add($txt) | Out-Null
+
+    $qty = New-Object System.Windows.Controls.TextBlock
+    $qty.Text = "$($item.quantity)"; $qty.Foreground = SolidBrush $nameCol; $qty.FontSize = 13; $qty.FontWeight = 'Bold'
+    $qty.VerticalAlignment = 'Center'; $qty.MinWidth = 22; $qty.TextAlignment = 'Center'
+    [System.Windows.Controls.Grid]::SetColumn($qty, 1)
+    $g.Children.Add($qty) | Out-Null
+
+    $st = New-Object System.Windows.Controls.TextBlock
+    $st.Text = $tag; $st.Foreground = SolidBrush $tagCol; $st.FontSize = 11; $st.VerticalAlignment = 'Center'; $st.Margin = [System.Windows.Thickness]::new(8,0,0,0)
+    [System.Windows.Controls.Grid]::SetColumn($st, 2)
+    $g.Children.Add($st) | Out-Null
+
+    $row.Child = $g
+    return $row
+}
+
+# A mini square button used in the new-item row (− / + / ✏️).
+function New-MiniBtn($glyph, $color, $idx, [scriptblock]$onClick) {
+    $b = New-Object System.Windows.Controls.Button
+    $b.Content = $glyph; $b.Width = 26; $b.Height = 26; $b.FontSize = 13; $b.FontWeight = 'Bold'
+    $b.Background = SolidBrush $color; $b.Foreground = [System.Windows.Media.Brushes]::White
+    $b.BorderThickness = [System.Windows.Thickness]::new(0); $b.Cursor = [System.Windows.Input.Cursors]::Hand
+    $b.Margin = [System.Windows.Thickness]::new(3,0,0,0); $b.Tag = $idx
+    $tpl = New-Object System.Windows.Controls.ControlTemplate ([System.Windows.Controls.Button])
+    $bdr = New-Object System.Windows.FrameworkElementFactory ([System.Windows.Controls.Border])
+    $bdr.SetBinding([System.Windows.Controls.Border]::BackgroundProperty, (New-Object System.Windows.Data.Binding 'Background'))
+    $bdr.SetValue([System.Windows.Controls.Border]::CornerRadiusProperty, [System.Windows.CornerRadius]::new(5))
+    $cp = New-Object System.Windows.FrameworkElementFactory ([System.Windows.Controls.ContentPresenter])
+    $cp.SetValue([System.Windows.Controls.ContentPresenter]::HorizontalAlignmentProperty, [System.Windows.HorizontalAlignment]::Center)
+    $cp.SetValue([System.Windows.Controls.ContentPresenter]::VerticalAlignmentProperty, [System.Windows.VerticalAlignment]::Center)
+    $bdr.AppendChild($cp); $tpl.VisualTree = $bdr; $b.Template = $tpl
+    $b.Add_Click($onClick)
+    return $b
+}
+
 function Render-OrderCart {
     $panel = ctl 'OrderCartItems'
     $panel.Children.Clear()
 
-    $courseLabels = @{ 'direct' = 'Direct'; 'first_plate' = 'S1'; 'second_plate' = 'S2'; 'third_plate' = 'S3'; 'fourth_plate' = 'S4' }
+    foreach ($item in $script:orderSent) { $panel.Children.Add((New-OrderStaticRow $item 'sent')) | Out-Null }
+    foreach ($item in $script:orderHeld) { $panel.Children.Add((New-OrderStaticRow $item 'held')) | Out-Null }
 
-    # Sent items (gray)
-    foreach ($item in $script:orderSent) {
-        $status = $item.status
-        $bg = if ($status -eq 'pending') { '#92400E' } else { '#374151' }
-        $lbl = $courseLabels[$item.course]; if (-not $lbl) { $lbl = $item.course }
-        $statusTag = if ($status -eq 'pending') { " [$lbl - HELD]" } else { " [$lbl]" }
+    # New (green) items — editable: −/qty/+ and the ✏️ add-on/note button.
+    for ($i = 0; $i -lt $script:orderCart.Count; $i++) {
+        $item = $script:orderCart[$i]; $idx = $i
+        $inv = [bool]$item.is_invitation
 
         $row = New-Object System.Windows.Controls.Border
-        $row.Background = SolidBrush $bg
+        $row.Background = SolidBrush $(if ($inv) { '#12281B' } else { '#0E1420' })
         $row.CornerRadius = [System.Windows.CornerRadius]::new(6)
-        $row.Padding = [System.Windows.Thickness]::new(12,8,12,8)
-        $row.Margin  = [System.Windows.Thickness]::new(0,0,0,4)
+        $row.Padding = [System.Windows.Thickness]::new(10,6,10,6)
+        $row.Margin  = [System.Windows.Thickness]::new(0,0,0,3)
 
         $g = New-Object System.Windows.Controls.Grid
         $c1 = New-Object System.Windows.Controls.ColumnDefinition; $c1.Width = [System.Windows.GridLength]::new(1, [System.Windows.GridUnitType]::Star)
         $c2 = New-Object System.Windows.Controls.ColumnDefinition; $c2.Width = [System.Windows.GridLength]::Auto
         $g.ColumnDefinitions.Add($c1); $g.ColumnDefinitions.Add($c2)
 
-        $nameTb = New-Object System.Windows.Controls.TextBlock
-        $nameTb.Text = "$($item.quantity)x $($item.menu_item_name)$statusTag"
-        $nameTb.Foreground = [System.Windows.Media.Brushes]::White
-        $nameTb.FontSize = 13
-        $nameTb.VerticalAlignment = 'Center'
-        [System.Windows.Controls.Grid]::SetColumn($nameTb, 0)
-        $g.Children.Add($nameTb) | Out-Null
+        $txt = New-Object System.Windows.Controls.StackPanel
+        [System.Windows.Controls.Grid]::SetColumn($txt, 0)
+        $nm = New-Object System.Windows.Controls.TextBlock
+        $nm.Text = $item.menu_item_name + $(if ($inv) { '  🎁' } else { '' }); $nm.Foreground = SolidBrush '#4ADE80'; $nm.FontSize = 13; $nm.FontWeight = 'Bold'; $nm.TextTrimming = 'CharacterEllipsis'
+        $sub = New-Object System.Windows.Controls.TextBlock
+        $sub.Text = (Get-OrderSubText $item); $sub.Foreground = SolidBrush '#6B7280'; $sub.FontSize = 11
+        $txt.Children.Add($nm) | Out-Null; $txt.Children.Add($sub) | Out-Null
+        $g.Children.Add($txt) | Out-Null
 
-        $priceTb = New-Object System.Windows.Controls.TextBlock
-        $price = [math]::Round(($item.price_at_order_time * $item.quantity), 2)
-        $priceTb.Text = [string]::Format('{0:N2}', $price) + ' EUR'
-        $priceTb.Foreground = SolidBrush '#9CA3AF'
-        $priceTb.FontSize = 13
-        $priceTb.VerticalAlignment = 'Center'
-        [System.Windows.Controls.Grid]::SetColumn($priceTb, 1)
-        $g.Children.Add($priceTb) | Out-Null
+        $ctrls = New-Object System.Windows.Controls.StackPanel
+        $ctrls.Orientation = 'Horizontal'; $ctrls.VerticalAlignment = 'Center'
+        [System.Windows.Controls.Grid]::SetColumn($ctrls, 1)
 
+        $ctrls.Children.Add((New-MiniBtn '−' '#DC2626' $idx { param($s,$e); Adjust-OrderQty ([int]$s.Tag) -1 })) | Out-Null
+        $qty = New-Object System.Windows.Controls.TextBlock
+        $qty.Text = "$($item.quantity)"; $qty.Foreground = [System.Windows.Media.Brushes]::White; $qty.FontSize = 13; $qty.FontWeight = 'Bold'
+        $qty.VerticalAlignment = 'Center'; $qty.MinWidth = 24; $qty.TextAlignment = 'Center'; $qty.Margin = [System.Windows.Thickness]::new(3,0,0,0)
+        $ctrls.Children.Add($qty) | Out-Null
+        $ctrls.Children.Add((New-MiniBtn '+' '#16A34A' $idx { param($s,$e); Adjust-OrderQty ([int]$s.Tag) 1 })) | Out-Null
+        $ctrls.Children.Add((New-MiniBtn '✎' '#2563EB' $idx { param($s,$e); Show-AddonModal ([int]$s.Tag) })) | Out-Null
+
+        $g.Children.Add($ctrls) | Out-Null
         $row.Child = $g
         $panel.Children.Add($row) | Out-Null
     }
 
-    # New cart items (green)
-    for ($i = 0; $i -lt $script:orderCart.Count; $i++) {
-        $item = $script:orderCart[$i]
-        $idx = $i
-        $lbl = $courseLabels[$item.course]; if (-not $lbl) { $lbl = $item.course }
+    $empty = (@($script:orderSent).Count + @($script:orderHeld).Count + @($script:orderCart).Count) -eq 0
+    $hint = ctl 'OrderItemsHint'
+    if ($hint) { $hint.Visibility = if ($empty) { 'Visible' } else { 'Collapsed' } }
 
-        $row = New-Object System.Windows.Controls.Border
-        $row.Background = SolidBrush '#065F46'
-        $row.CornerRadius = [System.Windows.CornerRadius]::new(6)
-        $row.Padding = [System.Windows.Thickness]::new(12,8,12,8)
-        $row.Margin  = [System.Windows.Thickness]::new(0,0,0,4)
-
-        $g = New-Object System.Windows.Controls.Grid
-        $c1 = New-Object System.Windows.Controls.ColumnDefinition; $c1.Width = [System.Windows.GridLength]::new(1, [System.Windows.GridUnitType]::Star)
-        $c2 = New-Object System.Windows.Controls.ColumnDefinition; $c2.Width = [System.Windows.GridLength]::Auto
-        $c3 = New-Object System.Windows.Controls.ColumnDefinition; $c3.Width = [System.Windows.GridLength]::Auto
-        $g.ColumnDefinitions.Add($c1); $g.ColumnDefinitions.Add($c2); $g.ColumnDefinitions.Add($c3)
-
-        $invTag = if ($item.is_invitation) { ' 🎁' } else { '' }
-        $nameTb = New-Object System.Windows.Controls.TextBlock
-        $nameTb.Text = "$($item.quantity)x $($item.menu_item_name) [$lbl]$invTag"
-        $nameTb.Foreground = [System.Windows.Media.Brushes]::White
-        $nameTb.FontSize = 13
-        $nameTb.VerticalAlignment = 'Center'
-        [System.Windows.Controls.Grid]::SetColumn($nameTb, 0)
-        $g.Children.Add($nameTb) | Out-Null
-
-        $priceTb = New-Object System.Windows.Controls.TextBlock
-        $price = [math]::Round(($item.price * $item.quantity), 2)
-        $priceTb.Text = if ($item.is_invitation) { 'GRATIS' } else { [string]::Format('{0:N2}', $price) + ' EUR' }
-        $priceTb.Foreground = SolidBrush '#A7F3D0'
-        $priceTb.FontSize = 13
-        $priceTb.VerticalAlignment = 'Center'
-        $priceTb.Margin = [System.Windows.Thickness]::new(8,0,0,0)
-        [System.Windows.Controls.Grid]::SetColumn($priceTb, 1)
-        $g.Children.Add($priceTb) | Out-Null
-
-        # +/- buttons
-        $btnPanel = New-Object System.Windows.Controls.StackPanel
-        $btnPanel.Orientation = 'Horizontal'
-        $btnPanel.Margin = [System.Windows.Thickness]::new(8,0,0,0)
-        [System.Windows.Controls.Grid]::SetColumn($btnPanel, 2)
-
-        $minus = New-Object System.Windows.Controls.Button
-        $minus.Content = '-'; $minus.Width = 28; $minus.Height = 28
-        $minus.Background = SolidBrush '#374151'; $minus.Foreground = [System.Windows.Media.Brushes]::White
-        $minus.BorderThickness = [System.Windows.Thickness]::new(0); $minus.Cursor = [System.Windows.Input.Cursors]::Hand
-        $minus.Tag = $idx
-        $minus.Add_Click({ param($s,$e); Adjust-OrderQty ([int]$s.Tag) -1 })
-        $btnPanel.Children.Add($minus) | Out-Null
-
-        $plus = New-Object System.Windows.Controls.Button
-        $plus.Content = '+'; $plus.Width = 28; $plus.Height = 28
-        $plus.Background = SolidBrush '#374151'; $plus.Foreground = [System.Windows.Media.Brushes]::White
-        $plus.BorderThickness = [System.Windows.Thickness]::new(0); $plus.Cursor = [System.Windows.Input.Cursors]::Hand
-        $plus.Margin = [System.Windows.Thickness]::new(4,0,0,0)
-        $plus.Tag = $idx
-        $plus.Add_Click({ param($s,$e); Adjust-OrderQty ([int]$s.Tag) 1 })
-        $btnPanel.Children.Add($plus) | Out-Null
-
-        $g.Children.Add($btnPanel) | Out-Null
-        $row.Child = $g
-        $panel.Children.Add($row) | Out-Null
-    }
-
-    if ($script:orderSent.Count -eq 0 -and $script:orderCart.Count -eq 0) {
-        $empty = New-Object System.Windows.Controls.TextBlock
-        $empty.Text = 'Select items to add to order...'
-        $empty.Foreground = SolidBrush '#7A8295'
-        $empty.FontSize = 14
-        $empty.HorizontalAlignment = 'Center'
-        $empty.Margin = [System.Windows.Thickness]::new(0,40,0,0)
-        $panel.Children.Add($empty) | Out-Null
-    }
-
-    # Running total: sent + new items, invitations excluded (they're free).
+    # Running total: sent + held + new, invitations excluded (they're free).
     $total = 0.0
-    foreach ($it in $script:orderSent) {
-        if (-not $it.is_invitation) { $total += [double]$it.price_at_order_time * [double]$it.quantity }
-    }
+    foreach ($it in $script:orderSent) { if (-not $it.is_invitation) { $total += [double]$it.price_at_order_time * [double]$it.quantity } }
+    foreach ($it in $script:orderHeld) { if (-not $it.is_invitation) { $total += [double]$it.price_at_order_time * [double]$it.quantity } }
     foreach ($it in $script:orderCart) {
-        if (-not $it.is_invitation) { $total += [double]$it.price * [double]$it.quantity }
+        if (-not $it.is_invitation) {
+            $line = [double]$it.price * [double]$it.quantity
+            foreach ($a in @($it.selected_addons)) { $line += [double]$a.price * [double]$it.quantity }
+            $total += $line
+        }
     }
     $tt = ctl 'OrderTotalText'
-    if ($tt) { $tt.Text = [string]::Format('{0:N2}', [math]::Round($total, 2)) + ' EUR' }
+    if ($tt) { $tt.Text = '€' + [string]::Format('{0:N2}', [math]::Round($total, 2)) }
+    Update-OrderButtons
 }
 
-# Render the whole menu as one scrolling list — a clone of the waiter web app:
-# each category is a colored header row, immediately followed by its item rows.
-# Tapping an item adds it straight to the cart (into the currently selected
-# course). No click-to-reveal step.
+# Build the coloured category buttons (a clone of the web app's category grid).
+# Tapping a category opens the Items modal for that category.
 #
-# Iterate with foreach, never .Count: in this host the categories/items arrays
-# can arrive as a single scalar object (the .GetNewClosure()/dispatcher scope
+# Iterate with foreach, never .Count: in this host the categories array can
+# arrive as a single scalar object (the .GetNewClosure()/dispatcher scope
 # quirk), which makes .Count blank and a counted for-loop skip everything.
-# foreach iterates a scalar once and an array per-element, so it works either way.
-function Render-OrderMenu {
+function Render-OrderCategories {
   param($menuData)
   $data  = if ($menuData) { $menuData } else { $global:orderMenuData }
-  $panel = ctl 'OrderMenuPanel'
-  if (-not $panel) { return }
-  $panel.Children.Clear()
+  $grid  = ctl 'OrderCategoryGrid'
+  if (-not $grid) { return }
+  $grid.Children.Clear()
   $cats  = if ($data) { @($data.categories) } else { @() }
   $items = if ($data) { @($data.items) } else { @() }
-
-  $hint = ctl 'OrderItemsHint'
+  $hint  = ctl 'OrderCatHint'
   $any = $false
-
   $ci = 0
   foreach ($cat in $cats) {
-      $color = $script:catColors[$ci % $script:catColors.Count]
-      $catItems = @($items | Where-Object { $_.category_id -eq $cat.id -and $_.available })
-      $ci++
+      $color = $script:catColors[$ci % $script:catColors.Count]; $ci++
+      $catItems = @($items | Where-Object { $_.category_id -eq $cat.id })
       if ($catItems.Count -eq 0) { continue }
       $any = $true
 
-      # Category header row (colored, like the web app's section bar)
-      $hdr = New-Object System.Windows.Controls.Border
-      $hdr.Background = SolidBrush $color
-      $hdr.CornerRadius = [System.Windows.CornerRadius]::new(6)
-      $hdr.Padding = [System.Windows.Thickness]::new(12,7,12,7)
-      $hdr.Margin  = [System.Windows.Thickness]::new(0,0,0,4)
-      $hdrTb = New-Object System.Windows.Controls.TextBlock
-      $hdrTb.Text = $cat.name.ToUpper()
-      $hdrTb.Foreground = [System.Windows.Media.Brushes]::White
-      $hdrTb.FontSize = 12; $hdrTb.FontWeight = 'Bold'
-      $hdr.Child = $hdrTb
-      $panel.Children.Add($hdr) | Out-Null
+      $btn = New-Object System.Windows.Controls.Button
+      $btn.Content = $cat.name
+      $btn.MinWidth = 132; $btn.Height = 52
+      $btn.FontSize = 13; $btn.FontWeight = 'Bold'
+      $btn.Foreground = [System.Windows.Media.Brushes]::Black
+      $btn.Background = SolidBrush $color
+      $btn.BorderThickness = [System.Windows.Thickness]::new(0)
+      $btn.Cursor = [System.Windows.Input.Cursors]::Hand
+      $btn.Margin = [System.Windows.Thickness]::new(0,0,6,6)
+      $btn.Tag = [pscustomobject]@{ cat = $cat; items = $catItems }
 
-      # Item rows for this category
-      foreach ($item in $catItems) {
-          $row = New-Object System.Windows.Controls.Button
-          $row.Height = 42
-          $row.Background = SolidBrush '#1A1D29'
-          $row.Foreground = [System.Windows.Media.Brushes]::White
-          $row.BorderThickness = [System.Windows.Thickness]::new(0)
-          $row.Cursor = [System.Windows.Input.Cursors]::Hand
-          $row.Margin = [System.Windows.Thickness]::new(0,0,0,3)
-          $row.HorizontalContentAlignment = 'Stretch'
-          $row.Tag = $item
+      $tpl = New-Object System.Windows.Controls.ControlTemplate ([System.Windows.Controls.Button])
+      $bdr = New-Object System.Windows.FrameworkElementFactory ([System.Windows.Controls.Border])
+      $bdr.SetBinding([System.Windows.Controls.Border]::BackgroundProperty, (New-Object System.Windows.Data.Binding 'Background'))
+      $bdr.SetValue([System.Windows.Controls.Border]::CornerRadiusProperty, [System.Windows.CornerRadius]::new(8))
+      $bdr.SetValue([System.Windows.Controls.Border]::PaddingProperty, [System.Windows.Thickness]::new(10,0,10,0))
+      $cp = New-Object System.Windows.FrameworkElementFactory ([System.Windows.Controls.ContentPresenter])
+      $cp.SetValue([System.Windows.Controls.ContentPresenter]::HorizontalAlignmentProperty, [System.Windows.HorizontalAlignment]::Center)
+      $cp.SetValue([System.Windows.Controls.ContentPresenter]::VerticalAlignmentProperty, [System.Windows.VerticalAlignment]::Center)
+      $bdr.AppendChild($cp); $tpl.VisualTree = $bdr; $btn.Template = $tpl
 
-          $tpl = New-Object System.Windows.Controls.ControlTemplate ([System.Windows.Controls.Button])
-          $bdr = New-Object System.Windows.FrameworkElementFactory ([System.Windows.Controls.Border])
-          $bdr.SetBinding([System.Windows.Controls.Border]::BackgroundProperty, (New-Object System.Windows.Data.Binding 'Background') )
-          $bdr.SetValue([System.Windows.Controls.Border]::CornerRadiusProperty, [System.Windows.CornerRadius]::new(6))
-          $bdr.SetValue([System.Windows.Controls.Border]::PaddingProperty, [System.Windows.Thickness]::new(12,0,12,0))
-          $cp = New-Object System.Windows.FrameworkElementFactory ([System.Windows.Controls.ContentPresenter])
-          $cp.SetValue([System.Windows.Controls.ContentPresenter]::HorizontalAlignmentProperty, [System.Windows.HorizontalAlignment]::Stretch)
-          $cp.SetValue([System.Windows.Controls.ContentPresenter]::VerticalAlignmentProperty, [System.Windows.VerticalAlignment]::Center)
-          $bdr.AppendChild($cp)
-          $tpl.VisualTree = $bdr
-          $row.Template = $tpl
-
-          $g = New-Object System.Windows.Controls.Grid
-          $gc1 = New-Object System.Windows.Controls.ColumnDefinition; $gc1.Width = [System.Windows.GridLength]::new(1, [System.Windows.GridUnitType]::Star)
-          $gc2 = New-Object System.Windows.Controls.ColumnDefinition; $gc2.Width = [System.Windows.GridLength]::Auto
-          $g.ColumnDefinitions.Add($gc1); $g.ColumnDefinitions.Add($gc2)
-
-          $nt = New-Object System.Windows.Controls.TextBlock
-          $nt.Text = $item.name; $nt.FontSize = 13; $nt.Foreground = [System.Windows.Media.Brushes]::White; $nt.VerticalAlignment = 'Center'
-          [System.Windows.Controls.Grid]::SetColumn($nt, 0)
-          $g.Children.Add($nt) | Out-Null
-
-          $pt = New-Object System.Windows.Controls.TextBlock
-          $pt.Text = [string]::Format('{0:N2} EUR', $item.price); $pt.FontSize = 13; $pt.Foreground = SolidBrush '#10B981'; $pt.FontWeight = 'SemiBold'; $pt.VerticalAlignment = 'Center'
-          [System.Windows.Controls.Grid]::SetColumn($pt, 1)
-          $g.Children.Add($pt) | Out-Null
-
-          $row.Content = $g
-          # Add via a top-level function (Add-OrderItem), NOT inline: writing
-          # $script:orderCart inside a .GetNewClosure() handler lands in that
-          # closure's private module scope, so the real cart never changes. A
-          # top-level function's $script: always targets the real script scope.
-          # The item travels through the button's Tag, so no closure is needed.
-          $row.Add_Click({ param($s,$e); Add-OrderItem $s.Tag })
-          $panel.Children.Add($row) | Out-Null
-      }
+      $btn.Add_Click({ param($s,$e); Show-ItemsModal $s.Tag })
+      $grid.Children.Add($btn) | Out-Null
   }
-
   if ($hint) { $hint.Visibility = if ($any) { 'Collapsed' } else { 'Visible' } }
-  if ($hint -and -not $any) { $hint.Text = 'No menu items yet' }
+  if ($hint -and -not $any) { $hint.Text = 'No menu categories yet' }
+}
+
+# ── Items modal (menu items in the tapped category) ──────────────────────────
+function Show-ItemsModal($info) {
+    if (-not $info) { return }
+    $script:orderSelCat = $info
+    (ctl 'OrderItemsModalTitle').Text = $info.cat.name
+    Render-ItemsModal
+    (ctl 'OrderItemsModal').Visibility = 'Visible'
+}
+function Hide-ItemsModal { (ctl 'OrderItemsModal').Visibility = 'Collapsed' }
+
+# Count plain (uncustomised) units of a menu item already in the cart for the
+# current course — drives the orange qty badge, like the web app.
+function Get-CartQtyFor($itemId) {
+    $n = 0
+    foreach ($c in $script:orderCart) {
+        if ($c.menu_item_id -eq $itemId -and $c.course -eq $script:orderCourse -and
+            [string]::IsNullOrEmpty($c.special_requests) -and @($c.selected_addons).Count -eq 0) { $n += $c.quantity }
+    }
+    return $n
+}
+
+function Render-ItemsModal {
+    $grid = ctl 'OrderItemsGrid'
+    if (-not $grid -or -not $script:orderSelCat) { return }
+    $grid.Children.Clear()
+    foreach ($item in @($script:orderSelCat.items)) {
+        $soldOut = ($item.available -eq $false)
+        $qtyIn = Get-CartQtyFor $item.id
+
+        $card = New-Object System.Windows.Controls.Button
+        $card.Width = 150; $card.Height = 92
+        $card.Margin = [System.Windows.Thickness]::new(0,0,8,8)
+        $card.BorderThickness = [System.Windows.Thickness]::new(0)
+        $card.HorizontalContentAlignment = 'Stretch'; $card.VerticalContentAlignment = 'Stretch'
+        $card.Background = SolidBrush $(if ($soldOut) { '#6B7280' } else { '#CDDC39' })
+        $card.Cursor = [System.Windows.Input.Cursors]::Hand
+        $card.IsEnabled = (-not $soldOut)
+        $card.Tag = $item
+
+        $tpl = New-Object System.Windows.Controls.ControlTemplate ([System.Windows.Controls.Button])
+        $bdr = New-Object System.Windows.FrameworkElementFactory ([System.Windows.Controls.Border])
+        $bdr.SetBinding([System.Windows.Controls.Border]::BackgroundProperty, (New-Object System.Windows.Data.Binding 'Background'))
+        $bdr.SetValue([System.Windows.Controls.Border]::CornerRadiusProperty, [System.Windows.CornerRadius]::new(8))
+        if ($qtyIn -gt 0) { $bdr.SetValue([System.Windows.Controls.Border]::BorderBrushProperty, (SolidBrush '#F97316')); $bdr.SetValue([System.Windows.Controls.Border]::BorderThicknessProperty, [System.Windows.Thickness]::new(3)) }
+        $cp = New-Object System.Windows.FrameworkElementFactory ([System.Windows.Controls.ContentPresenter])
+        $bdr.AppendChild($cp); $tpl.VisualTree = $bdr; $card.Template = $tpl
+
+        $outer = New-Object System.Windows.Controls.Grid
+        $inner = New-Object System.Windows.Controls.StackPanel
+        $inner.Margin = [System.Windows.Thickness]::new(10,8,10,8)
+        $nm = New-Object System.Windows.Controls.TextBlock
+        $nm.Text = $item.name; $nm.Foreground = [System.Windows.Media.Brushes]::Black; $nm.FontSize = 13; $nm.FontWeight = 'Bold'; $nm.TextWrapping = 'Wrap'
+        $inner.Children.Add($nm) | Out-Null
+        if ($soldOut) {
+            $so = New-Object System.Windows.Controls.TextBlock
+            $so.Text = 'SOLD OUT'; $so.Foreground = SolidBrush '#B91C1C'; $so.FontSize = 10; $so.FontWeight = 'Bold'; $so.Margin = [System.Windows.Thickness]::new(0,4,0,0)
+            $inner.Children.Add($so) | Out-Null
+        } elseif ($item.price -gt 0) {
+            $pr = New-Object System.Windows.Controls.TextBlock
+            $pr.Text = '€' + [string]::Format('{0:N2}', $item.price); $pr.Foreground = [System.Windows.Media.Brushes]::Black; $pr.FontSize = 15; $pr.FontWeight = 'Bold'; $pr.Margin = [System.Windows.Thickness]::new(0,6,0,0)
+            $inner.Children.Add($pr) | Out-Null
+        }
+        $outer.Children.Add($inner) | Out-Null
+
+        if ($qtyIn -gt 0) {
+            $badge = New-Object System.Windows.Controls.Border
+            $badge.Background = SolidBrush '#F97316'; $badge.CornerRadius = [System.Windows.CornerRadius]::new(12)
+            $badge.Width = 24; $badge.Height = 24
+            $badge.HorizontalAlignment = 'Right'; $badge.VerticalAlignment = 'Top'; $badge.Margin = [System.Windows.Thickness]::new(0,4,4,0)
+            $bt = New-Object System.Windows.Controls.TextBlock
+            $bt.Text = "$qtyIn"; $bt.Foreground = [System.Windows.Media.Brushes]::White; $bt.FontSize = 12; $bt.FontWeight = 'Bold'
+            $bt.HorizontalAlignment = 'Center'; $bt.VerticalAlignment = 'Center'
+            $badge.Child = $bt
+            $outer.Children.Add($badge) | Out-Null
+        }
+
+        $card.Content = $outer
+        $card.Add_Click({ param($s,$e); Add-OrderItem $s.Tag })
+        $grid.Children.Add($card) | Out-Null
+    }
 }
 
 # Load the ordering menu (categories + items) and render the category buttons.
@@ -4793,7 +4979,8 @@ function Render-OrderMenu {
 function Load-OrderMenu {
     param([scriptblock]$Then)
     if ($global:orderMenuData) {
-        Render-OrderMenu $global:orderMenuData
+        $script:orderMenuAddons = @($global:orderMenuData.addons)
+        Render-OrderCategories $global:orderMenuData
         if ($Then) { & $Then }
         return
     }
@@ -4801,7 +4988,8 @@ function Load-OrderMenu {
         param($r, $bad)
         if (-not $bad -and $r) {
             $global:orderMenuData = $r
-            Render-OrderMenu $r
+            $script:orderMenuAddons = @($r.addons)
+            Render-OrderCategories $r
         }
         if ($Then) { & $Then }
     }.GetNewClosure()
@@ -4811,12 +4999,14 @@ function Enter-OrderTable($tableNum) {
     $script:orderTable = $tableNum
     $script:orderCart = @()
     $script:orderSent = @()
+    $script:orderHeld = @()
     $script:orderId = $null
     Select-Course 'direct'
 
     (ctl 'OrderTableSelector').Visibility = 'Collapsed'
     (ctl 'OrderActiveView').Visibility = 'Visible'
     (ctl 'OrderTableLabel').Text = "Table $tableNum"
+    Render-OrderCart
 
     # Render categories first (single request), THEN pull this table's items —
     # chained, so the two GETs never overlap and neither callback is lost.
@@ -4825,7 +5015,7 @@ function Enter-OrderTable($tableNum) {
             param($r, $bad)
             if (-not $bad -and $r) {
                 $script:orderId = $r.order_id
-                $script:orderSent = @($r.items)
+                Set-OrderItemsFrom $r.items
             }
             Render-OrderCart
         }
@@ -4837,7 +5027,11 @@ function Leave-OrderTable {
     $script:orderId = $null
     $script:orderCart = @()
     $script:orderSent = @()
+    $script:orderHeld = @()
     (ctl 'OrderActiveView').Visibility = 'Collapsed'
+    (ctl 'OrderItemsModal').Visibility = 'Collapsed'
+    (ctl 'OrderAddonModal').Visibility = 'Collapsed'
+    (ctl 'OrderActionsModal').Visibility = 'Collapsed'
     (ctl 'OrderTableSelector').Visibility = 'Visible'
     Update-Orders-Page
 }
@@ -4894,50 +5088,56 @@ function Update-Orders-Page {
 (ctl 'OrderSend').Add_Click({
     if ($script:orderBusy) { return }
     if (-not $script:orderTable) { return }
-    if ($script:orderCart.Count -eq 0) { return }
+    if (@($script:orderCart).Count -eq 0) { return }
     $script:orderBusy = $true
     (ctl 'OrderSend').Background = SolidBrush '#6B7280'
+    $directCount = @($script:orderCart | Where-Object { $_.course -eq 'direct' }).Count
+    $courseCount = @($script:orderCart | Where-Object { $_.course -ne 'direct' }).Count
 
     $payload = @{
         table_number = $script:orderTable
         order_id     = $script:orderId
         items        = @($script:orderCart | ForEach-Object {
             @{
-                menu_item_id   = $_.menu_item_id
-                menu_item_name = $_.menu_item_name
-                price          = $_.price
-                quantity       = $_.quantity
-                course         = $_.course
-                is_invitation  = [bool]$_.is_invitation
+                menu_item_id    = $_.menu_item_id
+                menu_item_name  = $_.menu_item_name
+                price           = $_.price
+                quantity        = $_.quantity
+                course          = $_.course
+                is_invitation   = [bool]$_.is_invitation
+                special_requests = "$($_.special_requests)"
+                selected_addons = @(@($_.selected_addons) | ForEach-Object { @{ id = $_.id; name = $_.name; price = $_.price } })
             }
         })
-    } | ConvertTo-Json -Depth 5
+    } | ConvertTo-Json -Depth 6
 
     Invoke-AsyncPost "$base/local/order/send" $payload 'POST' {
         param($r, $bad, $emsg)
         $script:orderBusy = $false
-        (ctl 'OrderSend').Background = SolidBrush '#3B82F6'
         if (-not $bad -and $r -and $r.ok) {
             $script:orderId = $r.order_id
             $script:orderCart = @()
-            # Reload sent items
+            (ctl 'OrderItemsModal').Visibility = 'Collapsed'
+            if ($directCount -gt 0 -and $courseCount -gt 0) { Show-Toast 'success' 'Order saved!' "$directCount sent to kitchen, $courseCount held for later" }
+            elseif ($directCount -gt 0) { Show-Toast 'success' 'Sent to kitchen!' "$directCount item(s) dispatched" }
+            else { Show-Toast 'success' 'Courses saved!' "$courseCount item(s) held for later" }
             Invoke-AsyncGet "$base/local/order/items?table=$($script:orderTable)" {
                 param($r2, $bad2)
-                if (-not $bad2 -and $r2) {
-                    $script:orderSent = @($r2.items)
-                }
+                if (-not $bad2 -and $r2) { Set-OrderItemsFrom $r2.items }
                 Render-OrderCart
             }
         } else {
+            Show-Toast 'error' 'Failed to send order' 'Please try again'
             Render-OrderCart
         }
-    }
+    }.GetNewClosure()
 })
 
-# RECLAIM button
+# RECLAIM button — fire the next held course to the kitchen.
 (ctl 'OrderReclaim').Add_Click({
     if ($script:orderBusy) { return }
     if (-not $script:orderTable) { return }
+    if (@($script:orderHeld).Count -eq 0) { Show-Toast 'info' 'No more courses to dispatch' ''; return }
     $script:orderBusy = $true
     (ctl 'OrderReclaim').Background = SolidBrush '#6B7280'
 
@@ -4946,21 +5146,23 @@ function Update-Orders-Page {
     Invoke-AsyncPost "$base/local/order/reclaim" $payload 'POST' {
         param($r, $bad, $emsg)
         $script:orderBusy = $false
-        (ctl 'OrderReclaim').Background = SolidBrush '#374151'
         if (-not $bad -and $r -and $r.ok) {
-            # Reload sent items
+            $lbl = if ($r.course) { ($r.course -replace '_',' ') } else { 'course' }
+            Show-Toast 'success' 'Course dispatched!' "$lbl sent to kitchen"
             Invoke-AsyncGet "$base/local/order/items?table=$($script:orderTable)" {
                 param($r2, $bad2)
-                if (-not $bad2 -and $r2) {
-                    $script:orderSent = @($r2.items)
-                }
+                if (-not $bad2 -and $r2) { Set-OrderItemsFrom $r2.items }
                 Render-OrderCart
             }
+        } else {
+            Update-OrderButtons
+            Show-Toast 'error' 'Failed to dispatch course' 'Please try again'
         }
     }
 })
 
-# STOP button
+# STOP button — leave this table and return to table selection (no cancellation;
+# already-sent items stay on the order), mirroring the web app's STOP.
 (ctl 'OrderStop').Add_Click({
     if (-not $script:orderTable) { return }
     Leave-OrderTable
@@ -4979,12 +5181,17 @@ function Update-Orders-Page {
         param($r, $bad, $emsg)
         $script:orderBusy = $false
         (ctl 'OrderCheck').Background = SolidBrush '#8B5CF6'
-        if ($bad -or -not $r -or -not $r.ok) {
+        if (-not $bad -and $r -and $r.ok) {
+            Show-Toast 'success' 'Check printed' "Table $($script:orderTable)"
+        } else {
             $msg = if ($r -and $r.error) { $r.error } else { 'Could not print the check.' }
-            [System.Windows.MessageBox]::Show($msg, 'LightMenu Station', 'OK', 'Warning') | Out-Null
+            Show-Toast 'error' 'Check failed' $msg
         }
     }
 })
+
+# Items modal close
+(ctl 'OrderItemsClose').Add_Click({ Hide-ItemsModal })
 
 # ─── Order Actions modal (Transfer / Cancel / Invitation) ────────────────────
 function Show-OrderActionsModal {
@@ -5013,12 +5220,13 @@ function Hide-OrderActionsModal {
     Invoke-AsyncPost "$base/local/order/transfer" $payload 'POST' {
         param($r, $bad, $emsg)
         if (-not $bad -and $r -and $r.ok) {
+            Show-Toast 'success' 'Order transferred' "Moved to Table $to"
             Leave-OrderTable
         } else {
             $msg = if ($r -and $r.error) { $r.error } else { 'Transfer failed.' }
-            [System.Windows.MessageBox]::Show($msg, 'LightMenu Station', 'OK', 'Warning') | Out-Null
+            Show-Toast 'error' 'Transfer failed' $msg
         }
-    }
+    }.GetNewClosure()
 })
 
 # Cancel Order: void the whole open order (with confirmation).
@@ -5033,10 +5241,11 @@ function Hide-OrderActionsModal {
     Invoke-AsyncPost "$base/local/order/cancel" $payload 'POST' {
         param($r, $bad, $emsg)
         if (-not $bad -and $r -and $r.ok) {
+            Show-Toast 'success' 'Order cancelled' "Table $($script:orderTable)"
             Leave-OrderTable
         } else {
             $msg = if ($r -and $r.error) { $r.error } else { 'Cancel failed.' }
-            [System.Windows.MessageBox]::Show($msg, 'LightMenu Station', 'OK', 'Warning') | Out-Null
+            Show-Toast 'error' 'Cancel failed' $msg
         }
     }
 })
@@ -5046,10 +5255,9 @@ function Hide-OrderActionsModal {
 # check treats them as free. Toggles off if already all-invitation.
 (ctl 'ActInvitation').Add_Click({
     if (-not $script:orderTable) { return }
-    if ($script:orderCart.Count -eq 0) {
-        [System.Windows.MessageBox]::Show(
-            'Add items to the order first, then mark them as an invitation before sending.',
-            'Invitation', 'OK', 'Information') | Out-Null
+    if (@($script:orderCart).Count -eq 0) {
+        Hide-OrderActionsModal
+        Show-Toast 'info' 'Nothing to invite' 'Add items first, then mark them before sending'
         return
     }
     $allInv = -not ($script:orderCart | Where-Object { -not $_.is_invitation })
@@ -5058,7 +5266,122 @@ function Hide-OrderActionsModal {
     }
     Hide-OrderActionsModal
     Render-OrderCart
+    Show-Toast 'success' $(if ($allInv) { 'Invitation removed' } else { 'Marked as invitation' }) 'On the house 🎁'
 })
+
+# ── Special Request / add-ons modal ──────────────────────────────────────────
+# Opened by the ✎ on a new (unsent) cart line. Shows preset notes, paid add-ons
+# (this item's toppings + global add-ons), and a free-text note — a clone of the
+# web SpecialRequestModal. Save writes special_requests + selected_addons back.
+function Show-AddonModal([int]$idx) {
+    if ($idx -lt 0 -or $idx -ge @($script:orderCart).Count) { return }
+    $script:orderAddonIdx = $idx
+    $item = $script:orderCart[$idx]
+    $script:orderAddonSel = @(@($item.selected_addons) | ForEach-Object { [pscustomobject]@{ id = $_.id; name = $_.name; price = $_.price } })
+    (ctl 'OrderAddonItemName').Text = $item.menu_item_name
+    (ctl 'OrderNoteInput').Text = "$($item.special_requests)"
+
+    # Presets
+    $pp = ctl 'OrderPresetPanel'; $pp.Children.Clear()
+    foreach ($p in $script:notePresets) {
+        $b = New-Object System.Windows.Controls.Button
+        $b.Content = $p; $b.Margin = [System.Windows.Thickness]::new(0,0,6,6); $b.Padding = [System.Windows.Thickness]::new(12,6,12,6)
+        $b.Background = SolidBrush '#1A1D29'; $b.Foreground = [System.Windows.Media.Brushes]::White
+        $b.BorderThickness = [System.Windows.Thickness]::new(0); $b.Cursor = [System.Windows.Input.Cursors]::Hand; $b.FontSize = 12
+        $tpl = New-Object System.Windows.Controls.ControlTemplate ([System.Windows.Controls.Button])
+        $bdr = New-Object System.Windows.FrameworkElementFactory ([System.Windows.Controls.Border])
+        $bdr.SetBinding([System.Windows.Controls.Border]::BackgroundProperty, (New-Object System.Windows.Data.Binding 'Background'))
+        $bdr.SetValue([System.Windows.Controls.Border]::CornerRadiusProperty, [System.Windows.CornerRadius]::new(8))
+        $bdr.SetValue([System.Windows.Controls.Border]::PaddingProperty, [System.Windows.Thickness]::new(12,6,12,6))
+        $cp = New-Object System.Windows.FrameworkElementFactory ([System.Windows.Controls.ContentPresenter])
+        $bdr.AppendChild($cp); $tpl.VisualTree = $bdr; $b.Template = $tpl
+        $b.Add_Click({ param($s,$e); (ctl 'OrderNoteInput').Text = "$($s.Content)" })
+        $pp.Children.Add($b) | Out-Null
+    }
+    Render-AddonList
+    (ctl 'OrderAddonModal').Visibility = 'Visible'
+}
+function Hide-AddonModal { (ctl 'OrderAddonModal').Visibility = 'Collapsed'; $script:orderAddonIdx = -1 }
+
+function Test-AddonSelected($id) { return [bool](@($script:orderAddonSel) | Where-Object { $_.id -eq $id }) }
+
+function Toggle-Addon($addon) {
+    if (Test-AddonSelected $addon.id) {
+        $script:orderAddonSel = @(@($script:orderAddonSel) | Where-Object { $_.id -ne $addon.id })
+    } else {
+        $script:orderAddonSel += @([pscustomobject]@{ id = $addon.id; name = $addon.name; price = [double]$addon.price })
+    }
+    Render-AddonList
+}
+
+function Render-AddonList {
+    $list = ctl 'OrderAddonList'; if (-not $list) { return }
+    $list.Children.Clear()
+    $item = if ($script:orderAddonIdx -ge 0 -and $script:orderAddonIdx -lt @($script:orderCart).Count) { $script:orderCart[$script:orderAddonIdx] } else { $null }
+
+    # Per-item toppings first, then global add-ons — dedup by id, like the web.
+    $merged = @(); $seen = @{}
+    foreach ($a in @(@($item.item_addons) + @($script:orderMenuAddons))) {
+        if (-not $a -or -not $a.name) { continue }
+        $key = "$($a.id)|$($a.name)".ToLower()
+        if ($seen[$key]) { continue }
+        $seen[$key] = $true
+        $merged += ,$a
+    }
+    if ($merged.Count -eq 0) {
+        $none = New-Object System.Windows.Controls.TextBlock
+        $none.Text = 'No add-ons available'; $none.Foreground = SolidBrush '#6B7280'; $none.FontSize = 12
+        $none.HorizontalAlignment = 'Center'; $none.Margin = [System.Windows.Thickness]::new(0,6,0,0)
+        $list.Children.Add($none) | Out-Null
+        return
+    }
+    foreach ($a in $merged) {
+        $on = Test-AddonSelected $a.id
+        $b = New-Object System.Windows.Controls.Button
+        $b.Margin = [System.Windows.Thickness]::new(0,0,0,5); $b.BorderThickness = [System.Windows.Thickness]::new(0)
+        $b.Background = SolidBrush $(if ($on) { '#123326' } else { '#1A1D29' })
+        $b.Cursor = [System.Windows.Input.Cursors]::Hand; $b.HorizontalContentAlignment = 'Stretch'; $b.Tag = $a
+        $tpl = New-Object System.Windows.Controls.ControlTemplate ([System.Windows.Controls.Button])
+        $bdr = New-Object System.Windows.FrameworkElementFactory ([System.Windows.Controls.Border])
+        $bdr.SetBinding([System.Windows.Controls.Border]::BackgroundProperty, (New-Object System.Windows.Data.Binding 'Background'))
+        $bdr.SetValue([System.Windows.Controls.Border]::CornerRadiusProperty, [System.Windows.CornerRadius]::new(8))
+        $bdr.SetValue([System.Windows.Controls.Border]::PaddingProperty, [System.Windows.Thickness]::new(10,8,10,8))
+        if ($on) { $bdr.SetValue([System.Windows.Controls.Border]::BorderBrushProperty, (SolidBrush '#10B981')); $bdr.SetValue([System.Windows.Controls.Border]::BorderThicknessProperty, [System.Windows.Thickness]::new(1)) }
+        $cp = New-Object System.Windows.FrameworkElementFactory ([System.Windows.Controls.ContentPresenter])
+        $bdr.AppendChild($cp); $tpl.VisualTree = $bdr; $b.Template = $tpl
+
+        $g = New-Object System.Windows.Controls.Grid
+        $gc1 = New-Object System.Windows.Controls.ColumnDefinition; $gc1.Width = [System.Windows.GridLength]::Auto
+        $gc2 = New-Object System.Windows.Controls.ColumnDefinition; $gc2.Width = [System.Windows.GridLength]::new(1, [System.Windows.GridUnitType]::Star)
+        $gc3 = New-Object System.Windows.Controls.ColumnDefinition; $gc3.Width = [System.Windows.GridLength]::Auto
+        $g.ColumnDefinitions.Add($gc1); $g.ColumnDefinitions.Add($gc2); $g.ColumnDefinitions.Add($gc3)
+        $chk = New-Object System.Windows.Controls.TextBlock
+        $chk.Text = $(if ($on) { '☑' } else { '☐' }); $chk.Foreground = SolidBrush $(if ($on) { '#10B981' } else { '#6B7280' }); $chk.FontSize = 15; $chk.VerticalAlignment = 'Center'; $chk.Margin = [System.Windows.Thickness]::new(0,0,10,0)
+        [System.Windows.Controls.Grid]::SetColumn($chk, 0); $g.Children.Add($chk) | Out-Null
+        $nm = New-Object System.Windows.Controls.TextBlock
+        $nm.Text = $a.name; $nm.Foreground = [System.Windows.Media.Brushes]::White; $nm.FontSize = 13; $nm.VerticalAlignment = 'Center'
+        [System.Windows.Controls.Grid]::SetColumn($nm, 1); $g.Children.Add($nm) | Out-Null
+        $pr = New-Object System.Windows.Controls.TextBlock
+        $pr.Text = '+€' + [string]::Format('{0:N2}', [double]$a.price); $pr.Foreground = SolidBrush '#34D399'; $pr.FontSize = 13; $pr.FontWeight = 'Bold'; $pr.VerticalAlignment = 'Center'
+        [System.Windows.Controls.Grid]::SetColumn($pr, 2); $g.Children.Add($pr) | Out-Null
+        $b.Content = $g
+        $b.Add_Click({ param($s,$e); Toggle-Addon $s.Tag })
+        $list.Children.Add($b) | Out-Null
+    }
+}
+
+function Save-Addon {
+    $idx = $script:orderAddonIdx
+    if ($idx -ge 0 -and $idx -lt @($script:orderCart).Count) {
+        $script:orderCart[$idx].special_requests = ("$((ctl 'OrderNoteInput').Text)").Trim()
+        $script:orderCart[$idx].selected_addons = @($script:orderAddonSel)
+    }
+    Hide-AddonModal
+    Render-OrderCart
+}
+
+(ctl 'OrderAddonSave').Add_Click({ Save-Addon })
+(ctl 'OrderAddonCancel').Add_Click({ Hide-AddonModal })
 
 function Update-Kitchen-Page {
     # Live transport status from /status
