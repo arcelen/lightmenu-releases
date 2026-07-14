@@ -4553,6 +4553,16 @@ $script:courseLabels = @{ 'direct' = 'direct'; 'first_plate' = 'S1'; 'second_pla
 # Preset special-request notes (identical to the web SpecialRequestModal).
 $script:notePresets = @('No salt','Extra spicy','Not spicy','Well done','Take away')
 
+# Background binding for a programmatic ControlTemplate's Border. A plain
+# `Binding 'Background'` binds to the (null) DataContext and renders nothing —
+# it MUST use RelativeSource=TemplatedParent to pick up the Button's own
+# Background, otherwise every templated button shows as bare text on no fill.
+function TemplatedBgBinding {
+    $b = New-Object System.Windows.Data.Binding -ArgumentList 'Background'
+    $b.RelativeSource = New-Object System.Windows.Data.RelativeSource ([System.Windows.Data.RelativeSourceMode]::TemplatedParent)
+    return $b
+}
+
 # ── Toast: bottom-right slide-in notification, auto-dismiss after 3s. The
 # animated feedback for sent / reclaimed / transferred / invited / cancelled,
 # mirroring the web app's OrderingNotification. type = success|error|info.
@@ -4759,7 +4769,7 @@ function New-MiniBtn($glyph, $color, $idx, [scriptblock]$onClick) {
     $b.Margin = [System.Windows.Thickness]::new(3,0,0,0); $b.Tag = $idx
     $tpl = New-Object System.Windows.Controls.ControlTemplate ([System.Windows.Controls.Button])
     $bdr = New-Object System.Windows.FrameworkElementFactory ([System.Windows.Controls.Border])
-    $bdr.SetBinding([System.Windows.Controls.Border]::BackgroundProperty, (New-Object System.Windows.Data.Binding 'Background'))
+    $bdr.SetBinding([System.Windows.Controls.Border]::BackgroundProperty, (TemplatedBgBinding))
     $bdr.SetValue([System.Windows.Controls.Border]::CornerRadiusProperty, [System.Windows.CornerRadius]::new(5))
     $cp = New-Object System.Windows.FrameworkElementFactory ([System.Windows.Controls.ContentPresenter])
     $cp.SetValue([System.Windows.Controls.ContentPresenter]::HorizontalAlignmentProperty, [System.Windows.HorizontalAlignment]::Center)
@@ -4874,7 +4884,7 @@ function Render-OrderCategories {
 
       $tpl = New-Object System.Windows.Controls.ControlTemplate ([System.Windows.Controls.Button])
       $bdr = New-Object System.Windows.FrameworkElementFactory ([System.Windows.Controls.Border])
-      $bdr.SetBinding([System.Windows.Controls.Border]::BackgroundProperty, (New-Object System.Windows.Data.Binding 'Background'))
+      $bdr.SetBinding([System.Windows.Controls.Border]::BackgroundProperty, (TemplatedBgBinding))
       $bdr.SetValue([System.Windows.Controls.Border]::CornerRadiusProperty, [System.Windows.CornerRadius]::new(8))
       $bdr.SetValue([System.Windows.Controls.Border]::PaddingProperty, [System.Windows.Thickness]::new(10,0,10,0))
       $cp = New-Object System.Windows.FrameworkElementFactory ([System.Windows.Controls.ContentPresenter])
@@ -4930,7 +4940,7 @@ function Render-ItemsModal {
 
         $tpl = New-Object System.Windows.Controls.ControlTemplate ([System.Windows.Controls.Button])
         $bdr = New-Object System.Windows.FrameworkElementFactory ([System.Windows.Controls.Border])
-        $bdr.SetBinding([System.Windows.Controls.Border]::BackgroundProperty, (New-Object System.Windows.Data.Binding 'Background'))
+        $bdr.SetBinding([System.Windows.Controls.Border]::BackgroundProperty, (TemplatedBgBinding))
         $bdr.SetValue([System.Windows.Controls.Border]::CornerRadiusProperty, [System.Windows.CornerRadius]::new(8))
         if ($qtyIn -gt 0) { $bdr.SetValue([System.Windows.Controls.Border]::BorderBrushProperty, (SolidBrush '#F97316')); $bdr.SetValue([System.Windows.Controls.Border]::BorderThicknessProperty, [System.Windows.Thickness]::new(3)) }
         $cp = New-Object System.Windows.FrameworkElementFactory ([System.Windows.Controls.ContentPresenter])
@@ -5063,7 +5073,7 @@ function Update-Orders-Page {
 
             $tpl = New-Object System.Windows.Controls.ControlTemplate ([System.Windows.Controls.Button])
             $bdr = New-Object System.Windows.FrameworkElementFactory ([System.Windows.Controls.Border])
-            $bdr.SetBinding([System.Windows.Controls.Border]::BackgroundProperty, (New-Object System.Windows.Data.Binding 'Background') )
+            $bdr.SetBinding([System.Windows.Controls.Border]::BackgroundProperty, (TemplatedBgBinding) )
             $bdr.SetValue([System.Windows.Controls.Border]::CornerRadiusProperty, [System.Windows.CornerRadius]::new(10))
             $cp = New-Object System.Windows.FrameworkElementFactory ([System.Windows.Controls.ContentPresenter])
             $cp.SetValue([System.Windows.Controls.ContentPresenter]::HorizontalAlignmentProperty, [System.Windows.HorizontalAlignment]::Center)
@@ -5290,7 +5300,7 @@ function Show-AddonModal([int]$idx) {
         $b.BorderThickness = [System.Windows.Thickness]::new(0); $b.Cursor = [System.Windows.Input.Cursors]::Hand; $b.FontSize = 12
         $tpl = New-Object System.Windows.Controls.ControlTemplate ([System.Windows.Controls.Button])
         $bdr = New-Object System.Windows.FrameworkElementFactory ([System.Windows.Controls.Border])
-        $bdr.SetBinding([System.Windows.Controls.Border]::BackgroundProperty, (New-Object System.Windows.Data.Binding 'Background'))
+        $bdr.SetBinding([System.Windows.Controls.Border]::BackgroundProperty, (TemplatedBgBinding))
         $bdr.SetValue([System.Windows.Controls.Border]::CornerRadiusProperty, [System.Windows.CornerRadius]::new(8))
         $bdr.SetValue([System.Windows.Controls.Border]::PaddingProperty, [System.Windows.Thickness]::new(12,6,12,6))
         $cp = New-Object System.Windows.FrameworkElementFactory ([System.Windows.Controls.ContentPresenter])
@@ -5343,7 +5353,7 @@ function Render-AddonList {
         $b.Cursor = [System.Windows.Input.Cursors]::Hand; $b.HorizontalContentAlignment = 'Stretch'; $b.Tag = $a
         $tpl = New-Object System.Windows.Controls.ControlTemplate ([System.Windows.Controls.Button])
         $bdr = New-Object System.Windows.FrameworkElementFactory ([System.Windows.Controls.Border])
-        $bdr.SetBinding([System.Windows.Controls.Border]::BackgroundProperty, (New-Object System.Windows.Data.Binding 'Background'))
+        $bdr.SetBinding([System.Windows.Controls.Border]::BackgroundProperty, (TemplatedBgBinding))
         $bdr.SetValue([System.Windows.Controls.Border]::CornerRadiusProperty, [System.Windows.CornerRadius]::new(8))
         $bdr.SetValue([System.Windows.Controls.Border]::PaddingProperty, [System.Windows.Thickness]::new(10,8,10,8))
         if ($on) { $bdr.SetValue([System.Windows.Controls.Border]::BorderBrushProperty, (SolidBrush '#10B981')); $bdr.SetValue([System.Windows.Controls.Border]::BorderThicknessProperty, [System.Windows.Thickness]::new(1)) }
