@@ -1662,6 +1662,131 @@ async function stationCloseOrder(tableNum) {
   return { ok: true, had_order: !!local };
 }
 
+// Print the customer check for a table's open order. Reads local state (always
+// available offline), builds a check ticket, prints it, and best-effort stamps
+// check_printed_at on the table so the floor plan turns purple.
+async function stationPrintCheck(tableNum) {
+  if (!tableNum) throw new Error('table_number required');
+  const local = _activeOrder(tableNum);
+  if (!local || !Array.isArray(local.items) || !local.items.length) {
+    return { ok: false, error: 'No open order for this table' };
+  }
+  const settings = _getTicketSettings();
+  const items = local.items.map(i => ({
+    name: i.menu_item_name || 'Item',
+    qty: i.quantity || 1,
+    price: i.price_at_order_time || 0,
+    is_invitation: i.is_invitation,
+    selected_addons: i.selected_addons
+      ? (typeof i.selected_addons === 'string' ? JSON.parse(i.selected_addons) : i.selected_addons)
+      : null,
+  }));
+  const total = items.reduce((s, i) => s + (i.is_invitation ? 0 : (i.price || 0) * (i.qty || 1)), 0);
+
+  const ticket = {
+    type: 'check', restaurant_id: RESTAURANT_ID, restaurant_name: RESTAURANT_NAME,
+    table_number: tableNum, waiter_name: 'Station', currency: settings.currency || 'EUR',
+    time: new Date().toISOString(), order_id: local.order_id,
+    total, guest_count: local.guest_count || 1, items, settings,
+  };
+  try {
+    const copies = settings.check_copies || 1;
+    for (let i = 0; i < Math.min(copies, 3); i++) await sendToPrinter(buildCheckTicket(ticket));
+    printed++; updateDailyStats('printed');
+    log('STATION CHECK: Mesa ' + tableNum);
+  } catch (pe) {
+    log('Station check print failed: ' + pe.message);
+    return { ok: false, error: 'Printer error: ' + pe.message };
+  }
+
+  // Stamp check_printed_at so the floor plan reflects it (best-effort).
+  (async () => {
+    try {
+      const tables = await supabaseGet('tables', { restaurant_id: RESTAURANT_ID, table_number: tableNum }, 1);
+      if (tables?.length) await supabasePatch('tables', tables[0].id, { check_printed_at: new Date().toISOString() });
+    } catch (e) { log('Check stamp failed: ' + e.message); }
+  })();
+
+  return { ok: true };
+}
+
+// Void the whole open order for a table. Clears local state, prints a
+// cancellation notice to the kitchen (so they stop cooking), and best-effort
+// marks the remote order cancelled and frees the table.
+async function stationCancelOrder(tableNum) {
+  if (!tableNum) throw new Error('table_number required');
+  const local = _activeOrder(tableNum);
+  if (!local) return { ok: false, error: 'No open order for this table' };
+  _removeActiveOrder(tableNum);
+
+  // Kitchen cancellation ticket (best-effort — never blocks the void).
+  try {
+    const settings = _getTicketSettings();
+    const ticket = {
+      type: 'cancel', restaurant_id: RESTAURANT_ID, restaurant_name: RESTAURANT_NAME,
+      table_number: tableNum, waiter_name: 'Station', cancelled_by: 'Station',
+      currency: settings.currency || 'EUR', time: new Date().toISOString(),
+      items: (local.items || []).map(i => ({ name: i.menu_item_name || 'Item', qty: i.quantity || 1 })),
+      settings,
+    };
+    await sendToPrinter(buildCancelTicket(ticket));
+  } catch (pe) { log('Cancel ticket print failed: ' + pe.message); }
+
+  if (local.remote_order_id) {
+    (async () => {
+      try {
+        await supabasePatch('orders', local.remote_order_id, { status: 'cancelled' });
+        const tables = await supabaseGet('tables', { restaurant_id: RESTAURANT_ID, table_number: tableNum }, 1);
+        if (tables?.length) await supabasePatch('tables', tables[0].id, { status: 'available', current_order_id: null });
+      } catch (e) { log('Cancel sync failed: ' + e.message); }
+    })();
+  }
+  return { ok: true, had_order: true };
+}
+
+// Move a table's open order to a different table number. Local state moves
+// immediately; a transfer ticket prints; the remote order + both tables sync
+// in the background.
+async function stationTransferOrder(fromTable, toTable) {
+  if (!fromTable || !toTable) throw new Error('from_table and to_table required');
+  if (String(fromTable) === String(toTable)) return { ok: false, error: 'Same table' };
+  const local = _activeOrder(fromTable);
+  if (!local) return { ok: false, error: 'No open order on table ' + fromTable };
+  if (_activeOrder(toTable)) return { ok: false, error: 'Table ' + toTable + ' already has an open order' };
+
+  // Move locally.
+  local.table_number = toTable;
+  _removeActiveOrder(fromTable);
+  _saveActiveOrder(toTable, local);
+
+  // Transfer ticket (best-effort).
+  try {
+    const settings = _getTicketSettings();
+    const ticket = {
+      type: 'transfer', restaurant_id: RESTAURANT_ID, restaurant_name: RESTAURANT_NAME,
+      from_table: fromTable, to_table: toTable, table_number: toTable, waiter_name: 'Station',
+      currency: settings.currency || 'EUR', time: new Date().toISOString(),
+      items: (local.items || []).map(i => ({ name: i.menu_item_name || 'Item', qty: i.quantity || 1 })),
+      settings,
+    };
+    await sendToPrinter(buildTransferTicket(ticket));
+  } catch (pe) { log('Transfer ticket print failed: ' + pe.message); }
+
+  // Remote sync (best-effort).
+  if (local.remote_order_id) {
+    (async () => {
+      try {
+        await supabasePatch('orders', local.remote_order_id, { table_number: toTable });
+        const fromT = await supabaseGet('tables', { restaurant_id: RESTAURANT_ID, table_number: fromTable }, 1);
+        if (fromT?.length) await supabasePatch('tables', fromT[0].id, { status: 'available', current_order_id: null });
+        const toT = await supabaseGet('tables', { restaurant_id: RESTAURANT_ID, table_number: toTable }, 1);
+        if (toT?.length) await supabasePatch('tables', toT[0].id, { status: 'occupied', current_order_id: local.remote_order_id });
+      } catch (e) { log('Transfer sync failed: ' + e.message); }
+    })();
+  }
+  return { ok: true, from_table: fromTable, to_table: toTable };
+}
+
 async function _syncOrderToSupabase(tableNum) {
   const local = _activeOrder(tableNum);
   if (!local) return;
@@ -3274,6 +3399,60 @@ http.createServer((req, res) => {
         const tableNum = b.table_number;
         if (!tableNum) { res.writeHead(400); res.end(JSON.stringify({ error: 'table_number required' })); return; }
         const r = await stationCloseOrder(tableNum);
+        res.writeHead(200, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify(r));
+      } catch (e) {
+        res.writeHead(500, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ ok: false, error: e.message }));
+      }
+    });
+    return;
+  }
+
+  if (req.method === 'POST' && req.url === '/local/order/print-check') {
+    let body = '';
+    req.on('data', c => body += c);
+    req.on('end', async () => {
+      try {
+        const b = JSON.parse(body || '{}');
+        if (!b.table_number) { res.writeHead(400); res.end(JSON.stringify({ error: 'table_number required' })); return; }
+        const r = await stationPrintCheck(b.table_number);
+        res.writeHead(200, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify(r));
+      } catch (e) {
+        res.writeHead(500, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ ok: false, error: e.message }));
+      }
+    });
+    return;
+  }
+
+  if (req.method === 'POST' && req.url === '/local/order/cancel') {
+    let body = '';
+    req.on('data', c => body += c);
+    req.on('end', async () => {
+      try {
+        const b = JSON.parse(body || '{}');
+        if (!b.table_number) { res.writeHead(400); res.end(JSON.stringify({ error: 'table_number required' })); return; }
+        const r = await stationCancelOrder(b.table_number);
+        res.writeHead(200, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify(r));
+      } catch (e) {
+        res.writeHead(500, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ ok: false, error: e.message }));
+      }
+    });
+    return;
+  }
+
+  if (req.method === 'POST' && req.url === '/local/order/transfer') {
+    let body = '';
+    req.on('data', c => body += c);
+    req.on('end', async () => {
+      try {
+        const b = JSON.parse(body || '{}');
+        if (!b.from_table || !b.to_table) { res.writeHead(400); res.end(JSON.stringify({ error: 'from_table and to_table required' })); return; }
+        const r = await stationTransferOrder(b.from_table, b.to_table);
         res.writeHead(200, { 'Content-Type': 'application/json' });
         res.end(JSON.stringify(r));
       } catch (e) {
