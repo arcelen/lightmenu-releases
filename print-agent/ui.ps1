@@ -7,7 +7,7 @@
 $ErrorActionPreference = 'Stop'
 $scriptDir = Split-Path -Parent $MyInvocation.MyCommand.Definition
 $errorLog  = Join-Path $scriptDir '..\app\ui-error.log'
-try { Add-Content -Path $errorLog -Value ("[" + (Get-Date -Format 'yyyy-MM-dd HH:mm:ss') + "] UI START build=6.0.101") } catch {}
+try { Add-Content -Path $errorLog -Value ("[" + (Get-Date -Format 'yyyy-MM-dd HH:mm:ss') + "] UI START build=6.0.102") } catch {}
 trap {
     $msg = "[$(Get-Date -Format 'yyyy-MM-dd HH:mm:ss')] $($_.Exception.Message)`n$($_.ScriptStackTrace)`n"
     try { Add-Content -Path $errorLog -Value $msg } catch {}
@@ -4565,12 +4565,19 @@ function Render-OrderCart {
 }
 
 function Render-OrderCategories {
+  param($menuData)
   try {
+    # Take the menu straight from the caller when provided. Reading it back from
+    # $global:/$script: fails when the write happened inside a .GetNewClosure()
+    # block (that block gets its own module scope and corrupts the value seen
+    # here — it came back as a scalar PSCustomObject with no .Count, so the loop
+    # skipped every category). A plain parameter sidesteps all of that.
+    $data = if ($menuData) { $menuData } else { $global:orderMenuData }
     $grid = ctl 'OrderCategoryGrid'
     if (-not $grid) { OrderLog 'Render: OrderCategoryGrid control NOT FOUND'; return }
     $grid.Children.Clear()
-    $cats = if ($global:orderMenuData) { @($global:orderMenuData.categories) } else { @() }
-    $items = if ($global:orderMenuData) { @($global:orderMenuData.items) } else { @() }
+    $cats = if ($data) { @($data.categories) } else { @() }
+    $items = if ($data) { @($data.items) } else { @() }
     OrderLog ("Render-OrderCategories: rendering " + $cats.Count + " categories")
 
     for ($ci = 0; $ci -lt $cats.Count; $ci++) {
@@ -4701,7 +4708,7 @@ function Load-OrderMenu {
     param([scriptblock]$Then)
     OrderLog ("Load-OrderMenu called; cached=" + [bool]$global:orderMenuData)
     if ($global:orderMenuData) {
-        Render-OrderCategories
+        Render-OrderCategories $global:orderMenuData
         if ($Then) { & $Then }
         return
     }
@@ -4711,7 +4718,7 @@ function Load-OrderMenu {
         OrderLog ("menu fetch done; bad=" + $bad + "; cats=" + $(if ($r) { @($r.categories).Count } else { 'null' }))
         if (-not $bad -and $r) {
             $global:orderMenuData = $r
-            Render-OrderCategories
+            Render-OrderCategories $r
         }
         if ($Then) { & $Then }
     }.GetNewClosure()
