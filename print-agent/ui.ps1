@@ -7,7 +7,7 @@
 $ErrorActionPreference = 'Stop'
 $scriptDir = Split-Path -Parent $MyInvocation.MyCommand.Definition
 $errorLog  = Join-Path $scriptDir '..\app\ui-error.log'
-try { Add-Content -Path $errorLog -Value ("[" + (Get-Date -Format 'yyyy-MM-dd HH:mm:ss') + "] UI START build=6.0.100") } catch {}
+try { Add-Content -Path $errorLog -Value ("[" + (Get-Date -Format 'yyyy-MM-dd HH:mm:ss') + "] UI START build=6.0.101") } catch {}
 trap {
     $msg = "[$(Get-Date -Format 'yyyy-MM-dd HH:mm:ss')] $($_.Exception.Message)`n$($_.ScriptStackTrace)`n"
     try { Add-Content -Path $errorLog -Value $msg } catch {}
@@ -4396,7 +4396,7 @@ $script:orderId        = $null   # current order ID (from Supabase)
 $script:orderCart      = @()     # new items not yet sent
 $script:orderSent      = @()     # items already sent (from server)
 $script:orderCourse    = 'direct'
-$script:orderMenuData  = $null
+$global:orderMenuData  = $null
 $script:orderBusy      = $false
 
 $script:catColors = @('#3B82F6','#10B981','#F59E0B','#EF4444','#8B5CF6','#EC4899','#14B8A6','#F97316')
@@ -4569,8 +4569,8 @@ function Render-OrderCategories {
     $grid = ctl 'OrderCategoryGrid'
     if (-not $grid) { OrderLog 'Render: OrderCategoryGrid control NOT FOUND'; return }
     $grid.Children.Clear()
-    $cats = if ($script:orderMenuData) { @($script:orderMenuData.categories) } else { @() }
-    $items = if ($script:orderMenuData) { @($script:orderMenuData.items) } else { @() }
+    $cats = if ($global:orderMenuData) { @($global:orderMenuData.categories) } else { @() }
+    $items = if ($global:orderMenuData) { @($global:orderMenuData.items) } else { @() }
     OrderLog ("Render-OrderCategories: rendering " + $cats.Count + " categories")
 
     for ($ci = 0; $ci -lt $cats.Count; $ci++) {
@@ -4689,7 +4689,7 @@ function Show-OrderItems($cat, $items, $color) {
 }
 
 # Load the ordering menu (categories + items) and render the category buttons.
-# Cached in $script:orderMenuData so re-opening a table is instant. Runs as a
+# Cached in $global:orderMenuData so re-opening a table is instant. Runs as a
 # single request (never concurrent with another async GET) because this host
 # drops a completion callback when two DownloadStringAsync calls overlap — that
 # race is exactly why the category buttons used to come up blank.
@@ -4699,8 +4699,8 @@ function OrderLog($m) {
 
 function Load-OrderMenu {
     param([scriptblock]$Then)
-    OrderLog ("Load-OrderMenu called; cached=" + [bool]$script:orderMenuData)
-    if ($script:orderMenuData) {
+    OrderLog ("Load-OrderMenu called; cached=" + [bool]$global:orderMenuData)
+    if ($global:orderMenuData) {
         Render-OrderCategories
         if ($Then) { & $Then }
         return
@@ -4710,7 +4710,7 @@ function Load-OrderMenu {
         param($r, $bad)
         OrderLog ("menu fetch done; bad=" + $bad + "; cats=" + $(if ($r) { @($r.categories).Count } else { 'null' }))
         if (-not $bad -and $r) {
-            $script:orderMenuData = $r
+            $global:orderMenuData = $r
             Render-OrderCategories
         }
         if ($Then) { & $Then }
