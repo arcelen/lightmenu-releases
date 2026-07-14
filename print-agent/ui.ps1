@@ -4528,7 +4528,11 @@ function Add-OrderItem($it) {
     Render-OrderCart
 }
 
-function Adjust-OrderQty($idx, $delta) {
+function Adjust-OrderQty([int]$idx, [int]$delta) {
+    # $idx/$delta MUST be typed [int]: a call like `Adjust-OrderQty 0 -1`
+    # passes the bare -1 as the STRING "-1", and "-1" -gt 0 is a *string*
+    # comparison that returns True — which made the minus button increment
+    # like the plus button. Coercing to int fixes the comparison.
     if ($idx -lt 0 -or $idx -ge $script:orderCart.Count) { return }
     $target = $script:orderCart[$idx]
     if ($delta -gt 0) {
