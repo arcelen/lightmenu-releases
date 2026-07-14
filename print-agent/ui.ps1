@@ -4603,6 +4603,28 @@ function Show-OrderItems($cat, $items, $color) {
     }
 }
 
+# Load the ordering menu (categories + items) and render the category buttons.
+# Cached in $script:orderMenuData so re-opening a table is instant. Runs as a
+# single request (never concurrent with another async GET) because this host
+# drops a completion callback when two DownloadStringAsync calls overlap — that
+# race is exactly why the category buttons used to come up blank.
+function Load-OrderMenu {
+    param([scriptblock]$Then)
+    if ($script:orderMenuData) {
+        Render-OrderCategories
+        if ($Then) { & $Then }
+        return
+    }
+    Invoke-AsyncGet "$base/local/menu" {
+        param($r, $bad)
+        if (-not $bad -and $r) {
+            $script:orderMenuData = $r
+            Render-OrderCategories
+        }
+        if ($Then) { & $Then }
+    }.GetNewClosure()
+}
+
 function Enter-OrderTable($tableNum) {
     $script:orderTable = $tableNum
     $script:orderCart = @()
@@ -4614,13 +4636,17 @@ function Enter-OrderTable($tableNum) {
     (ctl 'OrderActiveView').Visibility = 'Visible'
     (ctl 'OrderTableLabel').Text = "Table $tableNum"
 
-    Invoke-AsyncGet "$base/local/order/items?table=$tableNum" {
-        param($r, $bad)
-        if (-not $bad -and $r) {
-            $script:orderId = $r.order_id
-            $script:orderSent = @($r.items)
+    # Render categories first (single request), THEN pull this table's items —
+    # chained, so the two GETs never overlap and neither callback is lost.
+    Load-OrderMenu {
+        Invoke-AsyncGet "$base/local/order/items?table=$tableNum" {
+            param($r, $bad)
+            if (-not $bad -and $r) {
+                $script:orderId = $r.order_id
+                $script:orderSent = @($r.items)
+            }
+            Render-OrderCart
         }
-        Render-OrderCart
     }
 }
 
@@ -4677,15 +4703,9 @@ function Update-Orders-Page {
             $grid.Children.Add($btn) | Out-Null
         }
     }
-
-    # Load menu for categories
-    Invoke-AsyncGet "$base/local/menu" {
-        param($r, $bad)
-        if (-not $bad -and $r) {
-            $script:orderMenuData = $r
-            Render-OrderCategories
-        }
-    }
+    # Menu/categories are loaded lazily by Enter-OrderTable (single, non-racing
+    # request) — not here, where it would overlap the /local/tables call above
+    # and risk losing one of the two completion callbacks.
 }
 
 # SEND button
