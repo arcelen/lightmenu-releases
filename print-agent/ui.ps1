@@ -7,7 +7,7 @@
 $ErrorActionPreference = 'Stop'
 $scriptDir = Split-Path -Parent $MyInvocation.MyCommand.Definition
 $errorLog  = Join-Path $scriptDir '..\app\ui-error.log'
-try { Add-Content -Path $errorLog -Value ("[" + (Get-Date -Format 'yyyy-MM-dd HH:mm:ss') + "] UI START build=6.0.102") } catch {}
+try { Add-Content -Path $errorLog -Value ("[" + (Get-Date -Format 'yyyy-MM-dd HH:mm:ss') + "] UI START build=6.0.103") } catch {}
 trap {
     $msg = "[$(Get-Date -Format 'yyyy-MM-dd HH:mm:ss')] $($_.Exception.Message)`n$($_.ScriptStackTrace)`n"
     try { Add-Content -Path $errorLog -Value $msg } catch {}
@@ -4578,10 +4578,14 @@ function Render-OrderCategories {
     $grid.Children.Clear()
     $cats = if ($data) { @($data.categories) } else { @() }
     $items = if ($data) { @($data.items) } else { @() }
-    OrderLog ("Render-OrderCategories: rendering " + $cats.Count + " categories")
+    OrderLog ("Render: catsType=" + $(if ($null -ne $cats) { $cats.GetType().Name } else { 'null' }) + " count=[" + $cats.Count + "]")
 
-    for ($ci = 0; $ci -lt $cats.Count; $ci++) {
-        $cat = $cats[$ci]
+    # Iterate with foreach, never $cats.Count: in this host the array can arrive
+    # as a single scalar object (the .GetNewClosure()/dispatcher scope quirk),
+    # which makes .Count blank and a counted for-loop skip everything. foreach
+    # iterates a scalar once and an array per-element, so it works either way.
+    $ci = 0
+    foreach ($cat in $cats) {
         $color = $script:catColors[$ci % $script:catColors.Count]
         $catItems = @($items | Where-Object { $_.category_id -eq $cat.id -and $_.available })
 
@@ -4614,6 +4618,7 @@ function Render-OrderCategories {
             Show-OrderItems $info.cat $info.items $info.color
         }.GetNewClosure())
         $grid.Children.Add($btn) | Out-Null
+        $ci++
     }
     OrderLog ("Render-OrderCategories: done, grid now has " + $grid.Children.Count + " buttons")
   } catch {
