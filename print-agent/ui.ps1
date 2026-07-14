@@ -4505,6 +4505,42 @@ function Open-TypedTable {
     if ($e.Key -eq [System.Windows.Input.Key]::Enter) { Open-TypedTable }
 })
 
+# Cart mutations live in top-level functions so their $script:orderCart writes
+# hit the real script scope. Called from button Add_Click handlers (via the
+# button's Tag) — never write $script:orderCart directly inside a click handler,
+# because a handler wrapped in .GetNewClosure() gets its own module scope and
+# the write is silently lost.
+function Add-OrderItem($it) {
+    if (-not $it) { return }
+    $existing = $script:orderCart | Where-Object { $_.menu_item_id -eq $it.id -and $_.course -eq $script:orderCourse }
+    if ($existing) {
+        $existing.quantity++
+    } else {
+        $script:orderCart += @([pscustomobject]@{
+            menu_item_id   = $it.id
+            menu_item_name = $it.name
+            price          = $it.price
+            quantity       = 1
+            course         = $script:orderCourse
+            is_invitation  = $false
+        })
+    }
+    Render-OrderCart
+}
+
+function Adjust-OrderQty($idx, $delta) {
+    if ($idx -lt 0 -or $idx -ge $script:orderCart.Count) { return }
+    $target = $script:orderCart[$idx]
+    if ($delta -gt 0) {
+        $target.quantity++
+    } elseif ($target.quantity -gt 1) {
+        $target.quantity--
+    } else {
+        $script:orderCart = @($script:orderCart | Where-Object { $_ -ne $target })
+    }
+    Render-OrderCart
+}
+
 function Render-OrderCart {
     $panel = ctl 'OrderCartItems'
     $panel.Children.Clear()
@@ -4598,15 +4634,7 @@ function Render-OrderCart {
         $minus.Background = SolidBrush '#374151'; $minus.Foreground = [System.Windows.Media.Brushes]::White
         $minus.BorderThickness = [System.Windows.Thickness]::new(0); $minus.Cursor = [System.Windows.Input.Cursors]::Hand
         $minus.Tag = $idx
-        $minus.Add_Click({
-            param($s,$e)
-            $ci = [int]$s.Tag
-            if ($ci -lt $script:orderCart.Count) {
-                if ($script:orderCart[$ci].quantity -gt 1) { $script:orderCart[$ci].quantity-- }
-                else { $script:orderCart = @($script:orderCart | Where-Object { $_ -ne $script:orderCart[$ci] }) }
-                Render-OrderCart
-            }
-        }.GetNewClosure())
+        $minus.Add_Click({ param($s,$e); Adjust-OrderQty ([int]$s.Tag) -1 })
         $btnPanel.Children.Add($minus) | Out-Null
 
         $plus = New-Object System.Windows.Controls.Button
@@ -4615,11 +4643,7 @@ function Render-OrderCart {
         $plus.BorderThickness = [System.Windows.Thickness]::new(0); $plus.Cursor = [System.Windows.Input.Cursors]::Hand
         $plus.Margin = [System.Windows.Thickness]::new(4,0,0,0)
         $plus.Tag = $idx
-        $plus.Add_Click({
-            param($s,$e)
-            $ci = [int]$s.Tag
-            if ($ci -lt $script:orderCart.Count) { $script:orderCart[$ci].quantity++; Render-OrderCart }
-        }.GetNewClosure())
+        $plus.Add_Click({ param($s,$e); Adjust-OrderQty ([int]$s.Tag) 1 })
         $btnPanel.Children.Add($plus) | Out-Null
 
         $g.Children.Add($btnPanel) | Out-Null
@@ -4720,24 +4744,12 @@ function Render-OrderMenu {
           $g.Children.Add($pt) | Out-Null
 
           $row.Content = $g
-          $row.Add_Click({
-              param($s,$e)
-              $it = $s.Tag
-              $existing = $script:orderCart | Where-Object { $_.menu_item_id -eq $it.id -and $_.course -eq $script:orderCourse }
-              if ($existing) {
-                  $existing.quantity++
-              } else {
-                  $script:orderCart += @([pscustomobject]@{
-                      menu_item_id   = $it.id
-                      menu_item_name = $it.name
-                      price          = $it.price
-                      quantity       = 1
-                      course         = $script:orderCourse
-                      is_invitation  = $false
-                  })
-              }
-              Render-OrderCart
-          }.GetNewClosure())
+          # Add via a top-level function (Add-OrderItem), NOT inline: writing
+          # $script:orderCart inside a .GetNewClosure() handler lands in that
+          # closure's private module scope, so the real cart never changes. A
+          # top-level function's $script: always targets the real script scope.
+          # The item travels through the button's Tag, so no closure is needed.
+          $row.Add_Click({ param($s,$e); Add-OrderItem $s.Tag })
           $panel.Children.Add($row) | Out-Null
       }
   }
