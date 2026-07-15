@@ -2335,15 +2335,25 @@ function Switch-Page($name) {
 # icon = emoji code point (built with ConvertFromUtf32 — above-BMP glyphs throw
 # on a plain [char] cast). target = the Switch-Page key the card opens.
 $script:homeCards = @(
-    @{ target='Orders';    icon=0x1F4CB; color='#14B8A6'; titleKey='home_orders_t';    descKey='home_orders_d' }
-    @{ target='Dashboard'; icon=0x1F5FA; color='#22C55E'; titleKey='home_floor_t';     descKey='home_floor_d' }
-    @{ target='Menu';      icon=0x1F37D; color='#F97316'; titleKey='home_menu_t';      descKey='home_menu_d' }
-    @{ target='Kitchen';   icon=0x1F5A8; color='#3B82F6'; titleKey='home_kitchen_t';   descKey='home_kitchen_d' }
-    @{ target='Assistant'; icon=0x2728;  color='#8B5CF6'; titleKey='home_ai_t';        descKey='home_ai_d' }
-    @{ target='Staff';     icon=0x1F465; color='#6366F1'; titleKey='home_staff_t';     descKey='home_staff_d' }
-    @{ target='Analytics'; icon=0x1F4CA; color='#A855F7'; titleKey='home_analytics_t'; descKey='home_analytics_d' }
-    @{ target='Bills';     icon=0x1F9FE; color='#EC4899'; titleKey='home_bills_t';     descKey='home_bills_d' }
-    @{ target='Report';    icon=0x1F4C5; color='#F59E0B'; titleKey='home_report_t';    descKey='home_report_d' }
+    # path = SVG geometry string (24×24 viewBox); rendered as a white stroke Path scaled to 22×22
+    @{ target='Orders';    color='#14B8A6'; titleKey='home_orders_t';    descKey='home_orders_d'
+       path='M9 5H7C5.9 5 5 5.9 5 7V19C5 20.1 5.9 21 7 21H17C18.1 21 19 20.1 19 19V7C19 5.9 18.1 5 17 5H15M9 5C9 3.9 9.9 3 11 3H13C14.1 3 15 3.9 15 5H9ZM9 12H15M9 16H13' }
+    @{ target='Dashboard'; color='#22C55E'; titleKey='home_floor_t';     descKey='home_floor_d'
+       path='M3 3H10V10H3ZM14 3H21V10H14ZM14 14H21V21H14ZM3 14H10V21H3Z' }
+    @{ target='Menu';      color='#F97316'; titleKey='home_menu_t';      descKey='home_menu_d'
+       path='M5 3V8M8 3V8M11 3V8M8 8V21M16 3L16 21M16 3C20 5 21 9 19 12L16 14' }
+    @{ target='Kitchen';   color='#3B82F6'; titleKey='home_kitchen_t';   descKey='home_kitchen_d'
+       path='M6 9V3H18V9M6 18H4C2.9 18 2 17.1 2 16V11C2 9.9 2.9 9 4 9H20C21.1 9 22 9.9 22 11V16C22 17.1 21.1 18 20 18H18M6 14H18V21H6Z' }
+    @{ target='Assistant'; color='#8B5CF6'; titleKey='home_ai_t';        descKey='home_ai_d'
+       path='M12 3L13.5 8.5L19 10L13.5 11.5L12 17L10.5 11.5L5 10L10.5 8.5ZM19 3V6M21 4H17M5 18V21M7 19H3' }
+    @{ target='Staff';     color='#6366F1'; titleKey='home_staff_t';     descKey='home_staff_d'
+       path='M16 11C18.2 11 20 9.2 20 7S18.2 3 16 3M21 21C21 18.2 18.8 16 16 16M1 21C1 17.1 4.1 14 8 14S15 17.1 15 21M12 7C12 9.2 10.2 11 8 11S4 9.2 4 7S5.8 3 8 3S12 4.8 12 7' }
+    @{ target='Analytics'; color='#A855F7'; titleKey='home_analytics_t'; descKey='home_analytics_d'
+       path='M18 20V10M12 20V4M6 20V14M2 20H22' }
+    @{ target='Bills';     color='#EC4899'; titleKey='home_bills_t';     descKey='home_bills_d'
+       path='M5 2H15L19 6V22H5ZM15 2V6H19M8 11H16M8 15H14' }
+    @{ target='Report';    color='#F59E0B'; titleKey='home_report_t';    descKey='home_report_d'
+       path='M8 2V6M16 2V6M3 10H21M5 4H19C20.1 4 21 4.9 21 6V20C21 21.1 20.1 22 19 22H5C3.9 22 3 21.1 3 20V6C3 4.9 3.9 4 5 4ZM9 16L11 18 15 14' }
 )
 $script:homeLabels = @()
 
@@ -2362,16 +2372,23 @@ function Build-HomeCards {
         $g.ColumnDefinitions.Add($cd0); $g.ColumnDefinitions.Add($cd1)
 
         $iconBorder = New-Object System.Windows.Controls.Border
-        $iconBorder.Width = 46; $iconBorder.Height = 46
-        $iconBorder.CornerRadius = [System.Windows.CornerRadius]::new(12)
+        $iconBorder.Width = 52; $iconBorder.Height = 52
+        $iconBorder.CornerRadius = [System.Windows.CornerRadius]::new(15)
         $iconBorder.Background = SolidBrush $c.color
         $iconBorder.VerticalAlignment = 'Top'
-        $iconTb = New-Object System.Windows.Controls.TextBlock
-        $iconTb.Text = [System.Char]::ConvertFromUtf32([int]$c.icon)
-        $iconTb.FontSize = 22
-        $iconTb.Foreground = [System.Windows.Media.Brushes]::White
-        $iconTb.HorizontalAlignment = 'Center'; $iconTb.VerticalAlignment = 'Center'
-        $iconBorder.Child = $iconTb
+        $iconPath = New-Object System.Windows.Shapes.Path
+        try { $iconPath.Data = [System.Windows.Media.Geometry]::Parse($c.path) } catch {}
+        $iconPath.Stroke             = [System.Windows.Media.Brushes]::White
+        $iconPath.Fill               = [System.Windows.Media.Brushes]::Transparent
+        $iconPath.StrokeThickness    = 1.75
+        $iconPath.StrokeLineJoin     = [System.Windows.Media.PenLineJoin]::Round
+        $iconPath.StrokeStartLineCap = [System.Windows.Media.PenLineCap]::Round
+        $iconPath.StrokeEndLineCap   = [System.Windows.Media.PenLineCap]::Round
+        $iconPath.Width              = 22; $iconPath.Height = 22
+        $iconPath.Stretch            = [System.Windows.Media.Stretch]::Uniform
+        $iconPath.HorizontalAlignment = 'Center'
+        $iconPath.VerticalAlignment   = 'Center'
+        $iconBorder.Child = $iconPath
         [System.Windows.Controls.Grid]::SetColumn($iconBorder, 0)
         $g.Children.Add($iconBorder) | Out-Null
 
