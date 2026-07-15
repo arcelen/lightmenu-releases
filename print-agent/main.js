@@ -1590,7 +1590,12 @@ async function stationSendOrder(tableNum, cartItems, guestCount) {
 
 async function stationReclaimOrder(tableNum) {
   if (!tableNum) throw new Error('table_number required');
-  const local = _activeOrder(tableNum);
+  // Reconcile with Supabase first so held courses added on ANY device (waiter
+  // web/Flutter, or a Station fetch that beat the local save) are reclaimable —
+  // reading only the local file would miss them and reclaim would do nothing.
+  let local;
+  try { local = await _pullOrderFromSupabase(tableNum); }
+  catch { local = _activeOrder(tableNum); }
   if (!local) return { ok: false, error: 'No open order' };
 
   // Find next held course from local state

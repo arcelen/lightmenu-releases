@@ -1288,7 +1288,7 @@ function Format-Money($amount) {
               <ColumnDefinition Width="6"/>
               <ColumnDefinition Width="*"/>
             </Grid.ColumnDefinitions>
-            <Button x:Name="OrderSend" Grid.Column="0" Background="#16A34A" Foreground="#FFFFFF" FontSize="14" FontWeight="Bold" Padding="0,12" BorderThickness="0" Cursor="Hand" Content="✈  SEND">
+            <Button x:Name="OrderSend" Grid.Column="0" Background="#16A34A" Foreground="#FFFFFF" FontSize="14" FontWeight="Bold" Padding="0,12" BorderThickness="0" Cursor="Hand" Content="SEND">
               <Button.Template><ControlTemplate TargetType="Button"><Border Background="{TemplateBinding Background}" CornerRadius="8" Padding="{TemplateBinding Padding}"><ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center"/></Border></ControlTemplate></Button.Template>
             </Button>
             <Button x:Name="OrderReclaim" Grid.Column="2" Background="#374151" Foreground="#FFFFFF" FontSize="14" FontWeight="Bold" Padding="0,12" BorderThickness="0" Cursor="Hand" Content="RECLAIM">
@@ -5021,7 +5021,7 @@ function Enter-OrderTable($tableNum) {
     # Render categories first (single request), THEN pull this table's items —
     # chained, so the two GETs never overlap and neither callback is lost.
     Load-OrderMenu {
-        Invoke-AsyncGet "$base/local/order/items?table=$tableNum" {
+        Invoke-ReliableGet "$base/local/order/items?table=$tableNum" {
             param($r, $bad)
             if (-not $bad -and $r) {
                 $script:orderId = $r.order_id
@@ -5131,7 +5131,7 @@ function Update-Orders-Page {
             if ($directCount -gt 0 -and $courseCount -gt 0) { Show-Toast 'success' 'Order saved!' "$directCount sent to kitchen, $courseCount held for later" }
             elseif ($directCount -gt 0) { Show-Toast 'success' 'Sent to kitchen!' "$directCount item(s) dispatched" }
             else { Show-Toast 'success' 'Courses saved!' "$courseCount item(s) held for later" }
-            Invoke-AsyncGet "$base/local/order/items?table=$($script:orderTable)" {
+            Invoke-ReliableGet "$base/local/order/items?table=$($script:orderTable)" {
                 param($r2, $bad2)
                 if (-not $bad2 -and $r2) { Set-OrderItemsFrom $r2.items }
                 Render-OrderCart
@@ -5159,7 +5159,7 @@ function Update-Orders-Page {
         if (-not $bad -and $r -and $r.ok) {
             $lbl = if ($r.course) { ($r.course -replace '_',' ') } else { 'course' }
             Show-Toast 'success' 'Course dispatched!' "$lbl sent to kitchen"
-            Invoke-AsyncGet "$base/local/order/items?table=$($script:orderTable)" {
+            Invoke-ReliableGet "$base/local/order/items?table=$($script:orderTable)" {
                 param($r2, $bad2)
                 if (-not $bad2 -and $r2) { Set-OrderItemsFrom $r2.items }
                 Render-OrderCart
