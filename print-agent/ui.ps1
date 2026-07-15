@@ -4611,6 +4611,29 @@ function Set-OrderItemsFrom($items) {
     $script:orderSent = @($all | Where-Object { -not ($_.status -eq 'pending' -and $_.course -ne 'direct') })
 }
 
+# Top-level setters/mutators called from async completion callbacks, so their
+# $script: writes always target the real script scope (never a closure module).
+function Set-OrderId($id) { $script:orderId = $id }
+
+# Optimistically fold the just-sent cart lines into sent/held so the UI reflects
+# the send immediately; the server reconcile that follows is authoritative.
+function Commit-SentOptimistic {
+    foreach ($c in $script:orderCart) {
+        $obj = [pscustomobject]@{
+            menu_item_name      = $c.menu_item_name
+            price_at_order_time = $c.price
+            quantity            = $c.quantity
+            status              = $(if ($c.course -eq 'direct') { 'preparing' } else { 'pending' })
+            course              = $c.course
+            is_invitation       = [bool]$c.is_invitation
+            special_requests    = $c.special_requests
+            selected_addons     = @($c.selected_addons)
+        }
+        if ($c.course -ne 'direct') { $script:orderHeld += ,$obj } else { $script:orderSent += ,$obj }
+    }
+    $script:orderCart = @()
+}
+
 # Enable/disable + recolour SEND and RECLAIM based on what's in the cart / held.
 function Update-OrderButtons {
     $send = ctl 'OrderSend'; $recl = ctl 'OrderReclaim'
@@ -5101,8 +5124,12 @@ function Update-Orders-Page {
     if (@($script:orderCart).Count -eq 0) { return }
     $script:orderBusy = $true
     (ctl 'OrderSend').Background = SolidBrush '#6B7280'
-    $directCount = @($script:orderCart | Where-Object { $_.course -eq 'direct' }).Count
-    $courseCount = @($script:orderCart | Where-Object { $_.course -ne 'direct' }).Count
+    # Counts stashed in $script: (not local vars) so the completion callback can
+    # read them WITHOUT .GetNewClosure() — a closure would isolate every
+    # $script: write (e.g. clearing the cart) into its own scope and lose it,
+    # which is exactly why sent items used to stay editable.
+    $script:sendDirect = @($script:orderCart | Where-Object { $_.course -eq 'direct' }).Count
+    $script:sendCourse = @($script:orderCart | Where-Object { $_.course -ne 'direct' }).Count
 
     $payload = @{
         table_number = $script:orderTable
@@ -5125,12 +5152,17 @@ function Update-Orders-Page {
         param($r, $bad, $emsg)
         $script:orderBusy = $false
         if (-not $bad -and $r -and $r.ok) {
-            $script:orderId = $r.order_id
-            $script:orderCart = @()
+            Set-OrderId $r.order_id
+            # Optimistically move the new lines to sent/held and clear the cart so
+            # the UI updates INSTANTLY — a top-level function, so the writes land
+            # in the real script scope. The background reconcile below then
+            # replaces them with the authoritative server copy.
+            Commit-SentOptimistic
             (ctl 'OrderItemsModal').Visibility = 'Collapsed'
-            if ($directCount -gt 0 -and $courseCount -gt 0) { Show-Toast 'success' 'Order saved!' "$directCount sent to kitchen, $courseCount held for later" }
-            elseif ($directCount -gt 0) { Show-Toast 'success' 'Sent to kitchen!' "$directCount item(s) dispatched" }
-            else { Show-Toast 'success' 'Courses saved!' "$courseCount item(s) held for later" }
+            Render-OrderCart
+            if ($script:sendDirect -gt 0 -and $script:sendCourse -gt 0) { Show-Toast 'success' 'Order saved!' "$($script:sendDirect) sent to kitchen, $($script:sendCourse) held for later" }
+            elseif ($script:sendDirect -gt 0) { Show-Toast 'success' 'Sent to kitchen!' "$($script:sendDirect) item(s) dispatched" }
+            else { Show-Toast 'success' 'Courses saved!' "$($script:sendCourse) item(s) held for later" }
             Invoke-ReliableGet "$base/local/order/items?table=$($script:orderTable)" {
                 param($r2, $bad2)
                 if (-not $bad2 -and $r2) { Set-OrderItemsFrom $r2.items }
@@ -5140,7 +5172,7 @@ function Update-Orders-Page {
             Show-Toast 'error' 'Failed to send order' 'Please try again'
             Render-OrderCart
         }
-    }.GetNewClosure()
+    }
 })
 
 # RECLAIM button — fire the next held course to the kitchen.

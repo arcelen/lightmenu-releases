@@ -1545,29 +1545,34 @@ async function stationSendOrder(tableNum, cartItems, guestCount) {
   local.items = local.items.concat(newItems);
   _saveActiveOrder(tableNum, local);
 
-  // 2. Print kitchen ticket for direct items — always local
+  // 2. Print kitchen ticket for direct items — always local, but fire-and-forget.
+  // We do NOT await the printer: a slow/unreachable printer must not block the
+  // SEND response (that made the Station feel frozen for seconds). The order is
+  // already saved locally; printing happens in the background and is logged.
   const directItems = cartItems.filter(i => !i.course || i.course === 'direct');
   if (directItems.length) {
-    try {
-      const settings = _getTicketSettings();
-      const ticket = {
-        type: 'kitchen', restaurant_id: RESTAURANT_ID,
-        restaurant_name: RESTAURANT_NAME, table_number: tableNum,
-        waiter_name: 'Station', currency: settings.currency || 'EUR',
-        time: new Date().toISOString(), order_id: local.order_id,
-        items: directItems.map(i => ({
-          name: i.menu_item_name || i.name || 'Item', qty: i.quantity || 1,
-          price: i.price || 0, special_requests: i.special_requests,
-          is_invitation: i.is_invitation, selected_addons: i.selected_addons,
-        })),
-        settings,
-      };
-      const data = buildKitchenTicket(ticket);
-      const copies = settings.order_copies || 1;
-      for (let i = 0; i < Math.min(copies, 3); i++) await sendToPrinter(data);
-      printed++; updateDailyStats('printed');
-      log('STATION ORDER: Mesa ' + tableNum + ' (' + directItems.length + ' direct items)');
-    } catch (pe) { log('Station order print failed: ' + pe.message); }
+    (async () => {
+      try {
+        const settings = _getTicketSettings();
+        const ticket = {
+          type: 'kitchen', restaurant_id: RESTAURANT_ID,
+          restaurant_name: RESTAURANT_NAME, table_number: tableNum,
+          waiter_name: 'Station', currency: settings.currency || 'EUR',
+          time: new Date().toISOString(), order_id: local.order_id,
+          items: directItems.map(i => ({
+            name: i.menu_item_name || i.name || 'Item', qty: i.quantity || 1,
+            price: i.price || 0, special_requests: i.special_requests,
+            is_invitation: i.is_invitation, selected_addons: i.selected_addons,
+          })),
+          settings,
+        };
+        const data = buildKitchenTicket(ticket);
+        const copies = settings.order_copies || 1;
+        for (let i = 0; i < Math.min(copies, 3); i++) await sendToPrinter(data);
+        printed++; updateDailyStats('printed');
+        log('STATION ORDER: Mesa ' + tableNum + ' (' + directItems.length + ' direct items)');
+      } catch (pe) { log('Station order print failed: ' + pe.message); }
+    })();
   }
 
   // 3. Save to local store (analytics/bills)
