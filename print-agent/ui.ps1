@@ -1418,6 +1418,78 @@ function Format-Money($amount) {
           </Border>
         </Grid>
 
+        <!-- ═══ CHECK PREVIEW MODAL (receipt preview + Print / Close Table) ═══ -->
+        <Grid x:Name="OrderCheckModal" Visibility="Collapsed" Panel.ZIndex="45" Background="#CC000000">
+          <Border Width="440" MaxHeight="640" HorizontalAlignment="Center" VerticalAlignment="Center" Background="#FFFFFF" CornerRadius="12">
+            <Grid>
+              <Grid.RowDefinitions>
+                <RowDefinition Height="Auto"/>
+                <RowDefinition Height="*"/>
+                <RowDefinition Height="Auto"/>
+              </Grid.RowDefinitions>
+              <Border Grid.Row="0" Background="#F3F4F6" CornerRadius="12,12,0,0" Padding="16,11">
+                <Grid>
+                  <Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions>
+                  <TextBlock x:Name="OrderCheckTitle" Grid.Column="0" Text="Check - Table" Foreground="#7C3AED" FontSize="15" FontWeight="Bold" VerticalAlignment="Center"/>
+                  <Button x:Name="OrderCheckX" Grid.Column="1" Width="28" Height="28" Background="Transparent" Foreground="#9CA3AF" FontSize="14" FontWeight="Bold" BorderThickness="0" Cursor="Hand" Content="✕">
+                    <Button.Template><ControlTemplate TargetType="Button"><Border Background="{TemplateBinding Background}"><ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center"/></Border></ControlTemplate></Button.Template>
+                  </Button>
+                </Grid>
+              </Border>
+              <ScrollViewer Grid.Row="1" Background="#F5F0E8" VerticalScrollBarVisibility="Auto">
+                <StackPanel Margin="22,18">
+                  <TextBlock x:Name="OrderCheckRestaurant" Text="RESTAURANT" Foreground="#111827" FontFamily="Consolas" FontSize="20" FontWeight="Bold" HorizontalAlignment="Center"/>
+                  <TextBlock x:Name="OrderCheckAddr" Text="" Foreground="#6B7280" FontFamily="Consolas" FontSize="10" HorizontalAlignment="Center" TextAlignment="Center" TextWrapping="Wrap" Margin="0,2,0,0"/>
+                  <Border Height="1" Background="#C7BFB0" Margin="0,10"/>
+                  <TextBlock x:Name="OrderCheckMesa" Text="MESA 1" Foreground="#1F2937" FontFamily="Consolas" FontSize="12" FontWeight="Bold"/>
+                  <Border Height="1" Background="#C7BFB0" Margin="0,10"/>
+                  <StackPanel x:Name="OrderCheckItems"/>
+                  <Border Height="1" Background="#C7BFB0" Margin="0,10"/>
+                  <Grid>
+                    <Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions>
+                    <TextBlock Grid.Column="0" Text="TOTAL" Foreground="#111827" FontFamily="Consolas" FontSize="14" FontWeight="Bold"/>
+                    <TextBlock x:Name="OrderCheckTotal" Grid.Column="1" Text="0.00" Foreground="#111827" FontFamily="Consolas" FontSize="16" FontWeight="Bold"/>
+                  </Grid>
+                  <TextBlock x:Name="OrderCheckSplit" Text="" Foreground="#6B7280" FontFamily="Consolas" FontSize="10" HorizontalAlignment="Center" TextAlignment="Center" Margin="0,10,0,0" Visibility="Collapsed"/>
+                  <TextBlock x:Name="OrderCheckDate" Text="" Foreground="#6B7280" FontFamily="Consolas" FontSize="10" HorizontalAlignment="Center" Margin="0,12,0,0"/>
+                  <TextBlock Text="Thank you! / ¡Gracias!" Foreground="#6B7280" FontFamily="Consolas" FontSize="10" FontStyle="Italic" HorizontalAlignment="Center" Margin="0,8,0,0"/>
+                </StackPanel>
+              </ScrollViewer>
+              <Border Grid.Row="2" Background="#F3F4F6" CornerRadius="0,0,12,12" Padding="14,12">
+                <StackPanel>
+                  <Button x:Name="OrderCheckPrint" Background="#8B5CF6" Foreground="#FFFFFF" FontSize="14" FontWeight="Bold" Padding="0,11" BorderThickness="0" Cursor="Hand" Content="🖨  Print Check">
+                    <Button.Template><ControlTemplate TargetType="Button"><Border x:Name="bd" Background="{TemplateBinding Background}" CornerRadius="8" Padding="{TemplateBinding Padding}"><ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center"/></Border><ControlTemplate.Triggers><Trigger Property="IsMouseOver" Value="True"><Setter TargetName="bd" Property="Background" Value="#7C3AED"/></Trigger></ControlTemplate.Triggers></ControlTemplate></Button.Template>
+                  </Button>
+                  <Button x:Name="OrderCheckCloseTable" Background="#9CA3AF" Foreground="#FFFFFF" FontSize="14" FontWeight="Bold" Padding="0,11" BorderThickness="0" Cursor="Hand" Content="Close Table" Margin="0,8,0,0" IsEnabled="False">
+                    <Button.Template><ControlTemplate TargetType="Button"><Border x:Name="bd" Background="{TemplateBinding Background}" CornerRadius="8" Padding="{TemplateBinding Padding}"><ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center"/></Border></ControlTemplate></Button.Template>
+                  </Button>
+                  <TextBlock x:Name="OrderCheckWarn" Text="⚠ Print check first" Foreground="#D97706" FontSize="11" FontWeight="SemiBold" HorizontalAlignment="Center" Margin="0,4,0,0"/>
+                  <StackPanel x:Name="OrderCheckPayRow" Visibility="Collapsed" Margin="0,8,0,0">
+                    <TextBlock Text="How was it paid?" Foreground="#374151" FontSize="12" FontWeight="SemiBold" HorizontalAlignment="Center" Margin="0,0,0,6"/>
+                    <Grid>
+                      <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="*"/><ColumnDefinition Width="6"/><ColumnDefinition Width="*"/><ColumnDefinition Width="6"/><ColumnDefinition Width="*"/>
+                      </Grid.ColumnDefinitions>
+                      <Button x:Name="OrderPayCash" Grid.Column="0" Background="#16A34A" Foreground="#FFFFFF" FontSize="12" FontWeight="Bold" Padding="0,10" BorderThickness="0" Cursor="Hand" Content="💵 Cash">
+                        <Button.Template><ControlTemplate TargetType="Button"><Border Background="{TemplateBinding Background}" CornerRadius="8" Padding="{TemplateBinding Padding}"><ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center"/></Border></ControlTemplate></Button.Template>
+                      </Button>
+                      <Button x:Name="OrderPayCard" Grid.Column="2" Background="#2563EB" Foreground="#FFFFFF" FontSize="12" FontWeight="Bold" Padding="0,10" BorderThickness="0" Cursor="Hand" Content="💳 Card">
+                        <Button.Template><ControlTemplate TargetType="Button"><Border Background="{TemplateBinding Background}" CornerRadius="8" Padding="{TemplateBinding Padding}"><ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center"/></Border></ControlTemplate></Button.Template>
+                      </Button>
+                      <Button x:Name="OrderPayMixed" Grid.Column="4" Background="#8B5CF6" Foreground="#FFFFFF" FontSize="12" FontWeight="Bold" Padding="0,10" BorderThickness="0" Cursor="Hand" Content="🔀 Mixed">
+                        <Button.Template><ControlTemplate TargetType="Button"><Border Background="{TemplateBinding Background}" CornerRadius="8" Padding="{TemplateBinding Padding}"><ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center"/></Border></ControlTemplate></Button.Template>
+                      </Button>
+                    </Grid>
+                  </StackPanel>
+                  <Button x:Name="OrderCheckDismiss" Background="#111827" Foreground="#FFFFFF" FontSize="13" FontWeight="SemiBold" Padding="0,10" BorderThickness="0" Cursor="Hand" Content="Close" Margin="0,8,0,0">
+                    <Button.Template><ControlTemplate TargetType="Button"><Border Background="{TemplateBinding Background}" CornerRadius="8" Padding="{TemplateBinding Padding}"><ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center"/></Border></ControlTemplate></Button.Template>
+                  </Button>
+                </StackPanel>
+              </Border>
+            </Grid>
+          </Border>
+        </Grid>
+
         <!-- ═══ ORDER ACTIONS MODAL (Transfer / Cancel / Invitation) ═══ -->
         <Grid x:Name="OrderActionsModal" Visibility="Collapsed" Panel.ZIndex="40" Background="#CC000000">
           <Border Width="460" HorizontalAlignment="Center" VerticalAlignment="Center" Background="#12141C" BorderBrush="#2A2D3A" BorderThickness="1" CornerRadius="16" Padding="22">
@@ -5065,6 +5137,7 @@ function Leave-OrderTable {
     (ctl 'OrderItemsModal').Visibility = 'Collapsed'
     (ctl 'OrderAddonModal').Visibility = 'Collapsed'
     (ctl 'OrderActionsModal').Visibility = 'Collapsed'
+    (ctl 'OrderCheckModal').Visibility = 'Collapsed'
     (ctl 'OrderTableSelector').Visibility = 'Visible'
     Update-Orders-Page
 }
@@ -5210,20 +5283,102 @@ function Update-Orders-Page {
     Leave-OrderTable
 })
 
-# CHECK button — print the customer check for this table's open order.
-(ctl 'OrderCheck').Add_Click({
+# CHECK button — open the check preview modal (clone of the web CheckView).
+(ctl 'OrderCheck').Add_Click({ Show-CheckModal })
+
+# ── Check preview modal ──────────────────────────────────────────────────────
+function Set-CheckGate($printed) {
+    $btn = ctl 'OrderCheckCloseTable'; $warn = ctl 'OrderCheckWarn'
+    if ($printed) { $btn.IsEnabled = $true;  $btn.Background = SolidBrush '#DC2626'; $warn.Visibility = 'Collapsed' }
+    else          { $btn.IsEnabled = $false; $btn.Background = SolidBrush '#9CA3AF'; $warn.Visibility = 'Visible' }
+}
+# Top-level so the async print callback's write lands in the real script scope.
+function Set-CheckPrinted { $script:checkPrinted = $true; Set-CheckGate $true }
+
+function Render-CheckItems($items) {
+    $panel = ctl 'OrderCheckItems'; $panel.Children.Clear()
+    if (@($items).Count -eq 0) {
+        $e = New-Object System.Windows.Controls.TextBlock
+        $e.Text = 'No items on this table yet'; $e.Foreground = SolidBrush '#9CA3AF'
+        $e.FontFamily = 'Consolas'; $e.FontSize = 11; $e.HorizontalAlignment = 'Center'
+        $e.Margin = [System.Windows.Thickness]::new(0,10,0,10)
+        $panel.Children.Add($e) | Out-Null
+        return
+    }
+    foreach ($it in $items) {
+        $inv = [bool]$it.is_invitation
+        $line = [math]::Round([double]$it.price_at_order_time * [double]$it.quantity, 2)
+        $g = New-Object System.Windows.Controls.Grid
+        $g.Margin = [System.Windows.Thickness]::new(0,0,0,1)
+        $c1 = New-Object System.Windows.Controls.ColumnDefinition; $c1.Width = [System.Windows.GridLength]::new(1,[System.Windows.GridUnitType]::Star)
+        $c2 = New-Object System.Windows.Controls.ColumnDefinition; $c2.Width = [System.Windows.GridLength]::Auto
+        $g.ColumnDefinitions.Add($c1); $g.ColumnDefinitions.Add($c2)
+        $nm = New-Object System.Windows.Controls.TextBlock
+        $nm.Text = "$($it.quantity) x $(([string]$it.menu_item_name).ToUpper())"; $nm.FontFamily = 'Consolas'; $nm.FontSize = 12
+        $nm.Foreground = SolidBrush $(if ($inv) { '#9CA3AF' } else { '#111827' })
+        [System.Windows.Controls.Grid]::SetColumn($nm, 0); $g.Children.Add($nm) | Out-Null
+        $pr = New-Object System.Windows.Controls.TextBlock
+        $pr.Text = $(if ($inv) { 'GRATIS' } else { [string]::Format('{0:N2}', $line) }); $pr.FontFamily = 'Consolas'; $pr.FontSize = 12; $pr.FontWeight = 'Bold'
+        $pr.Foreground = SolidBrush $(if ($inv) { '#9CA3AF' } else { '#111827' })
+        [System.Windows.Controls.Grid]::SetColumn($pr, 1); $g.Children.Add($pr) | Out-Null
+        $panel.Children.Add($g) | Out-Null
+
+        foreach ($a in @($it.selected_addons | Where-Object { $_ -and $_.name })) {
+            $ag = New-Object System.Windows.Controls.Grid
+            $ag.Margin = [System.Windows.Thickness]::new(12,0,0,1)
+            $ac1 = New-Object System.Windows.Controls.ColumnDefinition; $ac1.Width = [System.Windows.GridLength]::new(1,[System.Windows.GridUnitType]::Star)
+            $ac2 = New-Object System.Windows.Controls.ColumnDefinition; $ac2.Width = [System.Windows.GridLength]::Auto
+            $ag.ColumnDefinitions.Add($ac1); $ag.ColumnDefinitions.Add($ac2)
+            $an = New-Object System.Windows.Controls.TextBlock
+            $an.Text = "+ $($a.name)"; $an.FontFamily = 'Consolas'; $an.FontSize = 11; $an.Foreground = SolidBrush '#6B7280'
+            [System.Windows.Controls.Grid]::SetColumn($an, 0); $ag.Children.Add($an) | Out-Null
+            $ap = New-Object System.Windows.Controls.TextBlock
+            $ap.Text = $(if ($inv) { 'GRATIS' } else { [string]::Format('{0:N2}', [math]::Round([double]$a.price * [double]$it.quantity,2)) }); $ap.FontFamily = 'Consolas'; $ap.FontSize = 11; $ap.Foreground = SolidBrush '#6B7280'
+            [System.Windows.Controls.Grid]::SetColumn($ap, 1); $ag.Children.Add($ap) | Out-Null
+            $panel.Children.Add($ag) | Out-Null
+        }
+    }
+}
+
+function Show-CheckModal {
+    if (-not $script:orderTable) { return }
+    $items = @(@($script:orderSent) + @($script:orderHeld))
+    (ctl 'OrderCheckTitle').Text = "Check - Table $($script:orderTable)"
+    (ctl 'OrderCheckRestaurant').Text = ("$((ctl 'RestaurantName').Text)").ToUpper()
+    (ctl 'OrderCheckMesa').Text = "MESA    $($script:orderTable)"
+    (ctl 'OrderCheckDate').Text = (Get-Date -Format 'MMM dd, yyyy  hh:mm tt')
+    Render-CheckItems $items
+
+    $total = 0.0
+    foreach ($it in $items) {
+        if ($it.is_invitation) { continue }
+        $line = [double]$it.price_at_order_time * [double]$it.quantity
+        foreach ($a in @($it.selected_addons | Where-Object { $_ -and $_.name })) { $line += [double]$a.price * [double]$it.quantity }
+        $total += $line
+    }
+    (ctl 'OrderCheckTotal').Text = [string]::Format('{0:N2}', [math]::Round($total,2))
+
+    $script:checkPrinted = $false
+    Set-CheckGate $false
+    (ctl 'OrderCheckPayRow').Visibility = 'Collapsed'
+    (ctl 'OrderCheckModal').Visibility = 'Visible'
+}
+
+(ctl 'OrderCheckX').Add_Click({ (ctl 'OrderCheckModal').Visibility = 'Collapsed' })
+(ctl 'OrderCheckDismiss').Add_Click({ (ctl 'OrderCheckModal').Visibility = 'Collapsed' })
+
+(ctl 'OrderCheckPrint').Add_Click({
     if ($script:orderBusy) { return }
     if (-not $script:orderTable) { return }
     $script:orderBusy = $true
-    (ctl 'OrderCheck').Background = SolidBrush '#6B7280'
-
+    (ctl 'OrderCheckPrint').Content = 'Sending...'
     $payload = @{ table_number = $script:orderTable } | ConvertTo-Json
-
     Invoke-AsyncPost "$base/local/order/print-check" $payload 'POST' {
         param($r, $bad, $emsg)
         $script:orderBusy = $false
-        (ctl 'OrderCheck').Background = SolidBrush '#8B5CF6'
+        (ctl 'OrderCheckPrint').Content = '🖨  Print Check'
         if (-not $bad -and $r -and $r.ok) {
+            Set-CheckPrinted
             Show-Toast 'success' 'Check printed' "Table $($script:orderTable)"
         } else {
             $msg = if ($r -and $r.error) { $r.error } else { 'Could not print the check.' }
@@ -5231,6 +5386,32 @@ function Update-Orders-Page {
         }
     }
 })
+
+(ctl 'OrderCheckCloseTable').Add_Click({
+    if (-not $script:checkPrinted) { return }
+    (ctl 'OrderCheckPayRow').Visibility = 'Visible'
+})
+
+function Close-TableWith($method) {
+    if ($script:orderBusy) { return }
+    if (-not $script:orderTable) { return }
+    $script:orderBusy = $true
+    $payload = @{ table_number = $script:orderTable; payment_method = $method } | ConvertTo-Json
+    Invoke-AsyncPost "$base/local/order/close" $payload 'POST' {
+        param($r, $bad, $emsg)
+        $script:orderBusy = $false
+        if (-not $bad -and $r -and $r.ok) {
+            Show-Toast 'success' 'Table closed' "Table $($script:orderTable) is now available"
+            (ctl 'OrderCheckModal').Visibility = 'Collapsed'
+            Leave-OrderTable
+        } else {
+            Show-Toast 'error' 'Close failed' 'Please try again'
+        }
+    }
+}
+(ctl 'OrderPayCash').Add_Click({  Close-TableWith 'cash' })
+(ctl 'OrderPayCard').Add_Click({  Close-TableWith 'card' })
+(ctl 'OrderPayMixed').Add_Click({ Close-TableWith 'mixed' })
 
 # Items modal close
 (ctl 'OrderItemsClose').Add_Click({ Hide-ItemsModal })
