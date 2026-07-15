@@ -5138,18 +5138,16 @@ function Enter-OrderTable($tableNum) {
     (ctl 'OrderTableLabel').Text = "Table $tableNum"
     Render-OrderCart
 
-    # Render categories first (single request), THEN pull this table's items —
-    # chained, so the two GETs never overlap and neither callback is lost.
-    Load-OrderMenu {
-        Invoke-ReliableGet "$base/local/order/items?table=$tableNum" {
-            param($r, $bad)
-            if (-not $bad -and $r) {
-                $script:orderId = $r.order_id
-                Set-OrderItemsFrom $r.items
-            }
-            Render-OrderCart
-        }
-    }
+    # Load categories and this table's items INDEPENDENTLY. They must not be
+    # chained: on a cold start the menu fetch is async, and its callback fires
+    # after Enter-OrderTable has returned — at which point the function-local
+    # $tableNum is gone, so a chained items fetch requested "?table=" (empty)
+    # and the existing order never loaded until something else refreshed it.
+    # Both use Invoke-ReliableGet (no dropped callbacks), so running them at the
+    # same time is safe, and Reload-OrderItems reads the persistent
+    # $script:orderTable instead of a captured local.
+    Load-OrderMenu
+    Reload-OrderItems
 }
 
 function Leave-OrderTable {
@@ -5646,7 +5644,7 @@ function Reload-OrderItems {
     if (-not $script:orderTable) { return }
     Invoke-ReliableGet "$base/local/order/items?table=$($script:orderTable)" {
         param($r2, $bad2)
-        if (-not $bad2 -and $r2) { Set-OrderItemsFrom $r2.items }
+        if (-not $bad2 -and $r2) { Set-OrderId $r2.order_id; Set-OrderItemsFrom $r2.items }
         Render-OrderCart
     }
 }
