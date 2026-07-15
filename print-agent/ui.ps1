@@ -1492,8 +1492,10 @@ function Format-Money($amount) {
 
         <!-- ═══ ORDER ACTIONS MODAL (Transfer / Cancel / Invitation) ═══ -->
         <Grid x:Name="OrderActionsModal" Visibility="Collapsed" Panel.ZIndex="40" Background="#CC000000">
-          <Border Width="460" HorizontalAlignment="Center" VerticalAlignment="Center" Background="#12141C" BorderBrush="#2A2D3A" BorderThickness="1" CornerRadius="16" Padding="22">
-            <StackPanel>
+          <Border Width="470" MaxHeight="620" HorizontalAlignment="Center" VerticalAlignment="Center" Background="#12141C" BorderBrush="#2A2D3A" BorderThickness="1" CornerRadius="16" Padding="22">
+            <Grid>
+            <!-- MAIN VIEW: pick an action -->
+            <StackPanel x:Name="ActionsMain">
               <Grid Margin="0,0,0,18">
                 <Grid.ColumnDefinitions>
                   <ColumnDefinition Width="*"/>
@@ -1526,7 +1528,7 @@ function Format-Money($amount) {
                   <Grid.ColumnDefinitions><ColumnDefinition Width="Auto"/><ColumnDefinition Width="*"/></Grid.ColumnDefinitions>
                   <TextBlock Grid.Column="0" Text="⊗" FontSize="22" FontWeight="Bold" Foreground="#FFFFFF" VerticalAlignment="Center" Margin="0,0,14,0"/>
                   <StackPanel Grid.Column="1" VerticalAlignment="Center">
-                    <TextBlock Text="Cancel Order" FontSize="15" FontWeight="Bold" Foreground="#FFFFFF"/>
+                    <TextBlock Text="Cancel Items" FontSize="15" FontWeight="Bold" Foreground="#FFFFFF"/>
                     <TextBlock Text="Cancel items from this order" FontSize="11" Foreground="#FECACA" Margin="0,1,0,0"/>
                   </StackPanel>
                 </Grid>
@@ -1548,6 +1550,29 @@ function Format-Money($amount) {
                 <Button.Template><ControlTemplate TargetType="Button"><Border x:Name="bd" Background="{TemplateBinding Background}" BorderBrush="#2A2D3A" BorderThickness="1" CornerRadius="12" Padding="{TemplateBinding Padding}"><ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center"/></Border><ControlTemplate.Triggers><Trigger Property="IsMouseOver" Value="True"><Setter TargetName="bd" Property="Background" Value="#20242F"/></Trigger></ControlTemplate.Triggers></ControlTemplate></Button.Template>
               </Button>
             </StackPanel>
+
+            <!-- SUB VIEW: per-unit selection for the chosen action -->
+            <StackPanel x:Name="ActionsSub" Visibility="Collapsed">
+              <Grid Margin="0,0,0,10">
+                <Grid.ColumnDefinitions><ColumnDefinition Width="Auto"/><ColumnDefinition Width="*"/></Grid.ColumnDefinitions>
+                <Button x:Name="ActBack" Grid.Column="0" Width="32" Height="32" Background="#2A2D3A" Foreground="#FFFFFF" FontSize="15" FontWeight="Bold" BorderThickness="0" Cursor="Hand" Content="←" Margin="0,0,10,0">
+                  <Button.Template><ControlTemplate TargetType="Button"><Border x:Name="bd" Background="{TemplateBinding Background}" CornerRadius="8"><ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center"/></Border><ControlTemplate.Triggers><Trigger Property="IsMouseOver" Value="True"><Setter TargetName="bd" Property="Background" Value="#3A3D4A"/></Trigger></ControlTemplate.Triggers></ControlTemplate></Button.Template>
+                </Button>
+                <TextBlock x:Name="ActSubTitle" Grid.Column="1" Text="Action" FontSize="18" FontWeight="Bold" Foreground="#FFFFFF" VerticalAlignment="Center"/>
+              </Grid>
+              <TextBlock x:Name="ActSubHint" Text="" Foreground="#7A8295" FontSize="12" TextWrapping="Wrap" Margin="0,0,0,10"/>
+              <ScrollViewer MaxHeight="300" VerticalScrollBarVisibility="Auto">
+                <StackPanel x:Name="ActItemsList"/>
+              </ScrollViewer>
+              <StackPanel x:Name="ActTargetRow" Visibility="Collapsed" Margin="0,12,0,0">
+                <TextBlock Text="TARGET TABLE" Foreground="#7A8295" FontSize="11" FontWeight="Bold" Margin="0,0,0,6"/>
+                <TextBox x:Name="ActTargetInput" Height="46" Background="#161922" Foreground="#FFFFFF" CaretBrush="#FFFFFF" BorderBrush="#2A2F3A" BorderThickness="1" FontSize="20" FontWeight="Bold" VerticalContentAlignment="Center" HorizontalContentAlignment="Center" MaxLength="6"/>
+              </StackPanel>
+              <Button x:Name="ActConfirm" Background="#374151" Foreground="#FFFFFF" FontSize="14" FontWeight="Bold" Padding="0,12" BorderThickness="0" Cursor="Hand" Content="Confirm" Margin="0,14,0,0">
+                <Button.Template><ControlTemplate TargetType="Button"><Border Background="{TemplateBinding Background}" CornerRadius="10" Padding="{TemplateBinding Padding}"><ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center"/></Border></ControlTemplate></Button.Template>
+              </Button>
+            </StackPanel>
+            </Grid>
           </Border>
         </Grid>
       </Grid>
@@ -5416,81 +5441,215 @@ function Close-TableWith($method) {
 # Items modal close
 (ctl 'OrderItemsClose').Add_Click({ Hide-ItemsModal })
 
-# ─── Order Actions modal (Transfer / Cancel / Invitation) ────────────────────
+# ─── Order Actions modal: per-unit Transfer / Cancel / Invitation ────────────
+# A clone of the waiter web app's TableActionsPopup: a main menu, then a
+# sub-view that acts on individual units of the sent/held items.
+$script:actMode   = $null          # 'transfer' | 'cancel' | 'invitation'
+$script:actSel    = @{}            # id -> units selected (transfer/cancel)
+$script:actInvSel = @{}            # id -> $true (invitation, whole line)
+
+function Get-ActionItems { return @(@($script:orderSent) + @($script:orderHeld) | Where-Object { -not $_.is_invitation -or $script:actMode -ne 'invitation' }) }
+
 function Show-OrderActionsModal {
     if (-not $script:orderTable) { return }
     (ctl 'ActionsModalTitle').Text = "Table $($script:orderTable)"
+    Show-ActionsMain
     (ctl 'OrderActionsModal').Visibility = 'Visible'
 }
-function Hide-OrderActionsModal {
-    (ctl 'OrderActionsModal').Visibility = 'Collapsed'
+function Hide-OrderActionsModal { (ctl 'OrderActionsModal').Visibility = 'Collapsed' }
+function Show-ActionsMain {
+    (ctl 'ActionsSub').Visibility = 'Collapsed'
+    (ctl 'ActionsMain').Visibility = 'Visible'
 }
 
 (ctl 'OrderActionsBtn').Add_Click({ Show-OrderActionsModal })
 (ctl 'ActionsModalX').Add_Click({ Hide-OrderActionsModal })
 (ctl 'ActCloseModal').Add_Click({ Hide-OrderActionsModal })
+(ctl 'ActBack').Add_Click({ Show-ActionsMain })
 
-# Transfer: move this table's order to another table number.
-(ctl 'ActTransfer').Add_Click({
-    if (-not $script:orderTable) { return }
-    $to = [Microsoft.VisualBasic.Interaction]::InputBox(
-        "Move Table $($script:orderTable)'s order to which table number?", 'Transfer order', '')
-    $to = ("$to").Trim()
-    if ($to -notmatch '^\d+$') { return }
-    if ($to -eq "$($script:orderTable)") { return }
-    Hide-OrderActionsModal
-    $payload = @{ from_table = $script:orderTable; to_table = $to } | ConvertTo-Json
-    Invoke-AsyncPost "$base/local/order/transfer" $payload 'POST' {
-        param($r, $bad, $emsg)
-        if (-not $bad -and $r -and $r.ok) {
-            Show-Toast 'success' 'Order transferred' "Moved to Table $to"
-            Leave-OrderTable
-        } else {
-            $msg = if ($r -and $r.error) { $r.error } else { 'Transfer failed.' }
-            Show-Toast 'error' 'Transfer failed' $msg
-        }
-    }.GetNewClosure()
-})
+(ctl 'ActTransfer').Add_Click({ Enter-ActionsSub 'transfer' })
+(ctl 'ActCancel').Add_Click({ Enter-ActionsSub 'cancel' })
+(ctl 'ActInvitation').Add_Click({ Enter-ActionsSub 'invitation' })
 
-# Cancel Order: void the whole open order (with confirmation).
-(ctl 'ActCancel').Add_Click({
-    if (-not $script:orderTable) { return }
-    $ans = [System.Windows.MessageBox]::Show(
-        "Cancel the entire order for Table $($script:orderTable)? This cannot be undone.",
-        'Cancel order', 'YesNo', 'Warning')
-    if ($ans -ne 'Yes') { return }
-    Hide-OrderActionsModal
-    $payload = @{ table_number = $script:orderTable } | ConvertTo-Json
-    Invoke-AsyncPost "$base/local/order/cancel" $payload 'POST' {
-        param($r, $bad, $emsg)
-        if (-not $bad -and $r -and $r.ok) {
-            Show-Toast 'success' 'Order cancelled' "Table $($script:orderTable)"
-            Leave-OrderTable
-        } else {
-            $msg = if ($r -and $r.error) { $r.error } else { 'Cancel failed.' }
-            Show-Toast 'error' 'Cancel failed' $msg
-        }
+function Enter-ActionsSub($mode) {
+    $script:actMode = $mode
+    $script:actSel = @{}
+    $script:actInvSel = @{}
+    switch ($mode) {
+        'transfer'   { (ctl 'ActSubTitle').Text = 'Transfer Order';  (ctl 'ActSubHint').Text = "Choose how many units of each item to move from Table $($script:orderTable)."; (ctl 'ActTargetRow').Visibility = 'Visible'; (ctl 'ActTargetInput').Text = ''; (ctl 'ActConfirm').Background = SolidBrush '#2563EB' }
+        'cancel'     { (ctl 'ActSubTitle').Text = 'Cancel Items';    (ctl 'ActSubHint').Text = 'Choose how many units of each item to cancel. Remaining units stay on the check.'; (ctl 'ActTargetRow').Visibility = 'Collapsed'; (ctl 'ActConfirm').Background = SolidBrush '#DC2626' }
+        'invitation' { (ctl 'ActSubTitle').Text = 'Invitation';      (ctl 'ActSubHint').Text = 'Mark items as "on the house". Their price is removed from the check.'; (ctl 'ActTargetRow').Visibility = 'Collapsed'; (ctl 'ActConfirm').Background = SolidBrush '#16A34A' }
     }
-})
+    Render-ActItems
+    (ctl 'ActionsMain').Visibility = 'Collapsed'
+    (ctl 'ActionsSub').Visibility = 'Visible'
+    Update-ActConfirm
+}
 
-# Invitation: mark all not-yet-sent cart items as "on the house". They keep
-# their price for the kitchen ticket but are flagged is_invitation so the
-# check treats them as free. Toggles off if already all-invitation.
-(ctl 'ActInvitation').Add_Click({
-    if (-not $script:orderTable) { return }
-    if (@($script:orderCart).Count -eq 0) {
-        Hide-OrderActionsModal
-        Show-Toast 'info' 'Nothing to invite' 'Add items first, then mark them before sending'
+function Update-ActConfirm {
+    $btn = ctl 'ActConfirm'
+    if ($script:actMode -eq 'invitation') {
+        $n = @($script:actInvSel.Keys).Count
+        $btn.Content = "Mark $n as Invitation"
+    } elseif ($script:actMode -eq 'transfer') {
+        $n = 0; foreach ($v in $script:actSel.Values) { $n += $v }
+        $to = ("$((ctl 'ActTargetInput').Text)").Trim()
+        $btn.Content = "Transfer $n item(s) to Table $(if ($to) { $to } else { '?' })"
+    } else {
+        $n = 0; foreach ($v in $script:actSel.Values) { $n += $v }
+        $btn.Content = "Cancel $n Item(s)"
+    }
+}
+
+function Adjust-ActQty($id, [int]$delta, [int]$max) {
+    $cur = [int]($script:actSel[$id]); $new = $cur + $delta
+    if ($new -lt 0) { $new = 0 }; if ($new -gt $max) { $new = $max }
+    if ($new -eq 0) { $script:actSel.Remove($id) } else { $script:actSel[$id] = $new }
+    Render-ActItems; Update-ActConfirm
+}
+function Toggle-ActInv($id) {
+    if ($script:actInvSel.ContainsKey($id)) { $script:actInvSel.Remove($id) } else { $script:actInvSel[$id] = $true }
+    Render-ActItems; Update-ActConfirm
+}
+
+function Render-ActItems {
+    $panel = ctl 'ActItemsList'; $panel.Children.Clear()
+    $items = Get-ActionItems
+    if (@($items).Count -eq 0) {
+        $e = New-Object System.Windows.Controls.TextBlock
+        $e.Text = 'No active items'; $e.Foreground = SolidBrush '#6B7280'; $e.FontSize = 12; $e.HorizontalAlignment = 'Center'; $e.Margin = [System.Windows.Thickness]::new(0,10,0,10)
+        $panel.Children.Add($e) | Out-Null
         return
     }
-    $allInv = -not ($script:orderCart | Where-Object { -not $_.is_invitation })
-    foreach ($it in $script:orderCart) {
-        $it.is_invitation = -not $allInv
+    foreach ($it in $items) {
+        $id = "$($it.id)"
+        $isInvMode = ($script:actMode -eq 'invitation')
+        $sel = if ($isInvMode) { $script:actInvSel.ContainsKey($id) } else { [int]($script:actSel[$id]) -gt 0 }
+        $accent = switch ($script:actMode) { 'transfer' { '#3B82F6' } 'cancel' { '#EF4444' } default { '#22C55E' } }
+
+        $row = New-Object System.Windows.Controls.Border
+        $row.Background = SolidBrush $(if ($sel) { '#1B2230' } else { '#161922' })
+        $row.BorderBrush = SolidBrush $(if ($sel) { $accent } else { '#2A2D3A' })
+        $row.BorderThickness = [System.Windows.Thickness]::new(1)
+        $row.CornerRadius = [System.Windows.CornerRadius]::new(8)
+        $row.Padding = [System.Windows.Thickness]::new(10,8,10,8)
+        $row.Margin = [System.Windows.Thickness]::new(0,0,0,5)
+
+        $g = New-Object System.Windows.Controls.Grid
+        $c1 = New-Object System.Windows.Controls.ColumnDefinition; $c1.Width = [System.Windows.GridLength]::Auto
+        $c2 = New-Object System.Windows.Controls.ColumnDefinition; $c2.Width = [System.Windows.GridLength]::new(1,[System.Windows.GridUnitType]::Star)
+        $c3 = New-Object System.Windows.Controls.ColumnDefinition; $c3.Width = [System.Windows.GridLength]::Auto
+        $g.ColumnDefinitions.Add($c1); $g.ColumnDefinitions.Add($c2); $g.ColumnDefinitions.Add($c3)
+
+        # checkbox glyph
+        $chk = New-Object System.Windows.Controls.TextBlock
+        $chk.Text = $(if ($sel) { '☑' } else { '☐' }); $chk.Foreground = SolidBrush $(if ($sel) { $accent } else { '#6B7280' })
+        $chk.FontSize = 16; $chk.VerticalAlignment = 'Center'; $chk.Margin = [System.Windows.Thickness]::new(0,0,10,0)
+        [System.Windows.Controls.Grid]::SetColumn($chk, 0); $g.Children.Add($chk) | Out-Null
+
+        $txt = New-Object System.Windows.Controls.StackPanel; [System.Windows.Controls.Grid]::SetColumn($txt, 1)
+        $nm = New-Object System.Windows.Controls.TextBlock
+        $nm.Text = $it.menu_item_name; $nm.Foreground = [System.Windows.Media.Brushes]::White; $nm.FontSize = 13; $nm.FontWeight = 'SemiBold'; $nm.TextTrimming = 'CharacterEllipsis'
+        $sub = New-Object System.Windows.Controls.TextBlock
+        $ltot = [math]::Round([double]$it.price_at_order_time * [double]$it.quantity, 2)
+        $sub.Text = "x$($it.quantity) · €$([string]::Format('{0:N2}', $ltot))"; $sub.Foreground = SolidBrush '#7A8295'; $sub.FontSize = 11
+        $txt.Children.Add($nm) | Out-Null; $txt.Children.Add($sub) | Out-Null
+        $g.Children.Add($txt) | Out-Null
+
+        if ($isInvMode) {
+            $row.Cursor = [System.Windows.Input.Cursors]::Hand
+            # whole-row click toggles; use a transparent overlay button
+            $btn = New-Object System.Windows.Controls.Button
+            $btn.Background = [System.Windows.Media.Brushes]::Transparent; $btn.BorderThickness = [System.Windows.Thickness]::new(0); $btn.Cursor = [System.Windows.Input.Cursors]::Hand
+            $btn.Tag = $id
+            $tpl = New-Object System.Windows.Controls.ControlTemplate ([System.Windows.Controls.Button])
+            $bd = New-Object System.Windows.FrameworkElementFactory ([System.Windows.Controls.Border])
+            $bd.SetValue([System.Windows.Controls.Border]::BackgroundProperty, [System.Windows.Media.Brushes]::Transparent)
+            $cp = New-Object System.Windows.FrameworkElementFactory ([System.Windows.Controls.ContentPresenter]); $bd.AppendChild($cp); $tpl.VisualTree = $bd; $btn.Template = $tpl
+            $btn.Content = $g
+            $btn.Add_Click({ param($s,$e); Toggle-ActInv "$($s.Tag)" })
+            $row.Child = $btn
+        } else {
+            # qty stepper
+            $stp = New-Object System.Windows.Controls.StackPanel; $stp.Orientation = 'Horizontal'; $stp.VerticalAlignment = 'Center'
+            [System.Windows.Controls.Grid]::SetColumn($stp, 2)
+            $qtySel = [int]($script:actSel[$id])
+            $max = [int]$it.quantity
+            $minus = New-MiniBtn '−' $accent ([pscustomobject]@{ id=$id; d=-1; m=$max }) { param($s,$e); $t=$s.Tag; Adjust-ActQty $t.id ([int]$t.d) ([int]$t.m) }
+            $lbl = New-Object System.Windows.Controls.TextBlock
+            $lbl.Text = "$qtySel/$max"; $lbl.Foreground = [System.Windows.Media.Brushes]::White; $lbl.FontSize = 12; $lbl.FontWeight = 'Bold'; $lbl.VerticalAlignment = 'Center'; $lbl.MinWidth = 34; $lbl.TextAlignment = 'Center'; $lbl.Margin = [System.Windows.Thickness]::new(3,0,3,0)
+            $plus = New-MiniBtn '+' $accent ([pscustomobject]@{ id=$id; d=1; m=$max }) { param($s,$e); $t=$s.Tag; Adjust-ActQty $t.id ([int]$t.d) ([int]$t.m) }
+            $stp.Children.Add($minus) | Out-Null; $stp.Children.Add($lbl) | Out-Null; $stp.Children.Add($plus) | Out-Null
+            $g.Children.Add($stp) | Out-Null
+            $row.Child = $g
+        }
+        $panel.Children.Add($row) | Out-Null
     }
-    Hide-OrderActionsModal
-    Render-OrderCart
-    Show-Toast 'success' $(if ($allInv) { 'Invitation removed' } else { 'Marked as invitation' }) 'On the house 🎁'
+}
+
+# Live-update the Transfer confirm label as the target number is typed.
+(ctl 'ActTargetInput').Add_TextChanged({ if ($script:actMode -eq 'transfer') { Update-ActConfirm } })
+
+(ctl 'ActConfirm').Add_Click({
+    if ($script:orderBusy) { return }
+    if ($script:actMode -eq 'invitation') {
+        $ids = @($script:actInvSel.Keys)
+        if ($ids.Count -eq 0) { return }
+        $script:orderBusy = $true
+        $payload = @{ table_number = $script:orderTable; ids = $ids } | ConvertTo-Json
+        Invoke-AsyncPost "$base/local/order/invite-items" $payload 'POST' {
+            param($r,$bad,$emsg)
+            $script:orderBusy = $false
+            if (-not $bad -and $r -and $r.ok) {
+                Hide-OrderActionsModal
+                Show-Toast 'success' 'Marked as invitation' "$($r.invited) item(s) on the house 🎁"
+                Reload-OrderItems
+            } else { Show-Toast 'error' 'Invitation failed' 'Please try again' }
+        }
+    }
+    elseif ($script:actMode -eq 'cancel') {
+        $items = @($script:actSel.GetEnumerator() | ForEach-Object { @{ id = $_.Key; qty = [int]$_.Value } })
+        if ($items.Count -eq 0) { return }
+        $script:orderBusy = $true
+        $payload = @{ table_number = $script:orderTable; items = $items } | ConvertTo-Json -Depth 5
+        Invoke-AsyncPost "$base/local/order/cancel-items" $payload 'POST' {
+            param($r,$bad,$emsg)
+            $script:orderBusy = $false
+            if (-not $bad -and $r -and $r.ok) {
+                Hide-OrderActionsModal
+                Show-Toast 'success' 'Items cancelled' "$($r.cancelled) item(s) removed"
+                Reload-OrderItems
+            } else { Show-Toast 'error' 'Cancel failed' 'Please try again' }
+        }
+    }
+    else {
+        $to = ("$((ctl 'ActTargetInput').Text)").Trim()
+        if ($to -notmatch '^\d+$' -or $to -eq "$($script:orderTable)") { Show-Toast 'error' 'Pick a target table' 'Enter a different table number'; return }
+        $items = @($script:actSel.GetEnumerator() | ForEach-Object { @{ id = $_.Key; qty = [int]$_.Value } })
+        if ($items.Count -eq 0) { Show-Toast 'info' 'Select items' 'Choose how many units to transfer'; return }
+        $script:orderBusy = $true
+        $payload = @{ from_table = $script:orderTable; to_table = $to; items = $items } | ConvertTo-Json -Depth 5
+        Invoke-AsyncPost "$base/local/order/transfer-items" $payload 'POST' {
+            param($r,$bad,$emsg)
+            $script:orderBusy = $false
+            if (-not $bad -and $r -and $r.ok) {
+                Hide-OrderActionsModal
+                Show-Toast 'success' 'Order transferred' "$($r.moved) item(s) to Table $($r.to_table)"
+                if ($r.source_emptied) { Leave-OrderTable } else { Reload-OrderItems }
+            } else { Show-Toast 'error' 'Transfer failed' 'Please try again' }
+        }
+    }
 })
+
+# Re-pull this table's items and re-render (after an action).
+function Reload-OrderItems {
+    if (-not $script:orderTable) { return }
+    Invoke-ReliableGet "$base/local/order/items?table=$($script:orderTable)" {
+        param($r2, $bad2)
+        if (-not $bad2 -and $r2) { Set-OrderItemsFrom $r2.items }
+        Render-OrderCart
+    }
+}
 
 # ── Special Request / add-ons modal ──────────────────────────────────────────
 # Opened by the ✎ on a new (unsent) cart line. Shows preset notes, paid add-ons

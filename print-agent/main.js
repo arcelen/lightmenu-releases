@@ -1797,6 +1797,165 @@ async function stationTransferOrder(fromTable, toTable) {
   return { ok: true, from_table: fromTable, to_table: toTable };
 }
 
+// ─── Per-unit order actions (Cancel / Transfer / Invitation) ─────────────────
+// These clone the waiter web app's TableActionsPopup: they act on individual
+// units of sent/held items. Local state is authoritative for the Station UI;
+// Supabase is patched best-effort. An item id that isn't a local 'li-' id is a
+// real order_items row, so we can PATCH/POST it directly by id.
+function _isRemoteId(id) { return typeof id === 'string' && id.length >= 30 && !id.startsWith('li-'); }
+
+async function stationCancelItems(tableNum, selections) {
+  if (!tableNum || !Array.isArray(selections) || !selections.length) throw new Error('table_number and items required');
+  let local; try { local = await _pullOrderFromSupabase(tableNum); } catch { local = _activeOrder(tableNum); }
+  if (!local) return { ok: false, error: 'No open order' };
+
+  const cancelled = [];
+  let removedTotal = 0;
+  for (const sel of selections) {
+    const item = local.items.find(i => String(i.id) === String(sel.id));
+    if (!item) continue;
+    const q = Math.min(Math.max(1, parseInt(sel.qty) || 0), item.quantity);
+    if (q <= 0) continue;
+    cancelled.push({ name: item.menu_item_name, qty: q });
+    removedTotal += (item.price_at_order_time || 0) * q;
+    if (q >= item.quantity) {
+      if (_isRemoteId(item.id)) { try { await supabasePatch('order_items', item.id, { status: 'cancelled_by_admin' }); } catch {} }
+      item._remove = true;
+    } else {
+      item.quantity -= q;
+      if (_isRemoteId(item.id)) {
+        try {
+          await supabasePatch('order_items', item.id, { quantity: item.quantity });
+          await supabasePost('order_items', {
+            order_id: local.remote_order_id, menu_item_id: item.menu_item_id,
+            menu_item_name: item.menu_item_name, price_at_order_time: item.price_at_order_time,
+            quantity: q, special_requests: item.special_requests || null, course: item.course,
+            status: 'cancelled_by_admin',
+          });
+        } catch {}
+      }
+    }
+  }
+  local.items = local.items.filter(i => !i._remove);
+  _saveActiveOrder(tableNum, local);
+
+  if (local.remote_order_id && removedTotal > 0) {
+    (async () => { try { const o = await supabaseGet('orders', { id: local.remote_order_id }, 1); if (o?.[0]) await supabasePatch('orders', local.remote_order_id, { total_amount: Math.max(0, (o[0].total_amount || 0) - removedTotal) }); } catch {} })();
+  }
+  if (cancelled.length) {
+    (async () => {
+      try {
+        const settings = _getTicketSettings();
+        await sendToPrinter(buildCancelTicket({
+          type: 'cancel', restaurant_id: RESTAURANT_ID, restaurant_name: RESTAURANT_NAME,
+          table_number: tableNum, waiter_name: 'Station', cancelled_by: 'Station',
+          currency: settings.currency || 'EUR', time: new Date().toISOString(),
+          items: cancelled.map(c => ({ name: c.name, qty: c.qty })), settings,
+        }));
+      } catch (e) { log('Cancel ticket print failed: ' + e.message); }
+    })();
+  }
+  return { ok: true, cancelled: cancelled.reduce((s, c) => s + c.qty, 0) };
+}
+
+async function stationInviteItems(tableNum, ids) {
+  if (!tableNum || !Array.isArray(ids) || !ids.length) throw new Error('table_number and ids required');
+  let local; try { local = await _pullOrderFromSupabase(tableNum); } catch { local = _activeOrder(tableNum); }
+  if (!local) return { ok: false, error: 'No open order' };
+  let n = 0, removedTotal = 0;
+  for (const id of ids) {
+    const item = local.items.find(i => String(i.id) === String(id));
+    if (!item || item.is_invitation) continue;
+    item.is_invitation = true; n++;
+    removedTotal += (item.price_at_order_time || 0) * (item.quantity || 1);
+    if (_isRemoteId(item.id)) { try { await supabasePatch('order_items', item.id, { is_invitation: true }); } catch {} }
+  }
+  _saveActiveOrder(tableNum, local);
+  if (local.remote_order_id && removedTotal > 0) {
+    (async () => { try { const o = await supabaseGet('orders', { id: local.remote_order_id }, 1); if (o?.[0]) await supabasePatch('orders', local.remote_order_id, { total_amount: Math.max(0, (o[0].total_amount || 0) - removedTotal) }); } catch {} })();
+  }
+  return { ok: true, invited: n };
+}
+
+async function stationTransferItems(fromTable, toTable, selections) {
+  if (!fromTable || !toTable || !Array.isArray(selections) || !selections.length) throw new Error('from_table, to_table and items required');
+  if (String(fromTable) === String(toTable)) return { ok: false, error: 'Same table' };
+  let src; try { src = await _pullOrderFromSupabase(fromTable); } catch { src = _activeOrder(fromTable); }
+  if (!src) return { ok: false, error: 'No open order on table ' + fromTable };
+
+  // Find or create the target's remote order.
+  let targetOrderId = null;
+  try {
+    const existing = await supabaseGetRaw(
+      'orders?restaurant_id=eq.' + encodeURIComponent(RESTAURANT_ID) +
+      '&table_number=eq.' + encodeURIComponent(toTable) +
+      '&status=not.in.(paid,cancelled)&select=id&limit=1&order=created_at.desc');
+    if (existing?.length) targetOrderId = existing[0].id;
+    else {
+      const rows = await supabasePost('orders', { restaurant_id: RESTAURANT_ID, table_number: toTable, waiter_id: 'station', waiter_name: 'Station', status: 'sent_to_kitchen', total_amount: 0, guest_count: 1 });
+      targetOrderId = Array.isArray(rows) ? rows[0]?.id : rows?.id;
+    }
+  } catch {}
+
+  const tgt = _activeOrder(toTable) || { order_id: 'local-' + crypto.randomUUID(), table_number: toTable, guest_count: 1, items: [], synced: false, remote_order_id: targetOrderId, created_at: new Date().toISOString() };
+  if (targetOrderId) tgt.remote_order_id = targetOrderId;
+
+  const moved = [];
+  let movedTotal = 0;
+  for (const sel of selections) {
+    const item = src.items.find(i => String(i.id) === String(sel.id));
+    if (!item) continue;
+    const q = Math.min(Math.max(1, parseInt(sel.qty) || 0), item.quantity);
+    if (q <= 0) continue;
+    moved.push({ name: item.menu_item_name, qty: q });
+    movedTotal += (item.price_at_order_time || 0) * q;
+    if (q >= item.quantity) {
+      if (_isRemoteId(item.id) && targetOrderId) { try { await supabasePatch('order_items', item.id, { order_id: targetOrderId }); } catch {} }
+      tgt.items.push({ ...item, synced: _isRemoteId(item.id) });
+      item._remove = true;
+    } else {
+      item.quantity -= q;
+      let newRemoteId = null;
+      if (targetOrderId) {
+        try {
+          const rows = await supabasePost('order_items', { order_id: targetOrderId, menu_item_id: item.menu_item_id, menu_item_name: item.menu_item_name, price_at_order_time: item.price_at_order_time, quantity: q, special_requests: item.special_requests || null, course: item.course, status: item.status || 'preparing', is_invitation: item.is_invitation || false, selected_addons: item.selected_addons || null });
+          newRemoteId = Array.isArray(rows) ? rows[0]?.id : rows?.id;
+        } catch {}
+      }
+      if (_isRemoteId(item.id)) { try { await supabasePatch('order_items', item.id, { quantity: item.quantity }); } catch {} }
+      tgt.items.push({ id: newRemoteId || ('li-' + crypto.randomUUID()), menu_item_id: item.menu_item_id, menu_item_name: item.menu_item_name, price_at_order_time: item.price_at_order_time, quantity: q, status: item.status || 'preparing', course: item.course, special_requests: item.special_requests || null, is_invitation: item.is_invitation || false, selected_addons: item.selected_addons || null, synced: !!newRemoteId });
+    }
+  }
+  src.items = src.items.filter(i => !i._remove);
+  _saveActiveOrder(toTable, tgt);
+
+  try { const tt = await supabaseGet('tables', { restaurant_id: RESTAURANT_ID, table_number: toTable }, 1); if (tt?.length) await supabasePatch('tables', tt[0].id, { status: 'occupied', current_order_id: targetOrderId }); } catch {}
+
+  const sourceEmptied = src.items.length === 0;
+  if (sourceEmptied) {
+    _removeActiveOrder(fromTable);
+    if (src.remote_order_id) { try { await supabasePatch('orders', src.remote_order_id, { status: 'cancelled', total_amount: 0 }); } catch {} }
+    try { const st = await supabaseGet('tables', { restaurant_id: RESTAURANT_ID, table_number: fromTable }, 1); if (st?.length) await supabasePatch('tables', st[0].id, { status: 'available', current_order_id: null }); } catch {}
+  } else {
+    _saveActiveOrder(fromTable, src);
+    if (src.remote_order_id) { try { const o = await supabaseGet('orders', { id: src.remote_order_id }, 1); if (o?.[0]) await supabasePatch('orders', src.remote_order_id, { total_amount: Math.max(0, (o[0].total_amount || 0) - movedTotal) }); } catch {} }
+  }
+
+  (async () => {
+    try {
+      const settings = _getTicketSettings();
+      await sendToPrinter(buildTransferTicket({
+        type: 'transfer', restaurant_id: RESTAURANT_ID, restaurant_name: RESTAURANT_NAME,
+        from_table: fromTable, to_table: toTable, table_number: toTable, waiter_name: 'Station',
+        currency: settings.currency || 'EUR', time: new Date().toISOString(),
+        items: moved.map(m => ({ name: m.name, qty: m.qty })), settings,
+      }));
+    } catch (e) { log('Transfer ticket print failed: ' + e.message); }
+  })();
+
+  return { ok: true, moved: moved.reduce((s, m) => s + m.qty, 0), to_table: toTable, source_emptied: sourceEmptied };
+}
+
 async function _syncOrderToSupabase(tableNum) {
   const local = _activeOrder(tableNum);
   if (!local) return;
@@ -3469,6 +3628,49 @@ http.createServer((req, res) => {
         res.writeHead(500, { 'Content-Type': 'application/json' });
         res.end(JSON.stringify({ ok: false, error: e.message }));
       }
+    });
+    return;
+  }
+
+  // Per-unit order actions (clone of the waiter web app's TableActionsPopup).
+  if (req.method === 'POST' && req.url === '/local/order/cancel-items') {
+    let body = '';
+    req.on('data', c => body += c);
+    req.on('end', async () => {
+      try {
+        const b = JSON.parse(body || '{}');
+        const r = await stationCancelItems(b.table_number, b.items);
+        res.writeHead(200, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify(r));
+      } catch (e) { res.writeHead(500, { 'Content-Type': 'application/json' }); res.end(JSON.stringify({ ok: false, error: e.message })); }
+    });
+    return;
+  }
+
+  if (req.method === 'POST' && req.url === '/local/order/invite-items') {
+    let body = '';
+    req.on('data', c => body += c);
+    req.on('end', async () => {
+      try {
+        const b = JSON.parse(body || '{}');
+        const r = await stationInviteItems(b.table_number, b.ids);
+        res.writeHead(200, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify(r));
+      } catch (e) { res.writeHead(500, { 'Content-Type': 'application/json' }); res.end(JSON.stringify({ ok: false, error: e.message })); }
+    });
+    return;
+  }
+
+  if (req.method === 'POST' && req.url === '/local/order/transfer-items') {
+    let body = '';
+    req.on('data', c => body += c);
+    req.on('end', async () => {
+      try {
+        const b = JSON.parse(body || '{}');
+        const r = await stationTransferItems(b.from_table, b.to_table, b.items);
+        res.writeHead(200, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify(r));
+      } catch (e) { res.writeHead(500, { 'Content-Type': 'application/json' }); res.end(JSON.stringify({ ok: false, error: e.message })); }
     });
     return;
   }
