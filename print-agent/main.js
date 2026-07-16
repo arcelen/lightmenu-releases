@@ -2550,6 +2550,42 @@ function pickTicketSettings(src) {
 // The LightMenu API backend. www.lightmenu.app is the Vercel SPA (its /api is
 // not proxied to the server), so the agent talks to the Railway backend directly.
 const LM_API_BASE = 'https://lightmenu-production.up.railway.app/api';
+// ─── Unified agent (server-side brain) ──────────────────────────────────────
+// The Station no longer runs its own agentic loop + tool catalog. It posts the
+// conversation to /api/station/agent, which runs the SAME 62-tool brain the web
+// and Flutter apps use (native tool-use, owner authority, quota-enforced). That
+// makes the Station assistant fully capable — sales, orders, tables, menu,
+// staff, printers — instead of the menu-only subset the local loop had, and
+// there's now one place to add capability for all three surfaces.
+//
+// `messages` = [{ role:'user'|'assistant', content:'…' }], ending with a user turn.
+// Resolves { reply, steps }.
+function stationAgent(messages) {
+  return new Promise((resolve, reject) => {
+    const bodyStr = JSON.stringify({ token: API_TOKEN, messages });
+    let u;
+    try { u = new URL(LM_API_BASE + '/station/agent'); } catch (e) { return reject(e); }
+    const r = https.request(u, { method: 'POST', headers: { 'Content-Type': 'application/json', 'Content-Length': Buffer.byteLength(bodyStr) } }, (res) => {
+      let data = '';
+      res.on('data', c => data += c);
+      res.on('end', () => {
+        let parsed = null;
+        try { parsed = JSON.parse(data); } catch {}
+        if (res.statusCode < 200 || res.statusCode >= 300) {
+          reject(new Error((parsed && parsed.error) || ('AI HTTP ' + res.statusCode + ': ' + data.slice(0, 200))));
+          return;
+        }
+        resolve({ reply: (parsed && parsed.reply) || 'Done.', steps: (parsed && parsed.steps) || [] });
+      });
+    });
+    r.on('error', reject);
+    // The agent may chain several tool calls server-side, so allow more headroom
+    // than the old single-shot call did.
+    r.setTimeout(90000, () => r.destroy(new Error('AI request timed out')));
+    r.write(bodyStr); r.end();
+  });
+}
+
 function stationAI(prompt, systemPrompt) {
   return new Promise((resolve, reject) => {
     const bodyStr = JSON.stringify({ token: API_TOKEN, prompt, system_prompt: systemPrompt, tier: 'standard' });
@@ -4170,9 +4206,18 @@ http.createServer((req, res) => {
       try {
         const d = JSON.parse(body || '{}');
         if (!d.message) throw new Error('message required');
-        const out = await runStationAgent(String(d.message), Array.isArray(d.history) ? d.history : []);
+        // Forward the whole conversation to the unified server brain. The UI
+        // sends history as [{ role, text }]; the agent expects [{ role, content }].
+        const hist = Array.isArray(d.history) ? d.history : [];
+        const messages = hist
+          .filter(h => h && (h.role === 'user' || h.role === 'assistant') && (h.text || h.content))
+          .map(h => ({ role: h.role, content: String(h.text || h.content) }));
+        messages.push({ role: 'user', content: String(d.message) });
+        const out = await stationAgent(messages);
         res.writeHead(200, { 'Content-Type': 'application/json' });
-        res.end(JSON.stringify({ ok: true, reply: out.reply, actions: out.actions }));
+        // Keep the ui.ps1 contract: { ok, reply, actions } — actions are the
+        // tools the agent ran, shown as a small trace bubble.
+        res.end(JSON.stringify({ ok: true, reply: out.reply, actions: (out.steps || []).map(s => s && s.tool).filter(Boolean) }));
       } catch (e) {
         res.writeHead(500, { 'Content-Type': 'application/json' });
         res.end(JSON.stringify({ ok: false, error: e.message }));

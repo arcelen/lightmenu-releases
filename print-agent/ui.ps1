@@ -1632,7 +1632,7 @@ function Format-Money($amount) {
         </Grid.RowDefinitions>
         <StackPanel Grid.Row="0" Margin="0,0,0,12">
           <TextBlock Text="LightMenu AI" Foreground="#FFFFFF" FontSize="18" FontWeight="Bold"/>
-          <TextBlock Text="Ask me to add items, change prices, reorganise the menu, or answer questions about it." Foreground="#7A8295" FontSize="11" Margin="0,3,0,0"/>
+          <TextBlock x:Name="AiSubtitle" Text="Ask about sales, orders, tables, menu, staff or printers — or tell me to change something." Foreground="#7A8295" FontSize="11" Margin="0,3,0,0" TextWrapping="Wrap"/>
         </StackPanel>
         <Border Grid.Row="1" Style="{StaticResource CardStyle}" Padding="6">
           <ScrollViewer x:Name="AiScroller" VerticalScrollBarVisibility="Auto">
@@ -1761,6 +1761,8 @@ $script:i18n = @{
         lbl_printer='PRINTER'; lbl_last_update='LAST UPDATE'; lbl_free='Free'; lbl_dishes='Dishes out'; lbl_reclaim='To reclaim'; lbl_check='Check printed'
         lbl_drag_hint='Drag to arrange · tap to edit'; btn_add_floor='+ Floor'; btn_add_table='+ Table'; btn_del_floor='Delete Floor'
         btn_rescan='Rescan Printers'; btn_restart='Restart Agent'
+        ai_greeting="Hi! I'm your LightMenu assistant. I can see your whole restaurant — sales, orders, tables, menu, staff and printers. Try: ""what's today's revenue?"", ""which tables are open right now?"", or ""mark the burger as sold out""."
+        ai_subtitle='Ask about sales, orders, tables, menu, staff or printers — or tell me to change something.'
         printer_alert_title='Printer disconnected'; printer_alert_msg="Orders won't print. Check the printer is powered on and the cable is plugged in."
         printer_ok_title='Printer reconnected'; printer_ok_msg='Tickets will print again.'; btn_rescan_short='Rescan'
         period_today='Today'; period_week='This Week'; period_month='This Month'; period_all='All Time'; period_refresh='Refresh'
@@ -2212,6 +2214,7 @@ function Apply-Language {
 
     # Kitchen page
     (ctl 'KitchenTitle').Text    = T 'kitchen_title'
+    (ctl 'AiSubtitle').Text      = T 'ai_subtitle'
     (ctl 'KitchenRefresh').Content = T 'menu_refresh'
     (ctl 'LblLivePrinter').Text  = T 'lbl_this_station'
     (ctl 'AddPrinterBtn').Content = T 'btn_add_printer'
@@ -6587,7 +6590,12 @@ function Add-AiBubble($role, $text) {
 function Init-Assistant {
     if ($script:aiInited) { return }
     $script:aiInited = $true
-    Add-AiBubble 'assistant' "Hi! I'm your Station assistant. Try: ""add a Mojito for 8 euros to Cocktails"", ""rename Glaces to Desserts"", or ""how many items are in Mekla?""" | Out-Null
+    # Examples must be generic — they render on every restaurant's Station, so
+    # never name a specific dish or category (the old "Mojito / Glaces / Mekla"
+    # examples were leftovers from one venue's menu and meant nothing to anyone
+    # else). These work on any restaurant and show the full breadth the agent
+    # now has: sales, service, menu.
+    Add-AiBubble 'assistant' (T 'ai_greeting') | Out-Null
 }
 function Send-AiMessage {
     if ($script:aiBusy) { return }
