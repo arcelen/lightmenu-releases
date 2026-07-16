@@ -4274,7 +4274,20 @@ http.createServer((req, res) => {
         const messages = hist
           .filter(h => h && (h.role === 'user' || h.role === 'assistant') && (h.text || h.content))
           .map(h => ({ role: h.role, content: String(h.text || h.content) }));
-        messages.push({ role: 'user', content: String(d.message) });
+        // An attached photo rides on the current turn as content blocks, so the
+        // model can read a menu/ticket/printer label. The server validates the
+        // media type + size; we just pass it through.
+        if (d.image && d.image.data && d.image.media_type) {
+          messages.push({
+            role: 'user',
+            content: [
+              { type: 'text', text: String(d.message) },
+              { type: 'image', source: { type: 'base64', media_type: String(d.image.media_type), data: String(d.image.data) } },
+            ],
+          });
+        } else {
+          messages.push({ role: 'user', content: String(d.message) });
+        }
         const out = await stationAgent(messages);
         // Carry out anything the agent delegated to this Station (local printer
         // work it can't do server-side). Best-effort and non-blocking for the

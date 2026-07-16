@@ -1631,9 +1631,10 @@ function Format-Money($amount) {
 
       <Grid x:Name="PageAssistant" Visibility="Collapsed">
         <Grid.RowDefinitions>
-          <RowDefinition Height="Auto"/>
-          <RowDefinition Height="*"/>
-          <RowDefinition Height="Auto"/>
+          <RowDefinition Height="Auto"/>   <!-- title -->
+          <RowDefinition Height="*"/>      <!-- messages -->
+          <RowDefinition Height="Auto"/>   <!-- pending photo strip -->
+          <RowDefinition Height="Auto"/>   <!-- composer -->
         </Grid.RowDefinitions>
         <StackPanel Grid.Row="0" Margin="0,0,0,12">
           <TextBlock Text="LightMenu AI" Foreground="#FFFFFF" FontSize="18" FontWeight="Bold"/>
@@ -1644,16 +1645,55 @@ function Format-Money($amount) {
             <StackPanel x:Name="AiMessages" Margin="6"/>
           </ScrollViewer>
         </Border>
-        <Grid Grid.Row="2" Margin="0,12,0,0">
+        <!-- Pending photo strip — only visible once a photo is attached. -->
+        <Border x:Name="AiImageStrip" Grid.Row="2" Visibility="Collapsed" HorizontalAlignment="Left"
+                Background="#0F1117" BorderBrush="#14B8A6" BorderThickness="1" CornerRadius="8"
+                Padding="6" Margin="0,10,0,0">
+          <StackPanel Orientation="Horizontal">
+            <Image x:Name="AiImageThumb" Height="46" Stretch="Uniform" Margin="0,0,8,0"/>
+            <StackPanel VerticalAlignment="Center" Margin="0,0,8,0">
+              <TextBlock x:Name="AiImageName" Text="" Foreground="#FFFFFF" FontSize="11" MaxWidth="200" TextTrimming="CharacterEllipsis"/>
+              <TextBlock x:Name="AiImageHint" Text="Attached — ask a question about it" Foreground="#7A8295" FontSize="10" Margin="0,2,0,0"/>
+            </StackPanel>
+            <Button x:Name="AiImageClear" Content="✕" Width="22" Height="22" VerticalAlignment="Top"
+                    Background="#2A2D3A" Foreground="#FFFFFF" BorderThickness="0" Cursor="Hand" FontSize="10">
+              <Button.Template>
+                <ControlTemplate TargetType="Button">
+                  <Border Background="{TemplateBinding Background}" CornerRadius="11">
+                    <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                  </Border>
+                </ControlTemplate>
+              </Button.Template>
+            </Button>
+          </StackPanel>
+        </Border>
+        <Grid Grid.Row="3" Margin="0,12,0,0">
           <Grid.ColumnDefinitions>
+            <ColumnDefinition Width="Auto"/>
+            <ColumnDefinition Width="8"/>
             <ColumnDefinition Width="*"/>
             <ColumnDefinition Width="10"/>
             <ColumnDefinition Width="Auto"/>
           </Grid.ColumnDefinitions>
-          <Border Grid.Column="0" Background="#0F1117" BorderBrush="#2A2D3A" BorderThickness="1" CornerRadius="8">
+          <!-- Attach a photo: the model can read a menu, ticket or printer label. -->
+          <Button x:Name="AiAttach" Grid.Column="0" Width="42" Padding="0,10" Background="#0F1117"
+                  Foreground="#9CA3AF" BorderThickness="0" Cursor="Hand" FontSize="15" ToolTip="Attach a photo">
+            <Button.Template>
+              <ControlTemplate TargetType="Button">
+                <Border x:Name="ab" Background="{TemplateBinding Background}" BorderBrush="#2A2D3A" BorderThickness="1" CornerRadius="8" Padding="{TemplateBinding Padding}">
+                  <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                </Border>
+                <ControlTemplate.Triggers>
+                  <Trigger Property="IsMouseOver" Value="True"><Setter TargetName="ab" Property="BorderBrush" Value="#14B8A6"/></Trigger>
+                </ControlTemplate.Triggers>
+              </ControlTemplate>
+            </Button.Template>
+            <TextBlock Text="🖼" FontSize="14"/>
+          </Button>
+          <Border Grid.Column="2" Background="#0F1117" BorderBrush="#2A2D3A" BorderThickness="1" CornerRadius="8">
             <TextBox x:Name="AiInput" Background="Transparent" BorderThickness="0" Foreground="#FFFFFF" CaretBrush="#FFFFFF" Padding="12,10" FontSize="13" VerticalContentAlignment="Center"/>
           </Border>
-          <Button x:Name="AiSend" Grid.Column="2" Padding="22,10" BorderThickness="0" Foreground="#FFFFFF" Cursor="Hand" FontSize="13" FontWeight="SemiBold">
+          <Button x:Name="AiSend" Grid.Column="4" Padding="22,10" BorderThickness="0" Foreground="#FFFFFF" Cursor="Hand" FontSize="13" FontWeight="SemiBold">
             <Button.Background>
               <LinearGradientBrush StartPoint="0,0" EndPoint="1,0">
                 <GradientStop Color="#14B8A6" Offset="0"/>
@@ -6797,12 +6837,70 @@ function Init-Assistant {
     # now has: sales, service, menu.
     Add-AiBubble 'assistant' (T 'ai_greeting') | Out-Null
 }
+# ─── Photo attachment ────────────────────────────────────────────────────────
+# The model has vision, so a photo of a menu, a ticket or a printer's label can
+# be read directly. We hold the base64 + media type until the next send.
+$script:aiImageB64  = $null
+$script:aiImageMime = $null
+
+function Clear-AiImage {
+    $script:aiImageB64 = $null
+    $script:aiImageMime = $null
+    (ctl 'AiImageStrip').Visibility = 'Collapsed'
+    (ctl 'AiImageThumb').Source = $null
+}
+
+function Pick-AiImage {
+    if ($script:aiBusy) { return }
+    $dlg = New-Object Microsoft.Win32.OpenFileDialog
+    $dlg.Filter = 'Images|*.jpg;*.jpeg;*.png;*.gif;*.webp'
+    $dlg.Title  = 'Attach a photo'
+    if ($dlg.ShowDialog() -ne $true) { return }
+    try {
+        $fi = New-Object System.IO.FileInfo($dlg.FileName)
+        # Anthropic caps images at 5MB; reject early with a clear message rather
+        # than letting the request fail server-side.
+        if ($fi.Length -gt 5MB) {
+            Add-AiBubble 'system' 'That image is over 5 MB — please use a smaller one.' | Out-Null
+            return
+        }
+        $ext = $fi.Extension.ToLower()
+        $mime = switch ($ext) {
+            '.png'  { 'image/png' }
+            '.gif'  { 'image/gif' }
+            '.webp' { 'image/webp' }
+            default { 'image/jpeg' }
+        }
+        $bytes = [System.IO.File]::ReadAllBytes($dlg.FileName)
+        $script:aiImageB64  = [Convert]::ToBase64String($bytes)
+        $script:aiImageMime = $mime
+        # Thumbnail from the bytes we already read (no second file handle).
+        $bmp = New-Object System.Windows.Media.Imaging.BitmapImage
+        $ms  = New-Object System.IO.MemoryStream(,$bytes)
+        $bmp.BeginInit(); $bmp.StreamSource = $ms
+        $bmp.CacheOption = [System.Windows.Media.Imaging.BitmapCacheOption]::OnLoad
+        $bmp.EndInit()
+        (ctl 'AiImageThumb').Source = $bmp
+        (ctl 'AiImageName').Text = $fi.Name
+        (ctl 'AiImageStrip').Visibility = 'Visible'
+    } catch {
+        Add-AiBubble 'system' "Couldn't read that image." | Out-Null
+        Clear-AiImage
+    }
+}
+
 function Send-AiMessage {
     if ($script:aiBusy) { return }
     $msg = ((ctl 'AiInput').Text).Trim()
+    # A photo on its own is a valid message — the question is implied.
+    if (-not $msg -and $script:aiImageB64) { $msg = "What's in this image?" }
     if (-not $msg) { return }
     (ctl 'AiInput').Text = ''
     Add-AiBubble 'user' $msg | Out-Null
+    # Take the pending photo for THIS turn, then reset the composer.
+    $imgB64  = $script:aiImageB64
+    $imgMime = $script:aiImageMime
+    if ($imgB64) { Clear-AiImage }
     $script:aiBusy = $true
     (ctl 'AiSendText').Text = '...'
     # The callback fires AFTER this function returns, so it can't see locals. Use
@@ -6816,7 +6914,11 @@ function Send-AiMessage {
     $script:aiPendingMsg = $msg
     # Fully async: the user bubble + "Thinking..." render immediately and the UI
     # stays responsive while the (up to 45s) AI request runs on a pool thread.
-    $body = @{ message = $msg; history = $script:aiHistory } | ConvertTo-Json -Depth 5
+    $payload = @{ message = $msg; history = $script:aiHistory }
+    if ($imgB64) { $payload.image = @{ media_type = $imgMime; data = $imgB64 } }
+    # Depth must clear the nested image object; base64 can be megabytes, so this
+    # is the one place the Station sends a large body.
+    $body = $payload | ConvertTo-Json -Depth 6 -Compress
     Invoke-AsyncPost "$base/local/ai" $body 'POST' {
         param($r, $bad, $emsg)
         try {
@@ -6847,6 +6949,8 @@ function Send-AiMessage {
         }
     }
 }
+(ctl 'AiAttach').Add_Click({ Pick-AiImage })
+(ctl 'AiImageClear').Add_Click({ Clear-AiImage })
 (ctl 'AiSend').Add_Click({ Send-AiMessage })
 (ctl 'AiInput').Add_KeyDown({ if ($_.Key -eq 'Return') { Send-AiMessage } })
 
