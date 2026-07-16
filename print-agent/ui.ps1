@@ -379,10 +379,17 @@ function Format-Money($amount) {
           <RowDefinition Height="Auto"/>
           <RowDefinition Height="*"/>
         </Grid.RowDefinitions>
-        <StackPanel Grid.Row="0" Margin="4,2,0,16">
-          <TextBlock x:Name="HomeTitle" Text="Control Center" FontSize="26" FontWeight="Bold" Foreground="#FFFFFF"/>
-          <TextBlock x:Name="HomeSubtitle" Text="Choose a section to get started" FontSize="13" Foreground="#7A8295" Margin="0,6,0,0"/>
-        </StackPanel>
+        <!-- Control Center header. "Restart Station" lives here (moved off the
+             dashboard status bar): it's a whole-Station action, so it belongs
+             at the top level, not next to the floor plan. -->
+        <Grid Grid.Row="0" Margin="4,2,0,16">
+          <StackPanel VerticalAlignment="Center">
+            <TextBlock x:Name="HomeTitle" Text="Control Center" FontSize="26" FontWeight="Bold" Foreground="#FFFFFF"/>
+            <TextBlock x:Name="HomeSubtitle" Text="Choose a section to get started" FontSize="13" Foreground="#7A8295" Margin="0,6,0,0"/>
+          </StackPanel>
+          <Button x:Name="RestartBtn" Style="{StaticResource ActionBtn}" Content="Restart Station"
+                  Padding="14,8" HorizontalAlignment="Right" VerticalAlignment="Center" Margin="0,0,4,0"/>
+        </Grid>
         <ScrollViewer Grid.Row="1" VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
           <UniformGrid x:Name="HomeGrid" Columns="3" Margin="-7,0,-7,0"/>
         </ScrollViewer>
@@ -444,16 +451,12 @@ function Format-Money($amount) {
           </Grid>
         </Border>
 
-        <!-- Status bar -->
+        <!-- Status bar — read-only. "Rescan Printers" now lives on the Printer
+             page (where you manage printers) and "Restart Station" on the
+             Control Center, so the floor plan isn't cluttered with actions
+             that don't belong to it. -->
         <Grid Grid.Row="2" Margin="0,10,0,0">
-          <Grid.ColumnDefinitions>
-            <ColumnDefinition Width="*"/>
-            <ColumnDefinition Width="12"/>
-            <ColumnDefinition Width="Auto"/>
-            <ColumnDefinition Width="12"/>
-            <ColumnDefinition Width="Auto"/>
-          </Grid.ColumnDefinitions>
-          <Border Style="{StaticResource CardStyle}" Grid.Column="0" Padding="12,8">
+          <Border Style="{StaticResource CardStyle}" Padding="12,8">
             <StackPanel Orientation="Horizontal">
               <TextBlock x:Name="LblPrinter" Text="PRINTER" Style="{StaticResource CardLabel}" VerticalAlignment="Center" Margin="0,0,8,0"/>
               <TextBlock x:Name="PrinterText" Text="--" Foreground="#FFFFFF" FontSize="12" VerticalAlignment="Center"/>
@@ -462,15 +465,6 @@ function Format-Money($amount) {
               <TextBlock x:Name="UpdateText" Text="--" Foreground="#7A8295" FontSize="12" VerticalAlignment="Center"/>
             </StackPanel>
           </Border>
-          <Button x:Name="TestBtn" Grid.Column="2" Style="{StaticResource ActionBtn}" Content="Rescan Printers" Padding="14,8">
-            <Button.Background>
-              <LinearGradientBrush StartPoint="0,0" EndPoint="1,0">
-                <GradientStop Color="#14B8A6" Offset="0"/>
-                <GradientStop Color="#06B6D4" Offset="1"/>
-              </LinearGradientBrush>
-            </Button.Background>
-          </Button>
-          <Button x:Name="RestartBtn" Grid.Column="4" Style="{StaticResource ActionBtn}" Content="Restart Agent" Padding="14,8"/>
         </Grid>
       </Grid>
 
@@ -879,6 +873,17 @@ function Format-Money($amount) {
           <TextBlock x:Name="KitchenTitle" Text="Printer Setup" Foreground="#FFFFFF" FontSize="18" FontWeight="Bold" VerticalAlignment="Center"/>
           <StackPanel Orientation="Horizontal" HorizontalAlignment="Right">
             <Button x:Name="KitchenRefresh" Style="{StaticResource PeriodBtn}" Content="Refresh" Margin="0,0,8,0"/>
+            <!-- Moved here from the dashboard status bar: rescanning belongs
+                 with the printers you're managing. Same x:Name, so the existing
+                 click handler is unchanged. -->
+            <Button x:Name="TestBtn" Style="{StaticResource ActionBtn}" Content="Rescan Printers" Padding="14,8" Margin="0,0,8,0">
+              <Button.Background>
+                <LinearGradientBrush StartPoint="0,0" EndPoint="1,0">
+                  <GradientStop Color="#14B8A6" Offset="0"/>
+                  <GradientStop Color="#06B6D4" Offset="1"/>
+                </LinearGradientBrush>
+              </Button.Background>
+            </Button>
             <Button x:Name="AddPrinterBtn" Padding="16,8" BorderThickness="0" Foreground="#FFFFFF" Cursor="Hand" FontSize="13" FontWeight="SemiBold">
               <Button.Background>
                 <LinearGradientBrush StartPoint="0,0" EndPoint="1,0">
@@ -1760,7 +1765,7 @@ $script:i18n = @{
         nav_dashboard='Dashboard'; nav_analytics='Analytics'; nav_bills='Bills'; nav_report='Daily Report'; nav_staff='Staff'
         lbl_printer='PRINTER'; lbl_last_update='LAST UPDATE'; lbl_free='Free'; lbl_dishes='Dishes out'; lbl_reclaim='To reclaim'; lbl_check='Check printed'
         lbl_drag_hint='Drag to arrange · tap to edit'; btn_add_floor='+ Floor'; btn_add_table='+ Table'; btn_del_floor='Delete Floor'
-        btn_rescan='Rescan Printers'; btn_restart='Restart Agent'
+        btn_rescan='Rescan Printers'; btn_restart='Restart Station'
         ai_greeting="Hi! I'm your LightMenu assistant. I can see your whole restaurant — sales, orders, tables, menu, staff and printers. Try: ""what's today's revenue?"", ""which tables are open right now?"", or ""mark the burger as sold out""."
         ai_subtitle='Ask about sales, orders, tables, menu, staff or printers — or tell me to change something.'
         printer_alert_title='Printer disconnected'; printer_alert_msg="Orders won't print. Check the printer is powered on and the cable is plugged in."
@@ -1778,7 +1783,7 @@ $script:i18n = @{
         staff_last_used='Last used:'; staff_never_used='Never used'; staff_active='Active'; staff_inactive='Inactive'
         staff_set_pin='Set PIN'; staff_pin_invalid='PIN must be 4 to 6 digits.'
         btn_remove='Remove'; btn_toggle='Toggle'; btn_copy_link='Copy link'
-        confirm_remove='Remove this staff member?'; confirm_restart='Restart the print agent now? Any in-flight prints will be retried.'
+        confirm_remove='Remove this staff member?'; confirm_restart='Restart the Station now? Any in-flight prints will be retried.'
         rescan_info='Rescan started. Check the live log for results.'
         no_staff='No staff added yet. Click "+ Add Staff" to get started.'
         dlg_add_staff_title='Add Staff Member'; dlg_ok='Add'; dlg_cancel='Cancel'
@@ -1824,7 +1829,7 @@ $script:i18n = @{
         home_bills_t='Factures';             home_bills_d='Consultez et réimprimez les factures.'
         home_report_t='Rapport du jour';     home_report_d='Revenus du jour et articles les plus vendus.'
         lbl_printer='IMPRIMANTE'; lbl_tunnel='TUNNEL'; lbl_today_session="AUJOURD'HUI"; lbl_last_update='DERNIERE MAJ'; lbl_live_log='JOURNAL'
-        btn_rescan='Rechercher imprimantes'; btn_restart='Redemarrer'; btn_clear='Effacer'
+        btn_rescan='Rechercher imprimantes'; btn_restart='Redemarrer la Station'; btn_clear='Effacer'
         printer_alert_title='Imprimante deconnectee'; printer_alert_msg="Les commandes ne s'imprimeront pas. Verifiez que l'imprimante est allumee et le cable branche."
         printer_ok_title='Imprimante reconnectee'; printer_ok_msg='Les tickets vont a nouveau s''imprimer.'; btn_rescan_short='Rechercher'
         period_today="Aujourd'hui"; period_week='Cette semaine'; period_month='Ce mois'; period_all='Tout'; period_refresh='Actualiser'
@@ -1839,7 +1844,7 @@ $script:i18n = @{
         staff_title='Equipe'; btn_add_staff='+ Ajouter'; lbl_staff_name='Nom'; lbl_staff_role='Role'
         staff_last_used='Vu :'; staff_never_used='Jamais utilise'; staff_active='Actif'; staff_inactive='Inactif'
         btn_remove='Supprimer'; btn_toggle='Activer/Desact.'; btn_copy_link='Copier lien'
-        confirm_remove='Supprimer ce membre du personnel ?'; confirm_restart="Redemarrer l'agent maintenant ?"
+        confirm_remove='Supprimer ce membre du personnel ?'; confirm_restart='Redemarrer la Station maintenant ?'
         rescan_info='Recherche lancee. Verifiez le journal pour les resultats.'
         no_staff='Aucun personnel. Cliquez sur "+ Ajouter" pour commencer.'
         dlg_add_staff_title='Ajouter un membre'; dlg_ok='Ajouter'; dlg_cancel='Annuler'
@@ -1862,7 +1867,7 @@ $script:i18n = @{
         home_bills_t='الفواتير';         home_bills_d='تصفح الفواتير وإعادة طباعة أي إيصال.'
         home_report_t='تقرير اليوم';      home_report_d='إيرادات نهاية اليوم والأصناف الأكثر مبيعًا.'
         lbl_printer='الطابعة'; lbl_tunnel='الاتصال'; lbl_today_session='اليوم'; lbl_last_update='آخر تحديث'; lbl_live_log='السجل المباشر'
-        btn_rescan='البحث عن طابعات'; btn_restart='إعادة التشغيل'; btn_clear='مسح'
+        btn_rescan='البحث عن طابعات'; btn_restart='إعادة تشغيل المحطة'; btn_clear='مسح'
         printer_alert_title='الطابعة غير متصلة'; printer_alert_msg='لن تتم طباعة الطلبات. تأكد من تشغيل الطابعة وتوصيل الكابل.'
         printer_ok_title='تمت إعادة توصيل الطابعة'; printer_ok_msg='ستتم طباعة الطلبات مرة أخرى.'; btn_rescan_short='بحث'
         period_today='اليوم'; period_week='هذا الأسبوع'; period_month='هذا الشهر'; period_all='كل الوقت'; period_refresh='تحديث'
@@ -1877,7 +1882,7 @@ $script:i18n = @{
         staff_title='الموظفون'; btn_add_staff='+ إضافة موظف'; lbl_staff_name='الاسم'; lbl_staff_role='الدور'
         staff_last_used='آخر استخدام:'; staff_never_used='لم يستخدم'; staff_active='نشط'; staff_inactive='غير نشط'
         btn_remove='حذف'; btn_toggle='تفعيل/إيقاف'; btn_copy_link='نسخ الرابط'
-        confirm_remove='هل تريد حذف هذا الموظف؟'; confirm_restart='إعادة تشغيل الوكيل الآن؟'
+        confirm_remove='هل تريد حذف هذا الموظف؟'; confirm_restart='إعادة تشغيل المحطة الآن؟'
         rescan_info='بدأ البحث. تحقق من السجل للنتائج.'
         no_staff='لا يوجد موظفون. اضغط على "+ إضافة موظف" للبدء.'
         dlg_add_staff_title='إضافة موظف'; dlg_ok='إضافة'; dlg_cancel='إلغاء'
@@ -1916,7 +1921,7 @@ $script:i18n['es'] = @{
     home_bills_t='Facturas';          home_bills_d='Consulta facturas y reimprime recibos.'
     home_report_t='Reporte Diario';   home_report_d='Ingresos del día y artículos más vendidos.'
     lbl_printer='IMPRESORA'; lbl_tunnel='TUNEL'; lbl_today_session='HOY'; lbl_last_update='ULTIMA ACT.'; lbl_live_log='REGISTRO'
-    btn_rescan='Buscar Impresoras'; btn_restart='Reiniciar'; btn_clear='Limpiar'
+    btn_rescan='Buscar Impresoras'; btn_restart='Reiniciar Station'; btn_clear='Limpiar'
     printer_alert_title='Impresora desconectada'; printer_alert_msg='Los pedidos no se imprimiran. Comprueba que la impresora este encendida y el cable conectado.'
     printer_ok_title='Impresora reconectada'; printer_ok_msg='Los pedidos volveran a imprimirse.'; btn_rescan_short='Buscar'
     period_today='Hoy'; period_week='Esta Semana'; period_month='Este Mes'; period_all='Todo'; period_refresh='Actualizar'
@@ -1931,7 +1936,7 @@ $script:i18n['es'] = @{
     staff_title='Personal'; btn_add_staff='+ Añadir'; lbl_staff_name='Nombre'; lbl_staff_role='Rol'
     staff_last_used='Última:'; staff_never_used='Nunca usado'; staff_active='Activo'; staff_inactive='Inactivo'
     btn_remove='Eliminar'; btn_toggle='Activar/Desact.'; btn_copy_link='Copiar enlace'
-    confirm_remove='¿Eliminar este miembro?'; confirm_restart='¿Reiniciar el agente ahora?'
+    confirm_remove='¿Eliminar este miembro?'; confirm_restart='¿Reiniciar la Station ahora?'
     rescan_info='Búsqueda iniciada. Revisa el registro.'
     no_staff='Sin personal. Haz clic en "+ Añadir" para empezar.'
     dlg_add_staff_title='Añadir Miembro'; dlg_ok='Añadir'; dlg_cancel='Cancelar'
@@ -1954,7 +1959,7 @@ $script:i18n['it'] = @{
     home_bills_t='Conti';             home_bills_d='Consulta i conti e ristampa le ricevute.'
     home_report_t='Rapporto Giornaliero'; home_report_d='Ricavi giornalieri e articoli più venduti.'
     lbl_printer='STAMPANTE'; lbl_tunnel='TUNNEL'; lbl_today_session='OGGI'; lbl_last_update='ULTIMO AGG.'; lbl_live_log='LOG'
-    btn_rescan='Cerca Stampanti'; btn_restart='Riavvia'; btn_clear='Pulisci'
+    btn_rescan='Cerca Stampanti'; btn_restart='Riavvia Station'; btn_clear='Pulisci'
     printer_alert_title='Stampante disconnessa'; printer_alert_msg='Gli ordini non verranno stampati. Controlla che la stampante sia accesa e il cavo collegato.'
     printer_ok_title='Stampante riconnessa'; printer_ok_msg='Gli ordini verranno di nuovo stampati.'; btn_rescan_short='Cerca'
     period_today='Oggi'; period_week='Questa Settimana'; period_month='Questo Mese'; period_all='Tutto'; period_refresh='Aggiorna'
@@ -1969,7 +1974,7 @@ $script:i18n['it'] = @{
     staff_title='Personale'; btn_add_staff='+ Aggiungi'; lbl_staff_name='Nome'; lbl_staff_role='Ruolo'
     staff_last_used='Ultimo:'; staff_never_used='Mai usato'; staff_active='Attivo'; staff_inactive='Inattivo'
     btn_remove='Rimuovi'; btn_toggle='Attiva/Disatt.'; btn_copy_link='Copia link'
-    confirm_remove='Rimuovere questo membro?'; confirm_restart="Riavviare l'agente ora?"
+    confirm_remove='Rimuovere questo membro?'; confirm_restart='Riavviare la Station ora?'
     rescan_info='Scansione avviata. Controlla il log.'
     no_staff='Nessun personale. Clicca "+ Aggiungi" per iniziare.'
     dlg_add_staff_title='Aggiungi Membro'; dlg_ok='Aggiungi'; dlg_cancel='Annulla'
@@ -1992,7 +1997,7 @@ $script:i18n['de'] = @{
     home_bills_t='Rechnungen';        home_bills_d='Rechnungen ansehen und Belege neu drucken.'
     home_report_t='Tagesbericht';     home_report_d='Tagesumsatz und meistverkaufte Artikel.'
     lbl_printer='DRUCKER'; lbl_tunnel='TUNNEL'; lbl_today_session='HEUTE'; lbl_last_update='LETZTES UPDATE'; lbl_live_log='PROTOKOLL'
-    btn_rescan='Drucker suchen'; btn_restart='Neustart'; btn_clear='Leeren'
+    btn_rescan='Drucker suchen'; btn_restart='Station neu starten'; btn_clear='Leeren'
     printer_alert_title='Drucker getrennt'; printer_alert_msg='Bestellungen werden nicht gedruckt. Pruefe, ob der Drucker eingeschaltet und das Kabel angeschlossen ist.'
     printer_ok_title='Drucker wieder verbunden'; printer_ok_msg='Bons werden wieder gedruckt.'; btn_rescan_short='Suchen'
     period_today='Heute'; period_week='Diese Woche'; period_month='Dieser Monat'; period_all='Alle'; period_refresh='Aktualisieren'
@@ -2007,7 +2012,7 @@ $script:i18n['de'] = @{
     staff_title='Personal'; btn_add_staff='+ Hinzufügen'; lbl_staff_name='Name'; lbl_staff_role='Rolle'
     staff_last_used='Zuletzt:'; staff_never_used='Nie benutzt'; staff_active='Aktiv'; staff_inactive='Inaktiv'
     btn_remove='Entfernen'; btn_toggle='Akt./Deakt.'; btn_copy_link='Link kopieren'
-    confirm_remove='Mitglied entfernen?'; confirm_restart='Agent jetzt neustarten?'
+    confirm_remove='Mitglied entfernen?'; confirm_restart='Station jetzt neu starten?'
     rescan_info='Scan gestartet. Siehe Protokoll.'
     no_staff='Kein Personal. Klicke "+ Hinzufügen" zum Starten.'
     dlg_add_staff_title='Mitglied hinzufügen'; dlg_ok='Hinzufügen'; dlg_cancel='Abbrechen'
@@ -2030,7 +2035,7 @@ $script:i18n['pt'] = @{
     home_bills_t='Faturas';           home_bills_d='Consultar faturas e reimprimir recibos.'
     home_report_t='Relatório Diário'; home_report_d='Receita do dia e itens mais vendidos.'
     lbl_printer='IMPRESSORA'; lbl_tunnel='TUNEL'; lbl_today_session='HOJE'; lbl_last_update='ULTIMA ATUAL.'; lbl_live_log='REGISTO'
-    btn_rescan='Buscar Impressoras'; btn_restart='Reiniciar'; btn_clear='Limpar'
+    btn_rescan='Buscar Impressoras'; btn_restart='Reiniciar Station'; btn_clear='Limpar'
     printer_alert_title='Impressora desligada'; printer_alert_msg='Os pedidos nao serao impressos. Verifique se a impressora esta ligada e o cabo conectado.'
     printer_ok_title='Impressora reconectada'; printer_ok_msg='Os pedidos voltarao a ser impressos.'; btn_rescan_short='Procurar'
     period_today='Hoje'; period_week='Esta Semana'; period_month='Este Mês'; period_all='Tudo'; period_refresh='Atualizar'
@@ -2045,7 +2050,7 @@ $script:i18n['pt'] = @{
     staff_title='Equipe'; btn_add_staff='+ Adicionar'; lbl_staff_name='Nome'; lbl_staff_role='Função'
     staff_last_used='Último:'; staff_never_used='Nunca usado'; staff_active='Ativo'; staff_inactive='Inativo'
     btn_remove='Remover'; btn_toggle='Ativar/Desat.'; btn_copy_link='Copiar link'
-    confirm_remove='Remover este membro?'; confirm_restart='Reiniciar o agente agora?'
+    confirm_remove='Remover este membro?'; confirm_restart='Reiniciar a Station agora?'
     rescan_info='Busca iniciada. Veja o registo.'
     no_staff='Sem equipe. Clique "+ Adicionar" para começar.'
     dlg_add_staff_title='Adicionar Membro'; dlg_ok='Adicionar'; dlg_cancel='Cancelar'
@@ -2068,7 +2073,7 @@ $script:i18n['nl'] = @{
     home_bills_t='Rekeningen';        home_bills_d='Bekijk rekeningen en herdruk bonnen.'
     home_report_t='Dagrapport';       home_report_d='Dagomzet en best verkochte items.'
     lbl_printer='PRINTER'; lbl_tunnel='TUNNEL'; lbl_today_session='VANDAAG'; lbl_last_update='LAATSTE UPD.'; lbl_live_log='LOG'
-    btn_rescan='Printers zoeken'; btn_restart='Herstart'; btn_clear='Wissen'
+    btn_rescan='Printers zoeken'; btn_restart='Station herstarten'; btn_clear='Wissen'
     printer_alert_title='Printer losgekoppeld'; printer_alert_msg='Bestellingen worden niet afgedrukt. Controleer of de printer aanstaat en de kabel is aangesloten.'
     printer_ok_title='Printer opnieuw verbonden'; printer_ok_msg='Bonnen worden weer afgedrukt.'; btn_rescan_short='Zoeken'
     period_today='Vandaag'; period_week='Deze Week'; period_month='Deze Maand'; period_all='Alles'; period_refresh='Vernieuwen'
@@ -2083,7 +2088,7 @@ $script:i18n['nl'] = @{
     staff_title='Personeel'; btn_add_staff='+ Toevoegen'; lbl_staff_name='Naam'; lbl_staff_role='Rol'
     staff_last_used='Laatst:'; staff_never_used='Nooit gebruikt'; staff_active='Actief'; staff_inactive='Inactief'
     btn_remove='Verwijderen'; btn_toggle='Aan/Uit'; btn_copy_link='Kopieer link'
-    confirm_remove='Lid verwijderen?'; confirm_restart='Agent nu herstarten?'
+    confirm_remove='Lid verwijderen?'; confirm_restart='Station nu herstarten?'
     rescan_info='Scan gestart. Zie log.'
     no_staff='Geen personeel. Klik "+ Toevoegen" om te beginnen.'
     dlg_add_staff_title='Lid toevoegen'; dlg_ok='Toevoegen'; dlg_cancel='Annuleren'
@@ -2106,7 +2111,7 @@ $script:i18n['ru'] = @{
     home_bills_t='Счета';             home_bills_d='Просмотр счетов и повторная печать чеков.'
     home_report_t='Дневной Отчет';    home_report_d='Выручка за день и самые продаваемые позиции.'
     lbl_printer='ПРИНТЕР'; lbl_tunnel='ТУННЕЛЬ'; lbl_today_session='СЕГОДНЯ'; lbl_last_update='ОБНОВЛЕНИЕ'; lbl_live_log='ЖУРНАЛ'
-    btn_rescan='Найти принтеры'; btn_restart='Перезапуск'; btn_clear='Очистить'
+    btn_rescan='Найти принтеры'; btn_restart='Перезапустить Station'; btn_clear='Очистить'
     printer_alert_title='Принтер отключён'; printer_alert_msg='Заказы не будут печататься. Проверьте, что принтер включён и кабель подключён.'
     printer_ok_title='Принтер снова подключён'; printer_ok_msg='Заказы снова будут печататься.'; btn_rescan_short='Поиск'
     period_today='Сегодня'; period_week='Эта Неделя'; period_month='Этот Месяц'; period_all='Все Время'; period_refresh='Обновить'
@@ -2121,7 +2126,7 @@ $script:i18n['ru'] = @{
     staff_title='Персонал'; btn_add_staff='+ Добавить'; lbl_staff_name='Имя'; lbl_staff_role='Роль'
     staff_last_used='Посл.:'; staff_never_used='Не использовался'; staff_active='Активен'; staff_inactive='Неактивен'
     btn_remove='Удалить'; btn_toggle='Вкл/Выкл'; btn_copy_link='Копировать'
-    confirm_remove='Удалить сотрудника?'; confirm_restart='Перезапустить агент сейчас?'
+    confirm_remove='Удалить сотрудника?'; confirm_restart='Перезапустить Station сейчас?'
     rescan_info='Сканирование начато. Смотрите журнал.'
     no_staff='Нет персонала. Нажмите "+ Добавить" чтобы начать.'
     dlg_add_staff_title='Добавить сотрудника'; dlg_ok='Добавить'; dlg_cancel='Отмена'
@@ -2144,7 +2149,7 @@ $script:i18n['zh'] = @{
     home_bills_t='账单';              home_bills_d='浏览账单并重新打印小票。'
     home_report_t='日报';             home_report_d='当日营收和最畅销菜品。'
     lbl_printer='打印机'; lbl_tunnel='隧道'; lbl_today_session='今日'; lbl_last_update='最后更新'; lbl_live_log='实时日志'
-    btn_rescan='扫描打印机'; btn_restart='重启'; btn_clear='清除'
+    btn_rescan='扫描打印机'; btn_restart='重启 Station'; btn_clear='清除'
     printer_alert_title='打印机已断开'; printer_alert_msg='订单将无法打印。请检查打印机是否已开机且电缆已连接。'
     printer_ok_title='打印机已重新连接'; printer_ok_msg='将重新打印订单。'; btn_rescan_short='扫描'
     period_today='今日'; period_week='本周'; period_month='本月'; period_all='全部'; period_refresh='刷新'
@@ -2159,7 +2164,7 @@ $script:i18n['zh'] = @{
     staff_title='员工'; btn_add_staff='+ 添加员工'; lbl_staff_name='姓名'; lbl_staff_role='角色'
     staff_last_used='最后:'; staff_never_used='未使用'; staff_active='在线'; staff_inactive='离线'
     btn_remove='删除'; btn_toggle='切换'; btn_copy_link='复制链接'
-    confirm_remove='删除此员工？'; confirm_restart='立即重启代理？'
+    confirm_remove='删除此员工？'; confirm_restart='立即重启 Station？'
     rescan_info='扫描已开始。查看日志。'
     no_staff='暂无员工。点击"+ 添加员工"开始。'
     dlg_add_staff_title='添加员工'; dlg_ok='添加'; dlg_cancel='取消'

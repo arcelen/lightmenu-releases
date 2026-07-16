@@ -2575,7 +2575,11 @@ function stationAgent(messages) {
           reject(new Error((parsed && parsed.error) || ('AI HTTP ' + res.statusCode + ': ' + data.slice(0, 200))));
           return;
         }
-        resolve({ reply: (parsed && parsed.reply) || 'Done.', steps: (parsed && parsed.steps) || [] });
+        resolve({
+          reply: (parsed && parsed.reply) || 'Done.',
+          steps: (parsed && parsed.steps) || [],
+          clientActions: (parsed && parsed.clientActions) || [],
+        });
       });
     });
     r.on('error', reject);
@@ -2584,6 +2588,34 @@ function stationAgent(messages) {
     r.setTimeout(90000, () => r.destroy(new Error('AI request timed out')));
     r.write(bodyStr); r.end();
   });
+}
+
+// Perform an action the server agent delegated to THIS Station. These are the
+// things a server physically cannot do — talk to the USB/network printers wired
+// to this machine. The server tool only records the intent; we carry it out here
+// once the reply is on its way back, which is why the assistant phrases them as
+// "running now" rather than reporting a result.
+async function runClientAction(action, args) {
+  args = args || {};
+  if (action === 'rescan_printers') {
+    runNetworkScan();
+    return { ok: true, message: 'Network scan started.' };
+  }
+  if (action === 'test_print') {
+    const label = args.printer_type ? (String(args.printer_type) + ' printer') : 'Printer';
+    const ticket = buildTestTicket(label);
+    let ip = (args.ip || '').trim();
+    // A printer_type with no IP → look up that printer's configured IP.
+    if (!ip && args.printer_type) {
+      const rows = await supabaseGet('printer_configs', { restaurant_id: RESTAURANT_ID }, 100);
+      const match = (Array.isArray(rows) ? rows : []).find(c => c.printer_type === args.printer_type && c.printer_ip);
+      if (match) ip = match.printer_ip;
+    }
+    if (ip && /^\d+\.\d+\.\d+\.\d+$/.test(ip)) await sendViaNetwork(ticket, ip, 9100);
+    else await sendToPrinter(ticket);
+    return { ok: true, target: ip || 'active printer' };
+  }
+  return { ok: false, error: 'Unknown client action: ' + action };
 }
 
 function stationAI(prompt, systemPrompt) {
@@ -4214,6 +4246,17 @@ http.createServer((req, res) => {
           .map(h => ({ role: h.role, content: String(h.text || h.content) }));
         messages.push({ role: 'user', content: String(d.message) });
         const out = await stationAgent(messages);
+        // Carry out anything the agent delegated to this Station (local printer
+        // work it can't do server-side). Best-effort and non-blocking for the
+        // reply: a failure is logged, never swallows the answer the user needs.
+        for (const ca of (out.clientActions || [])) {
+          try {
+            await runClientAction(ca.action, ca.args);
+            log('AI ran local action: ' + ca.action);
+          } catch (e) {
+            log('AI local action failed (' + ca.action + '): ' + (e && e.message));
+          }
+        }
         res.writeHead(200, { 'Content-Type': 'application/json' });
         // Keep the ui.ps1 contract: { ok, reply, actions } — actions are the
         // tools the agent ran, shown as a small trace bubble.
