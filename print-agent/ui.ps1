@@ -51,6 +51,14 @@ $rescanUrl = "$base/rescan"
 $script:currencySymbol = 'EUR'
 $script:lang = 'en'
 
+# Printer-health watchdog state. The Station's whole promise is that service keeps
+# running offline — the only real failure is a printer that isn't plugged in. We
+# debounce a few polls (a fresh boot briefly reports "searching" before the USB
+# scan finishes) before raising the alert, so a normal startup never false-alarms.
+$script:printerDownStreak = 0      # consecutive polls the printer looked disconnected
+$script:printerAlertShown = $false # is the red banner currently up?
+$script:printerDownConfirm = 3     # polls (~12s at the 4s status cadence) before alerting
+
 function Format-Money($amount) {
     $sym = $script:currencySymbol
     $n   = [double]$amount
@@ -325,6 +333,45 @@ function Format-Money($amount) {
 
     <!-- ───────── PAGE CONTAINER ───────── -->
     <Grid Grid.Row="2">
+
+      <!-- ═══ GLOBAL PRINTER ALERT (floats over every page while a printer is down) ═══
+           The one failure that actually stops service is a printer that isn't
+           physically connected. This red bar is impossible to miss and stays up
+           until the printer is back — internet loss never triggers it. -->
+      <Border x:Name="PrinterAlertBar" Visibility="Collapsed" Panel.ZIndex="200"
+              VerticalAlignment="Top" Background="#7F1D1D" BorderBrush="#EF4444"
+              BorderThickness="1.5" CornerRadius="12" Padding="16,11" Margin="0,0,0,0">
+        <Border.Effect><DropShadowEffect Color="#000000" BlurRadius="18" ShadowDepth="0" Opacity="0.55"/></Border.Effect>
+        <Grid>
+          <Grid.ColumnDefinitions>
+            <ColumnDefinition Width="Auto"/>
+            <ColumnDefinition Width="*"/>
+            <ColumnDefinition Width="Auto"/>
+          </Grid.ColumnDefinitions>
+          <TextBlock Grid.Column="0" Text="⚠" Foreground="#FCA5A5" FontSize="22"
+                     VerticalAlignment="Center" Margin="0,0,13,0"/>
+          <StackPanel Grid.Column="1" VerticalAlignment="Center">
+            <TextBlock x:Name="PrinterAlertTitle" Text="Printer disconnected" Foreground="#FFFFFF"
+                       FontSize="14" FontWeight="Bold"/>
+            <TextBlock x:Name="PrinterAlertMsg" Text="Orders won't print. Check the printer is powered on and the cable is plugged in."
+                       Foreground="#FECACA" FontSize="12" Margin="0,2,0,0" TextWrapping="Wrap"/>
+          </StackPanel>
+          <Button x:Name="PrinterAlertRescan" Grid.Column="2" Content="Rescan" Foreground="#FFFFFF"
+                  Background="#EF4444" BorderThickness="0" Cursor="Hand" Padding="16,8"
+                  VerticalAlignment="Center" Margin="12,0,0,0" FontWeight="SemiBold" FontSize="12">
+            <Button.Template>
+              <ControlTemplate TargetType="Button">
+                <Border Background="{TemplateBinding Background}" CornerRadius="8" Padding="{TemplateBinding Padding}">
+                  <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                </Border>
+                <ControlTemplate.Triggers>
+                  <Trigger Property="IsMouseOver" Value="True"><Setter Property="Background" Value="#DC2626"/></Trigger>
+                </ControlTemplate.Triggers>
+              </ControlTemplate>
+            </Button.Template>
+          </Button>
+        </Grid>
+      </Border>
 
       <!-- ════════ PAGE 0: HOME — Control Center ════════ -->
       <Grid x:Name="PageHome" Visibility="Visible">
@@ -1714,6 +1761,8 @@ $script:i18n = @{
         lbl_printer='PRINTER'; lbl_last_update='LAST UPDATE'; lbl_free='Free'; lbl_dishes='Dishes out'; lbl_reclaim='To reclaim'; lbl_check='Check printed'
         lbl_drag_hint='Drag to arrange · tap to edit'; btn_add_floor='+ Floor'; btn_add_table='+ Table'; btn_del_floor='Delete Floor'
         btn_rescan='Rescan Printers'; btn_restart='Restart Agent'
+        printer_alert_title='Printer disconnected'; printer_alert_msg="Orders won't print. Check the printer is powered on and the cable is plugged in."
+        printer_ok_title='Printer reconnected'; printer_ok_msg='Tickets will print again.'; btn_rescan_short='Rescan'
         period_today='Today'; period_week='This Week'; period_month='This Month'; period_all='All Time'; period_refresh='Refresh'
         lbl_total_revenue='TOTAL REVENUE'; lbl_total_orders='TOTAL ORDERS'; lbl_avg_ticket='AVG TICKET'; lbl_best_day='BEST DAY'
         lbl_payment_methods='PAYMENT METHODS'; lbl_cash='Cash'; lbl_card='Card'; lbl_mixed='Mixed'
@@ -1774,6 +1823,8 @@ $script:i18n = @{
         home_report_t='Rapport du jour';     home_report_d='Revenus du jour et articles les plus vendus.'
         lbl_printer='IMPRIMANTE'; lbl_tunnel='TUNNEL'; lbl_today_session="AUJOURD'HUI"; lbl_last_update='DERNIERE MAJ'; lbl_live_log='JOURNAL'
         btn_rescan='Rechercher imprimantes'; btn_restart='Redemarrer'; btn_clear='Effacer'
+        printer_alert_title='Imprimante deconnectee'; printer_alert_msg="Les commandes ne s'imprimeront pas. Verifiez que l'imprimante est allumee et le cable branche."
+        printer_ok_title='Imprimante reconnectee'; printer_ok_msg='Les tickets vont a nouveau s''imprimer.'; btn_rescan_short='Rechercher'
         period_today="Aujourd'hui"; period_week='Cette semaine'; period_month='Ce mois'; period_all='Tout'; period_refresh='Actualiser'
         lbl_total_revenue="CHIFFRE D'AFFAIRES"; lbl_total_orders='TOTAL COMMANDES'; lbl_avg_ticket='TICKET MOYEN'; lbl_best_day='MEILLEUR JOUR'
         lbl_payment_methods='MODES DE PAIEMENT'; lbl_cash='Especes'; lbl_card='Carte'; lbl_mixed='Mixte'
@@ -1810,6 +1861,8 @@ $script:i18n = @{
         home_report_t='تقرير اليوم';      home_report_d='إيرادات نهاية اليوم والأصناف الأكثر مبيعًا.'
         lbl_printer='الطابعة'; lbl_tunnel='الاتصال'; lbl_today_session='اليوم'; lbl_last_update='آخر تحديث'; lbl_live_log='السجل المباشر'
         btn_rescan='البحث عن طابعات'; btn_restart='إعادة التشغيل'; btn_clear='مسح'
+        printer_alert_title='الطابعة غير متصلة'; printer_alert_msg='لن تتم طباعة الطلبات. تأكد من تشغيل الطابعة وتوصيل الكابل.'
+        printer_ok_title='تمت إعادة توصيل الطابعة'; printer_ok_msg='ستتم طباعة الطلبات مرة أخرى.'; btn_rescan_short='بحث'
         period_today='اليوم'; period_week='هذا الأسبوع'; period_month='هذا الشهر'; period_all='كل الوقت'; period_refresh='تحديث'
         lbl_total_revenue='إجمالي الإيرادات'; lbl_total_orders='إجمالي الطلبات'; lbl_avg_ticket='متوسط الفاتورة'; lbl_best_day='أفضل يوم'
         lbl_payment_methods='طرق الدفع'; lbl_cash='نقد'; lbl_card='بطاقة'; lbl_mixed='مختلط'
@@ -1862,6 +1915,8 @@ $script:i18n['es'] = @{
     home_report_t='Reporte Diario';   home_report_d='Ingresos del día y artículos más vendidos.'
     lbl_printer='IMPRESORA'; lbl_tunnel='TUNEL'; lbl_today_session='HOY'; lbl_last_update='ULTIMA ACT.'; lbl_live_log='REGISTRO'
     btn_rescan='Buscar Impresoras'; btn_restart='Reiniciar'; btn_clear='Limpiar'
+    printer_alert_title='Impresora desconectada'; printer_alert_msg='Los pedidos no se imprimiran. Comprueba que la impresora este encendida y el cable conectado.'
+    printer_ok_title='Impresora reconectada'; printer_ok_msg='Los pedidos volveran a imprimirse.'; btn_rescan_short='Buscar'
     period_today='Hoy'; period_week='Esta Semana'; period_month='Este Mes'; period_all='Todo'; period_refresh='Actualizar'
     lbl_total_revenue='INGRESOS TOTALES'; lbl_total_orders='PEDIDOS TOTALES'; lbl_avg_ticket='TICKET PROMEDIO'; lbl_best_day='MEJOR DIA'
     lbl_payment_methods='METODOS DE PAGO'; lbl_cash='Efectivo'; lbl_card='Tarjeta'; lbl_mixed='Mixto'
@@ -1898,6 +1953,8 @@ $script:i18n['it'] = @{
     home_report_t='Rapporto Giornaliero'; home_report_d='Ricavi giornalieri e articoli più venduti.'
     lbl_printer='STAMPANTE'; lbl_tunnel='TUNNEL'; lbl_today_session='OGGI'; lbl_last_update='ULTIMO AGG.'; lbl_live_log='LOG'
     btn_rescan='Cerca Stampanti'; btn_restart='Riavvia'; btn_clear='Pulisci'
+    printer_alert_title='Stampante disconnessa'; printer_alert_msg='Gli ordini non verranno stampati. Controlla che la stampante sia accesa e il cavo collegato.'
+    printer_ok_title='Stampante riconnessa'; printer_ok_msg='Gli ordini verranno di nuovo stampati.'; btn_rescan_short='Cerca'
     period_today='Oggi'; period_week='Questa Settimana'; period_month='Questo Mese'; period_all='Tutto'; period_refresh='Aggiorna'
     lbl_total_revenue='RICAVO TOTALE'; lbl_total_orders='ORDINI TOTALI'; lbl_avg_ticket='TICKET MEDIO'; lbl_best_day='GIORNO MIGLIORE'
     lbl_payment_methods='METODI PAGAMENTO'; lbl_cash='Contanti'; lbl_card='Carta'; lbl_mixed='Misto'
@@ -1934,6 +1991,8 @@ $script:i18n['de'] = @{
     home_report_t='Tagesbericht';     home_report_d='Tagesumsatz und meistverkaufte Artikel.'
     lbl_printer='DRUCKER'; lbl_tunnel='TUNNEL'; lbl_today_session='HEUTE'; lbl_last_update='LETZTES UPDATE'; lbl_live_log='PROTOKOLL'
     btn_rescan='Drucker suchen'; btn_restart='Neustart'; btn_clear='Leeren'
+    printer_alert_title='Drucker getrennt'; printer_alert_msg='Bestellungen werden nicht gedruckt. Pruefe, ob der Drucker eingeschaltet und das Kabel angeschlossen ist.'
+    printer_ok_title='Drucker wieder verbunden'; printer_ok_msg='Bons werden wieder gedruckt.'; btn_rescan_short='Suchen'
     period_today='Heute'; period_week='Diese Woche'; period_month='Dieser Monat'; period_all='Alle'; period_refresh='Aktualisieren'
     lbl_total_revenue='GESAMTUMSATZ'; lbl_total_orders='BESTELLUNGEN'; lbl_avg_ticket='DURCHSCHNITT'; lbl_best_day='BESTER TAG'
     lbl_payment_methods='ZAHLUNGSARTEN'; lbl_cash='Bar'; lbl_card='Karte'; lbl_mixed='Gemischt'
@@ -1970,6 +2029,8 @@ $script:i18n['pt'] = @{
     home_report_t='Relatório Diário'; home_report_d='Receita do dia e itens mais vendidos.'
     lbl_printer='IMPRESSORA'; lbl_tunnel='TUNEL'; lbl_today_session='HOJE'; lbl_last_update='ULTIMA ATUAL.'; lbl_live_log='REGISTO'
     btn_rescan='Buscar Impressoras'; btn_restart='Reiniciar'; btn_clear='Limpar'
+    printer_alert_title='Impressora desligada'; printer_alert_msg='Os pedidos nao serao impressos. Verifique se a impressora esta ligada e o cabo conectado.'
+    printer_ok_title='Impressora reconectada'; printer_ok_msg='Os pedidos voltarao a ser impressos.'; btn_rescan_short='Procurar'
     period_today='Hoje'; period_week='Esta Semana'; period_month='Este Mês'; period_all='Tudo'; period_refresh='Atualizar'
     lbl_total_revenue='RECEITA TOTAL'; lbl_total_orders='PEDIDOS TOTAIS'; lbl_avg_ticket='TICKET MEDIO'; lbl_best_day='MELHOR DIA'
     lbl_payment_methods='METODOS PAGAMENTO'; lbl_cash='Dinheiro'; lbl_card='Cartão'; lbl_mixed='Misto'
@@ -2006,6 +2067,8 @@ $script:i18n['nl'] = @{
     home_report_t='Dagrapport';       home_report_d='Dagomzet en best verkochte items.'
     lbl_printer='PRINTER'; lbl_tunnel='TUNNEL'; lbl_today_session='VANDAAG'; lbl_last_update='LAATSTE UPD.'; lbl_live_log='LOG'
     btn_rescan='Printers zoeken'; btn_restart='Herstart'; btn_clear='Wissen'
+    printer_alert_title='Printer losgekoppeld'; printer_alert_msg='Bestellingen worden niet afgedrukt. Controleer of de printer aanstaat en de kabel is aangesloten.'
+    printer_ok_title='Printer opnieuw verbonden'; printer_ok_msg='Bonnen worden weer afgedrukt.'; btn_rescan_short='Zoeken'
     period_today='Vandaag'; period_week='Deze Week'; period_month='Deze Maand'; period_all='Alles'; period_refresh='Vernieuwen'
     lbl_total_revenue='TOTALE OMZET'; lbl_total_orders='TOTAAL BESTELLINGEN'; lbl_avg_ticket='GEM. TICKET'; lbl_best_day='BESTE DAG'
     lbl_payment_methods='BETAALMETHODEN'; lbl_cash='Contant'; lbl_card='Kaart'; lbl_mixed='Gemengd'
@@ -2042,6 +2105,8 @@ $script:i18n['ru'] = @{
     home_report_t='Дневной Отчет';    home_report_d='Выручка за день и самые продаваемые позиции.'
     lbl_printer='ПРИНТЕР'; lbl_tunnel='ТУННЕЛЬ'; lbl_today_session='СЕГОДНЯ'; lbl_last_update='ОБНОВЛЕНИЕ'; lbl_live_log='ЖУРНАЛ'
     btn_rescan='Найти принтеры'; btn_restart='Перезапуск'; btn_clear='Очистить'
+    printer_alert_title='Принтер отключён'; printer_alert_msg='Заказы не будут печататься. Проверьте, что принтер включён и кабель подключён.'
+    printer_ok_title='Принтер снова подключён'; printer_ok_msg='Заказы снова будут печататься.'; btn_rescan_short='Поиск'
     period_today='Сегодня'; period_week='Эта Неделя'; period_month='Этот Месяц'; period_all='Все Время'; period_refresh='Обновить'
     lbl_total_revenue='ОБЩАЯ ВЫРУЧКА'; lbl_total_orders='ВСЕГО ЗАКАЗОВ'; lbl_avg_ticket='СРЕДНИЙ ЧЕК'; lbl_best_day='ЛУЧШИЙ ДЕНЬ'
     lbl_payment_methods='СПОСОБЫ ОПЛАТЫ'; lbl_cash='Наличные'; lbl_card='Карта'; lbl_mixed='Смешанная'
@@ -2078,6 +2143,8 @@ $script:i18n['zh'] = @{
     home_report_t='日报';             home_report_d='当日营收和最畅销菜品。'
     lbl_printer='打印机'; lbl_tunnel='隧道'; lbl_today_session='今日'; lbl_last_update='最后更新'; lbl_live_log='实时日志'
     btn_rescan='扫描打印机'; btn_restart='重启'; btn_clear='清除'
+    printer_alert_title='打印机已断开'; printer_alert_msg='订单将无法打印。请检查打印机是否已开机且电缆已连接。'
+    printer_ok_title='打印机已重新连接'; printer_ok_msg='将重新打印订单。'; btn_rescan_short='扫描'
     period_today='今日'; period_week='本周'; period_month='本月'; period_all='全部'; period_refresh='刷新'
     lbl_total_revenue='总收入'; lbl_total_orders='总订单'; lbl_avg_ticket='平均单价'; lbl_best_day='最佳日'
     lbl_payment_methods='支付方式'; lbl_cash='现金'; lbl_card='卡'; lbl_mixed='混合'
@@ -2579,12 +2646,16 @@ function Update-Status {
             (ctl 'StatusText').Text = 'Disconnected'
             (ctl 'PrinterText').Text = '-'
             (ctl 'UpdateText').Text  = ('checked ' + (Get-Date -Format 'HH:mm'))
+            # Agent unreachable — printer state is unknown; clear any printer alert
+            # so the red bar doesn't linger on top of the "Disconnected" state.
+            Clear-PrinterAlert
             return
         }
         # configured is false when the install has no restaurant credentials
         # (config.json missing at install time). Show that clearly rather than a
         # green "Connected" that hides why nothing prints.
-        if ($r.PSObject.Properties.Name -contains 'configured' -and -not $r.configured) {
+        $isConfigured = -not ($r.PSObject.Properties.Name -contains 'configured' -and -not $r.configured)
+        if (-not $isConfigured) {
             (ctl 'StatusDot').Fill  = [System.Windows.Media.Brushes]::Orange
             (ctl 'StatusText').Text = 'Not configured - re-download from your dashboard'
         } else {
@@ -2624,14 +2695,62 @@ function Update-Status {
         }
 
         $printerInfo = '-'
+        $printerOk = $false
         if ($r.printer) {
-            if     ($r.printer.mode -eq 'usb-direct')   { $printerInfo = 'OK  ' + $r.printer.usb + ' (USB direct)' }
-            elseif ($r.printer.mode -eq 'usb-spooler')  { $printerInfo = 'OK  ' + $r.printer.usb + ' (USB spooler)' }
-            elseif ($r.printer.mode -eq 'network')      { $printerInfo = 'OK  ' + $r.printer.ip + ':' + $r.printer.port }
+            if     ($r.printer.mode -eq 'usb-direct')   { $printerInfo = 'OK  ' + $r.printer.usb + ' (USB direct)';  $printerOk = $true }
+            elseif ($r.printer.mode -eq 'usb-spooler')  { $printerInfo = 'OK  ' + $r.printer.usb + ' (USB spooler)'; $printerOk = $true }
+            elseif ($r.printer.mode -eq 'network')      { $printerInfo = 'OK  ' + $r.printer.ip + ':' + $r.printer.port; $printerOk = $true }
             else                                         { $printerInfo = 'Searching...' }
         }
         (ctl 'PrinterText').Text = $printerInfo
+        # Turn the status-bar printer text red the moment it's not connected, so
+        # even a glance at the header shows something is wrong.
+        (ctl 'PrinterText').Foreground = if ($printerOk -or -not $isConfigured) { SolidBrush '#FFFFFF' } else { SolidBrush '#F87171' }
         (ctl 'UpdateText').Text = ('v' + $r.version + ' - checked ' + (Get-Date -Format 'HH:mm'))
+
+        # ── Printer-health watchdog ──────────────────────────────────────────
+        # Never alarm before the restaurant is even configured (printer isn't set
+        # up yet). Otherwise debounce a few polls, then raise/clear the alert.
+        if (-not $isConfigured) {
+            Clear-PrinterAlert
+        } elseif ($printerOk) {
+            $script:printerDownStreak = 0
+            if ($script:printerAlertShown) {
+                # Recovered: pull the banner down and confirm it audibly/visually.
+                Clear-PrinterAlert
+                Show-Toast 'success' (T 'printer_ok_title') (T 'printer_ok_msg')
+            }
+        } else {
+            $script:printerDownStreak++
+            if ($script:printerDownStreak -ge $script:printerDownConfirm -and -not $script:printerAlertShown) {
+                Raise-PrinterAlert
+            }
+        }
+    }
+}
+
+# Show the global red printer banner and alert the user once (beep + toast). The
+# banner then stays up on every page until the printer is reconnected.
+function Raise-PrinterAlert {
+    $script:printerAlertShown = $true
+    $bar = ctl 'PrinterAlertBar'
+    if ($bar) {
+        (ctl 'PrinterAlertTitle').Text = (T 'printer_alert_title')
+        (ctl 'PrinterAlertMsg').Text   = (T 'printer_alert_msg')
+        (ctl 'PrinterAlertRescan').Content = (T 'btn_rescan_short')
+        $bar.Visibility = 'Visible'
+    }
+    try { [System.Media.SystemSounds]::Exclamation.Play() } catch {}
+    Show-Toast 'error' (T 'printer_alert_title') (T 'printer_alert_msg')
+}
+
+# Hide the banner and reset the watchdog. Safe to call when nothing is showing.
+function Clear-PrinterAlert {
+    $script:printerDownStreak = 0
+    if ($script:printerAlertShown) {
+        $script:printerAlertShown = $false
+        $bar = ctl 'PrinterAlertBar'
+        if ($bar) { $bar.Visibility = 'Collapsed' }
     }
 }
 
@@ -3997,6 +4116,14 @@ function Show-AddStaffDialog {
     } catch {
         [System.Windows.MessageBox]::Show("Rescan failed: $($_.Exception.Message)", 'LightMenu', 'OK', 'Warning') | Out-Null
     }
+})
+
+# Rescan straight from the printer-down banner — no modal, since a waiter mid-order
+# just wants to re-trigger the scan and get back to work. The next status poll will
+# clear the banner on its own once the printer is found again.
+(ctl 'PrinterAlertRescan').Add_Click({
+    try { Invoke-RestMethod -Uri $rescanUrl -Method Post -TimeoutSec 10 -ErrorAction Stop | Out-Null } catch {}
+    Show-Toast 'info' (T 'btn_rescan') '...'
 })
 
 (ctl 'RestartBtn').Add_Click({
