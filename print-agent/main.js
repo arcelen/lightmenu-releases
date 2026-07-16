@@ -2615,6 +2615,36 @@ async function runClientAction(action, args) {
     else await sendToPrinter(ticket);
     return { ok: true, target: ip || 'active printer' };
   }
+  if (action === 'update_ticket_settings') {
+    // Applied here rather than server-side because changing the language must
+    // also re-resolve the printed label set, and that resolver lives here. Same
+    // path the old local tool used, so behaviour is unchanged.
+    const incoming = pickTicketSettings(args.patch || args.settings || args);
+    const rows = await supabaseGet('printer_configs', { restaurant_id: RESTAURANT_ID, printer_type: 'kitchen' }, 5);
+    const cfg = Array.isArray(rows) ? rows.find(c => c.printer_type === 'kitchen') : null;
+    const merged = Object.assign({}, (cfg && cfg.settings) || {}, incoming);
+    merged.labels = resolveTicketLabels(merged.ticket_language || 'en', merged.label_overrides);
+    await stationDb('kitchen_settings.save', { settings: merged });
+    return { ok: true, language: merged.ticket_language || 'en' };
+  }
+  if (action === 'reprint_bill') {
+    // The cloud (saved_bills) and this Station's local store use different ids —
+    // order_id is the shared key, so resolve on that; otherwise take the latest.
+    const bills = store.getBills() || [];
+    let bill = null;
+    if (args.order_id)        bill = bills.find(b => b.order_id === args.order_id) || null;
+    else if (args.bill_number) bill = bills.find(b => String(b.id) === String(args.bill_number)) || null;
+    else                       bill = bills.length ? bills[bills.length - 1] : null;
+    if (!bill) throw new Error('No matching bill found on this Station');
+    await sendToPrinter(buildCheckTicket({
+      type: 'check', restaurant_id: RESTAURANT_ID, restaurant_name: RESTAURANT_NAME,
+      table_number: bill.table, waiter_name: bill.waiter, currency: bill.currency || 'EUR',
+      time: bill.date, order_id: bill.order_id, payment_method: bill.payment_method,
+      total: bill.total, guest_count: bill.guest_count, bill_url: bill.bill_url,
+      items: bill.items || [], settings: {},
+    }));
+    return { ok: true, bill_id: bill.id };
+  }
   return { ok: false, error: 'Unknown client action: ' + action };
 }
 
