@@ -2627,6 +2627,14 @@ async function runClientAction(action, args) {
     await stationDb('kitchen_settings.save', { settings: merged });
     return { ok: true, language: merged.ticket_language || 'en' };
   }
+  if (action === 'print_check') {
+    // The check for a still-open table (real items + total, honours check_copies,
+    // stamps check_printed_at). Distinct from reprint_bill, which reprints an
+    // already-saved bill.
+    const r = await stationPrintCheck(Number(args.table));
+    if (!r || r.ok !== true) throw new Error((r && r.error) || 'Check print failed');
+    return r;
+  }
   if (action === 'reprint_bill') {
     // The cloud (saved_bills) and this Station's local store use different ids —
     // order_id is the shared key, so resolve on that; otherwise take the latest.
