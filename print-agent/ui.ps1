@@ -6571,26 +6571,221 @@ Set-TsTab 'order'
 $script:aiHistory = @()
 $script:aiBusy = $false
 $script:aiInited = $false
+# ─── Markdown rendering ──────────────────────────────────────────────────────
+# The model answers in markdown — headings, **bold**, tables, bullets, rules. A
+# plain TextBlock printed that syntax literally ("### Pizza", "| Item | Price |",
+# "**€13.00**"), which looked broken. These build real WPF elements instead.
+
+$script:AiFont = New-Object System.Windows.Media.FontFamily('Segoe UI')
+$script:AiMono = New-Object System.Windows.Media.FontFamily('Consolas')
+
+# Inline markdown inside one line: **bold**, *italic*, `code`.
+function Add-MdInlines($tb, [string]$text) {
+    $rx = [regex]'(\*\*(?<b>[^*]+)\*\*|(?<!\*)\*(?<i>[^*\n]+)\*(?!\*)|`(?<c>[^`]+)`)'
+    $pos = 0
+    foreach ($m in $rx.Matches($text)) {
+        if ($m.Index -gt $pos) { $tb.Inlines.Add((New-Object System.Windows.Documents.Run($text.Substring($pos, $m.Index - $pos)))) }
+        if ($m.Groups['b'].Success) {
+            $r = New-Object System.Windows.Documents.Run($m.Groups['b'].Value); $r.FontWeight = 'SemiBold'; $tb.Inlines.Add($r)
+        } elseif ($m.Groups['i'].Success) {
+            $r = New-Object System.Windows.Documents.Run($m.Groups['i'].Value); $r.FontStyle = 'Italic'; $tb.Inlines.Add($r)
+        } elseif ($m.Groups['c'].Success) {
+            $r = New-Object System.Windows.Documents.Run($m.Groups['c'].Value)
+            $r.FontFamily = $script:AiMono; $r.Foreground = SolidBrush '#5EEAD4'; $tb.Inlines.Add($r)
+        }
+        $pos = $m.Index + $m.Length
+    }
+    if ($pos -lt $text.Length) { $tb.Inlines.Add((New-Object System.Windows.Documents.Run($text.Substring($pos)))) }
+}
+
+function New-MdText([string]$text, [double]$size, [bool]$bold, [string]$color) {
+    $tb = New-Object System.Windows.Controls.TextBlock
+    $tb.TextWrapping = 'Wrap'
+    $tb.FontFamily   = $script:AiFont
+    $tb.FontSize     = $size
+    $tb.LineHeight   = [Math]::Round($size * 1.55)
+    $tb.Foreground   = SolidBrush $color
+    if ($bold) { $tb.FontWeight = 'SemiBold' }
+    if ($text) { Add-MdInlines $tb $text }
+    return $tb
+}
+
+function New-PlainText([string]$text, [double]$size, [string]$color) {
+    $tb = New-Object System.Windows.Controls.TextBlock
+    $tb.Text = $text; $tb.TextWrapping = 'Wrap'
+    $tb.FontFamily = $script:AiFont; $tb.FontSize = $size
+    $tb.LineHeight = [Math]::Round($size * 1.5)
+    $tb.Foreground = SolidBrush $color
+    return $tb
+}
+
+# "| a | b |" rows -> a real Grid. The |---|---| separator row is dropped.
+function New-MdTable([string[]]$rows) {
+    $cells = @()
+    foreach ($r in $rows) {
+        $line = $r.Trim() -replace '^\|','' -replace '\|$',''
+        $cells += ,@($line -split '\|' | ForEach-Object { $_.Trim() })
+    }
+    $g = New-Object System.Windows.Controls.Grid
+    $g.Margin = New-Object System.Windows.Thickness(0,5,0,7)
+    $g.HorizontalAlignment = 'Left'
+    $colCount = 0
+    foreach ($row in $cells) { if ($row.Count -gt $colCount) { $colCount = $row.Count } }
+    for ($c = 0; $c -lt $colCount; $c++) {
+        $cd = New-Object System.Windows.Controls.ColumnDefinition
+        $cd.Width = New-Object System.Windows.GridLength(1, [System.Windows.GridUnitType]::Auto)
+        $g.ColumnDefinitions.Add($cd)
+    }
+    for ($r = 0; $r -lt $cells.Count; $r++) {
+        $rd = New-Object System.Windows.Controls.RowDefinition
+        $rd.Height = New-Object System.Windows.GridLength(1, [System.Windows.GridUnitType]::Auto)
+        $g.RowDefinitions.Add($rd)
+    }
+    for ($r = 0; $r -lt $cells.Count; $r++) {
+        for ($c = 0; $c -lt $cells[$r].Count; $c++) {
+            $b = New-Object System.Windows.Controls.Border
+            $b.Padding = New-Object System.Windows.Thickness(9,5,9,5)
+            $b.BorderBrush = SolidBrush '#2A2D3A'
+            $b.BorderThickness = New-Object System.Windows.Thickness(0,0,1,1)
+            if ($r -eq 0) { $b.Background = SolidBrush '#0F1117' }
+            $col = if ($r -eq 0) { '#9CA3AF' } else { '#E5E7EB' }
+            $b.Child = (New-MdText $cells[$r][$c] 12.5 ($r -eq 0) $col)
+            [System.Windows.Controls.Grid]::SetRow($b, $r)
+            [System.Windows.Controls.Grid]::SetColumn($b, $c)
+            $g.Children.Add($b) | Out-Null
+        }
+    }
+    return $g
+}
+
+function Render-Markdown($panel, [string]$text) {
+    $panel.Children.Clear()
+    $lines = ($text -replace "`r", '') -split "`n"
+    $i = 0
+    while ($i -lt $lines.Count) {
+        $trim = $lines[$i].Trim()
+
+        # Table — a run of consecutive | … | lines
+        if ($trim -match '^\|.*\|$') {
+            $tbl = @()
+            while ($i -lt $lines.Count -and $lines[$i].Trim() -match '^\|.*\|$') {
+                $rowTxt = $lines[$i].Trim()
+                if ($rowTxt -notmatch '^\|[\s\-:|]+\|$') { $tbl += $rowTxt }   # drop |---|
+                $i++
+            }
+            if ($tbl.Count) { $panel.Children.Add((New-MdTable $tbl)) | Out-Null }
+            continue
+        }
+        # Horizontal rule (checked before bullets: "---" has no trailing space)
+        if ($trim -match '^(-{3,}|\*{3,}|_{3,})$') {
+            $hr = New-Object System.Windows.Controls.Border
+            $hr.Height = 1; $hr.Background = SolidBrush '#2A2D3A'
+            $hr.Margin = New-Object System.Windows.Thickness(0,8,0,8)
+            $panel.Children.Add($hr) | Out-Null; $i++; continue
+        }
+        # Heading
+        if ($trim -match '^(#{1,6})\s+(.*)$') {
+            $sizes = @(17.0, 16.0, 15.0, 14.5, 14.0, 13.5)
+            $t = New-MdText $Matches[2] $sizes[[Math]::Min($Matches[1].Length - 1, 5)] $true '#FFFFFF'
+            $t.Margin = New-Object System.Windows.Thickness(0,6,0,3)
+            $panel.Children.Add($t) | Out-Null; $i++; continue
+        }
+        # Bullet
+        if ($trim -match '^[-*•]\s+(.*)$') {
+            $row = New-Object System.Windows.Controls.StackPanel
+            $row.Orientation = 'Horizontal'; $row.Margin = New-Object System.Windows.Thickness(2,1,0,1)
+            $dot = New-PlainText '•' 13.5 '#14B8A6'
+            $dot.Margin = New-Object System.Windows.Thickness(0,0,8,0); $dot.VerticalAlignment = 'Top'
+            $row.Children.Add($dot) | Out-Null
+            $body = New-MdText $Matches[1] 13.5 $false '#E5E7EB'; $body.MaxWidth = 470
+            $row.Children.Add($body) | Out-Null
+            $panel.Children.Add($row) | Out-Null; $i++; continue
+        }
+        # Numbered
+        if ($trim -match '^(\d+)\.\s+(.*)$') {
+            $row = New-Object System.Windows.Controls.StackPanel
+            $row.Orientation = 'Horizontal'; $row.Margin = New-Object System.Windows.Thickness(2,1,0,1)
+            $num = New-PlainText ($Matches[1] + '.') 12.5 '#14B8A6'
+            $num.Margin = New-Object System.Windows.Thickness(0,0,8,0); $num.VerticalAlignment = 'Top'
+            $num.FontWeight = 'SemiBold'
+            $row.Children.Add($num) | Out-Null
+            $body = New-MdText $Matches[2] 13.5 $false '#E5E7EB'; $body.MaxWidth = 470
+            $row.Children.Add($body) | Out-Null
+            $panel.Children.Add($row) | Out-Null; $i++; continue
+        }
+        # Blank -> spacing
+        if ($trim -eq '') {
+            if ($panel.Children.Count -gt 0) {
+                $sp = New-Object System.Windows.Controls.Border; $sp.Height = 6
+                $panel.Children.Add($sp) | Out-Null
+            }
+            $i++; continue
+        }
+        # Paragraph — merge consecutive plain lines
+        $para = @()
+        while ($i -lt $lines.Count) {
+            $l = $lines[$i].Trim()
+            if ($l -eq '' -or $l -match '^\|.*\|$' -or $l -match '^#{1,6}\s' -or $l -match '^[-*•]\s' -or $l -match '^\d+\.\s' -or $l -match '^(-{3,}|\*{3,}|_{3,})$') { break }
+            $para += $l; $i++
+        }
+        if ($para.Count) { $panel.Children.Add((New-MdText ($para -join ' ') 13.5 $false '#E5E7EB')) | Out-Null }
+    }
+}
+
+# Fade + rise as each bubble lands, so replies don't just pop into existence.
+function Start-BubbleEntrance($wrap) {
+    $tt = New-Object System.Windows.Media.TranslateTransform
+    $wrap.RenderTransform = $tt
+    $fade = New-Object System.Windows.Media.Animation.DoubleAnimation(0, 1, ([System.Windows.Duration][TimeSpan]::FromMilliseconds(240)))
+    $rise = New-Object System.Windows.Media.Animation.DoubleAnimation(10, 0, ([System.Windows.Duration][TimeSpan]::FromMilliseconds(280)))
+    $ease = New-Object System.Windows.Media.Animation.CubicEase
+    $ease.EasingMode = 'EaseOut'; $rise.EasingFunction = $ease
+    $wrap.BeginAnimation([System.Windows.UIElement]::OpacityProperty, $fade)
+    $tt.BeginAnimation([System.Windows.Media.TranslateTransform]::YProperty, $rise)
+}
+
+# Soft pulse while we wait, instead of a static "Thinking...".
+function Start-ThinkingPulse($wrap) {
+    $a = New-Object System.Windows.Media.Animation.DoubleAnimation(1, 0.4, ([System.Windows.Duration][TimeSpan]::FromMilliseconds(750)))
+    $a.AutoReverse = $true
+    $a.RepeatBehavior = [System.Windows.Media.Animation.RepeatBehavior]::Forever
+    $wrap.BeginAnimation([System.Windows.UIElement]::OpacityProperty, $a)
+}
+
+# Swap a bubble's content (used to turn "Thinking..." into the real answer).
+function Set-AiBubbleText($wrap, [string]$text) {
+    if (-not $wrap) { return }
+    $wrap.BeginAnimation([System.Windows.UIElement]::OpacityProperty, $null)  # stop the pulse
+    $wrap.Opacity = 1
+    Render-Markdown $wrap.Tag $text
+    Start-BubbleEntrance $wrap
+    (ctl 'AiScroller').ScrollToBottom()
+}
+
 function Add-AiBubble($role, $text) {
     $wrap = New-Object System.Windows.Controls.Border
-    $wrap.CornerRadius = New-Object System.Windows.CornerRadius(10)
-    $wrap.Padding = New-Object System.Windows.Thickness(12,9,12,9)
-    $wrap.Margin = New-Object System.Windows.Thickness(0,0,0,8)
-    $wrap.MaxWidth = 560
+    $wrap.CornerRadius = New-Object System.Windows.CornerRadius(12)
+    $wrap.Padding = New-Object System.Windows.Thickness(13,10,13,10)
+    $wrap.Margin = New-Object System.Windows.Thickness(0,0,0,9)
+    $wrap.MaxWidth = 600
+    $panel = New-Object System.Windows.Controls.StackPanel
+    $wrap.Child = $panel
+    $wrap.Tag = $panel   # Set-AiBubbleText re-renders into this
     if ($role -eq 'user') {
         $wrap.Background = SolidBrush '#14B8A6'; $wrap.HorizontalAlignment = 'Right'
+        $panel.Children.Add((New-PlainText $text 13.5 '#FFFFFF')) | Out-Null   # never treat user input as markdown
     } elseif ($role -eq 'system') {
         $wrap.Background = SolidBrush '#2A2D3A'; $wrap.HorizontalAlignment = 'Center'
+        $panel.Children.Add((New-PlainText $text 11.5 '#9CA3AF')) | Out-Null
     } else {
         $wrap.Background = SolidBrush '#1A1D29'; $wrap.HorizontalAlignment = 'Left'
         $wrap.BorderBrush = SolidBrush '#2A2D3A'; $wrap.BorderThickness = New-Object System.Windows.Thickness(1)
+        Render-Markdown $panel $text
     }
-    $tb = New-Object System.Windows.Controls.TextBlock
-    $tb.Text = $text; $tb.Foreground = SolidBrush '#FFFFFF'; $tb.FontSize = 13; $tb.TextWrapping = 'Wrap'
-    $wrap.Child = $tb
     (ctl 'AiMessages').Children.Add($wrap) | Out-Null
+    Start-BubbleEntrance $wrap
     (ctl 'AiScroller').ScrollToBottom()
-    return $tb
+    return $wrap
 }
 function Init-Assistant {
     if ($script:aiInited) { return }
@@ -6617,6 +6812,7 @@ function Send-AiMessage {
     # Only one AI request runs at a time (guarded by $script:aiBusy), so a single
     # shared pending-bubble/message is safe.
     $script:aiThinking   = Add-AiBubble 'assistant' 'Thinking...'
+    Start-ThinkingPulse $script:aiThinking
     $script:aiPendingMsg = $msg
     # Fully async: the user bubble + "Thinking..." render immediately and the UI
     # stays responsive while the (up to 45s) AI request runs on a pool thread.
@@ -6629,13 +6825,13 @@ function Send-AiMessage {
             elseif ($r -and -not $r.ok -and $r.error) { $errMsg = [string]$r.error }
 
             if ($errMsg) {
-                if ($errMsg -match 'quota|limit reached') { $script:aiThinking.Text = "You've hit your monthly AI limit. Upgrade your plan for more." }
-                elseif ($errMsg -match '401|Invalid station') { $script:aiThinking.Text = 'The Station could not authenticate with the AI service. Make sure the agent is set up for this restaurant.' }
-                elseif ($errMsg -match 'timed out') { $script:aiThinking.Text = "The AI took too long to respond. Please try again." }
-                else { $script:aiThinking.Text = "Sorry, I couldn't reach the AI service. Check the internet connection and try again." }
+                if ($errMsg -match 'quota|limit reached') { Set-AiBubbleText $script:aiThinking "You've hit your monthly AI limit. Upgrade your plan for more." }
+                elseif ($errMsg -match '401|Invalid station') { Set-AiBubbleText $script:aiThinking 'The Station could not authenticate with the AI service. Make sure the agent is set up for this restaurant.' }
+                elseif ($errMsg -match 'timed out') { Set-AiBubbleText $script:aiThinking "The AI took too long to respond. Please try again." }
+                else { Set-AiBubbleText $script:aiThinking "Sorry, I couldn't reach the AI service. Check the internet connection and try again." }
             } else {
                 $reply = if ($r -and $r.reply) { [string]$r.reply } else { 'Done.' }
-                $script:aiThinking.Text = $reply
+                Set-AiBubbleText $script:aiThinking $reply
                 if ($r -and $r.actions -and @($r.actions).Count -gt 0) {
                     Add-AiBubble 'system' ('actions: ' + (@($r.actions) -join ', ')) | Out-Null
                 }
