@@ -1502,6 +1502,50 @@ function _removeActiveOrder(tableNum) {
   _saveActiveOrders(all);
 }
 
+// Snapshot of what is open on THIS Station right now, for the AI.
+//
+// Why this exists: ordering is offline-first, so active-orders.json is the truth
+// for open tables while Supabase is only a best-effort background mirror. An
+// order that hasn't been SENT yet — or that was written during an internet cut —
+// exists only here. The server agent used to answer purely from Supabase and so
+// told the user "no tables are open" while the floor plan showed two. We ship
+// this snapshot with every AI turn so the agent reads the same reality the
+// waiter sees. Bounded on purpose: this goes into a model prompt.
+const AI_STATE_MAX_TABLES = 60;
+const AI_STATE_MAX_ITEMS = 40;
+
+function _stationStateForAI() {
+  const all = _loadActiveOrders();
+  const tables = [];
+  for (const key of Object.keys(all).slice(0, AI_STATE_MAX_TABLES)) {
+    const o = all[key];
+    if (!o || !Array.isArray(o.items)) continue;
+    const items = o.items.filter(i => i && i.status !== 'cancelled_by_admin');
+    if (!items.length) continue;
+    const total = items.reduce((s, i) => s + (i.is_invitation ? 0 : (i.price_at_order_time || 0) * (i.quantity || 1)), 0);
+    tables.push({
+      table: Number(key) || key,
+      order_id: o.order_id,
+      guest_count: o.guest_count || 1,
+      opened_at: o.created_at,
+      total: Number(total.toFixed(2)),
+      // Unsent items haven't reached the kitchen — the agent must not imply they have.
+      all_sent: items.every(i => i.status !== 'pending'),
+      items: items.slice(0, AI_STATE_MAX_ITEMS).map(i => ({
+        name: i.menu_item_name || 'Item',
+        qty: i.quantity || 1,
+        price: i.price_at_order_time || 0,
+        course: i.course || 'direct',
+        status: i.status,
+        special_requests: i.special_requests || undefined,
+        is_invitation: i.is_invitation || undefined,
+      })),
+    });
+  }
+  tables.sort((a, b) => (Number(a.table) || 0) - (Number(b.table) || 0));
+  return { currency: _getTicketSettings().currency || 'EUR', tables };
+}
+
 function _getTicketSettings() {
   const cfg = printersCache.find(c => c.printer_type === 'kitchen' && c.is_active);
   return (cfg?.settings) || {};
@@ -1653,23 +1697,31 @@ async function stationReclaimOrder(tableNum) {
   return { ok: true, course: nextCourse, items: courseItems };
 }
 
-async function stationCloseOrder(tableNum) {
+// `paymentMethod` ('cash' | 'card' | 'mixed') is optional but worth passing:
+// without it the cloud row closes as merely 'paid' and the cash-vs-card split in
+// Analytics silently loses the sale.
+async function stationCloseOrder(tableNum, paymentMethod) {
   if (!tableNum) throw new Error('table_number required');
   // Remove from local active orders
   const local = _activeOrder(tableNum);
+  if (!local) return { ok: true, had_order: false };
   _removeActiveOrder(tableNum);
+
+  const pm = ['cash', 'card', 'mixed'].includes(paymentMethod) ? paymentMethod : null;
 
   // Background sync close to Supabase
   if (local?.remote_order_id) {
     (async () => {
       try {
-        await supabasePatch('orders', local.remote_order_id, { status: 'paid' });
+        const patch = { status: 'paid' };
+        if (pm) patch.payment_method = pm;
+        await supabasePatch('orders', local.remote_order_id, patch);
         const tables = await supabaseGet('tables', { restaurant_id: RESTAURANT_ID, table_number: tableNum }, 1);
         if (tables?.length) await supabasePatch('tables', tables[0].id, { status: 'available', current_order_id: null });
       } catch (e) { log('Close sync failed: ' + e.message); }
     })();
   }
-  return { ok: true, had_order: !!local };
+  return { ok: true, had_order: true, table: tableNum, payment_method: pm || 'unspecified' };
 }
 
 // Print the customer check for a table's open order. Reads local state (always
@@ -2559,10 +2611,12 @@ const LM_API_BASE = 'https://lightmenu-production.up.railway.app/api';
 // there's now one place to add capability for all three surfaces.
 //
 // `messages` = [{ role:'user'|'assistant', content:'…' }], ending with a user turn.
+// `stationState` is this Station's live offline-first order state (see
+// _stationStateForAI) — the server can't read active-orders.json, so we ship it.
 // Resolves { reply, steps }.
-function stationAgent(messages) {
+function stationAgent(messages, stationState) {
   return new Promise((resolve, reject) => {
-    const bodyStr = JSON.stringify({ token: API_TOKEN, messages });
+    const bodyStr = JSON.stringify({ token: API_TOKEN, messages, stationState });
     let u;
     try { u = new URL(LM_API_BASE + '/station/agent'); } catch (e) { return reject(e); }
     const r = https.request(u, { method: 'POST', headers: { 'Content-Type': 'application/json', 'Content-Length': Buffer.byteLength(bodyStr) } }, (res) => {
@@ -2633,6 +2687,15 @@ async function runClientAction(action, args) {
     // already-saved bill.
     const r = await stationPrintCheck(Number(args.table));
     if (!r || r.ok !== true) throw new Error((r && r.error) || 'Check print failed');
+    return r;
+  }
+  if (action === 'close_table') {
+    // Closing must go through the local store, not a Supabase UPDATE: the open
+    // order may exist only in active-orders.json (opened offline, or not synced
+    // yet). stationCloseOrder clears it locally and mirrors the close upstream.
+    const r = await stationCloseOrder(Number(args.table), args.payment_method);
+    if (!r || r.ok !== true) throw new Error((r && r.error) || 'Close failed');
+    if (r.had_order === false) throw new Error('Table ' + args.table + ' had no open order');
     return r;
   }
   if (action === 'reprint_bill') {
@@ -4296,7 +4359,11 @@ http.createServer((req, res) => {
         } else {
           messages.push({ role: 'user', content: String(d.message) });
         }
-        const out = await stationAgent(messages);
+        // Ship the live local order state with the turn: Supabase alone would
+        // make the agent blind to tables opened offline or not yet sent.
+        let state = null;
+        try { state = _stationStateForAI(); } catch (e) { log('AI state snapshot failed: ' + e.message); }
+        const out = await stationAgent(messages, state);
         // Carry out anything the agent delegated to this Station (local printer
         // work it can't do server-side). Best-effort and non-blocking for the
         // reply: a failure is logged, never swallows the answer the user needs.
