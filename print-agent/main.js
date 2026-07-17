@@ -1597,6 +1597,149 @@ function _mergeTablesView({ rows, localNums, occupiedNums, remoteOccupied, heldT
   return tables;
 }
 
+// ─── BILL → PDF ───────────────────────────────────────────────────────────────
+// A hand-rolled PDF writer. No library: only main.js/store.js/qrcode.js reach an
+// installed Station via the updater, so an npm dependency could never ship — and
+// a bill is just text, which the PDF base fonts cover without embedding.
+//
+// Courier (a standard font, always present in readers) makes every glyph exactly
+// 0.6em wide, so column alignment is arithmetic rather than a font-metrics table
+// — and monospace is what a receipt should look like anyway.
+const PDF_W    = 226.77;                        // 80mm in points, matching the roll
+const PDF_M    = 12;                            // side margin
+const PDF_FS   = 9;                             // font size
+const PDF_CW   = PDF_FS * 0.6;                  // Courier advance per char
+const PDF_COLS = Math.floor((PDF_W - PDF_M * 2) / PDF_CW);
+const PDF_LH   = 11.5;                          // line height
+
+// PDF text is WinAnsi here, so '€' and accented Spanish/French glyphs survive.
+// Latin-1 matches WinAnsi from 0xA0 up; only 0x80–0x9F needs a map.
+const WINANSI_EXTRA = {
+  '€':0x80,'‚':0x82,'ƒ':0x83,'„':0x84,'…':0x85,'†':0x86,'‡':0x87,'ˆ':0x88,'‰':0x89,
+  'Š':0x8A,'‹':0x8B,'Œ':0x8C,'Ž':0x8E,'‘':0x91,'’':0x92,'“':0x93,
+  '”':0x94,'•':0x95,'–':0x96,'—':0x97,'˜':0x98,'™':0x99,'š':0x9A,'›':0x9B,
+  'œ':0x9C,'ž':0x9E,'Ÿ':0x9F,
+};
+function _pdfBytes(s) {
+  const out = [];
+  for (const ch of String(s == null ? '' : s)) {
+    const c = ch.codePointAt(0);
+    if (c < 0x80) out.push(c);
+    else if (WINANSI_EXTRA[ch] != null) out.push(WINANSI_EXTRA[ch]);
+    else if (c >= 0xA0 && c <= 0xFF) out.push(c);
+    else out.push(0x3F);                        // unrepresentable -> '?'
+  }
+  // \ ( ) are structural inside a PDF string literal.
+  const esc = [];
+  for (const b of out) {
+    if (b === 0x5C || b === 0x28 || b === 0x29) esc.push(0x5C);
+    esc.push(b);
+  }
+  return Buffer.from(esc);
+}
+
+// lines: [{ text, y, bold }] with y measured from the page BOTTOM, PDF-style.
+function _pdfDoc(lines, pageH) {
+  const chunks = [];
+  for (const L of lines) {
+    if (!L.text) continue;
+    chunks.push(Buffer.from(`BT ${L.bold ? '/F2' : '/F1'} ${PDF_FS} Tf 1 0 0 1 ${PDF_M.toFixed(2)} ${L.y.toFixed(2)} Tm (`, 'latin1'));
+    chunks.push(_pdfBytes(L.text));
+    chunks.push(Buffer.from(') Tj ET\n', 'latin1'));
+  }
+  const content = Buffer.concat(chunks);
+  const objs = [
+    '<< /Type /Catalog /Pages 2 0 R >>',
+    '<< /Type /Pages /Kids [3 0 R] /Count 1 >>',
+    `<< /Type /Page /Parent 2 0 R /MediaBox [0 0 ${PDF_W.toFixed(2)} ${pageH.toFixed(2)}] ` +
+      `/Resources << /Font << /F1 4 0 R /F2 5 0 R >> >> /Contents 6 0 R >>`,
+    '<< /Type /Font /Subtype /Type1 /BaseFont /Courier /Encoding /WinAnsiEncoding >>',
+    '<< /Type /Font /Subtype /Type1 /BaseFont /Courier-Bold /Encoding /WinAnsiEncoding >>',
+    null,                                        // 6 = the content stream
+  ];
+  const parts = [Buffer.from('%PDF-1.4\n', 'latin1')];
+  const offsets = [];
+  let pos = parts[0].length;
+  for (let i = 0; i < objs.length; i++) {
+    offsets.push(pos);
+    const b = (i === 5)
+      ? Buffer.concat([
+          Buffer.from(`6 0 obj\n<< /Length ${content.length} >>\nstream\n`, 'latin1'),
+          content,
+          Buffer.from('\nendstream\nendobj\n', 'latin1'),
+        ])
+      : Buffer.from(`${i + 1} 0 obj\n${objs[i]}\nendobj\n`, 'latin1');
+    parts.push(b);
+    pos += b.length;
+  }
+  // The xref offsets must be exact byte positions or readers reject the file.
+  let xref = `xref\n0 ${objs.length + 1}\n0000000000 65535 f \n`;
+  for (const o of offsets) xref += String(o).padStart(10, '0') + ' 00000 n \n';
+  xref += `trailer\n<< /Size ${objs.length + 1} /Root 1 0 R >>\nstartxref\n${pos}\n%%EOF\n`;
+  parts.push(Buffer.from(xref, 'latin1'));
+  return Buffer.concat(parts);
+}
+
+// Lay the bill out as receipt rows, then render. Mirrors the printed check.
+function _billRows(bill) {
+  const C = PDF_COLS;
+  const rows = [];
+  const add  = (text, bold) => rows.push({ text: String(text ?? ''), bold: !!bold });
+  const mid  = (t, bold) => add(center(String(t), C), bold);
+  const fill = (l, r, bold) => {
+    l = String(l); r = String(r);
+    const gap = C - l.length - r.length;
+    add(gap < 1 ? tr(l, Math.max(0, C - r.length - 1)) + ' ' + r : l + ' '.repeat(gap) + r, bold);
+  };
+  const sep = '-'.repeat(C);
+  const cur = bill.currency;
+
+  if (bill.restaurant) mid(bill.restaurant, true);
+  if (bill.bill_number) mid(bill.bill_number, true);
+  add('');
+  if (bill.table != null) fill('Table', String(bill.table));
+  if (bill.printed_at) {
+    const d = new Date(bill.printed_at);
+    if (!isNaN(d)) fill('Date', fmtDate(d, 'dd/MM/yyyy HH:mm'));
+  }
+  if (bill.waiter) fill('Waiter', tr(bill.waiter, C - 8));
+  if (bill.guests) fill('Guests', String(bill.guests));
+  add(sep);
+
+  for (const it of (bill.items || [])) {
+    const qty = Number(it.qty) || 1;
+    const line = Number(it.price || 0) * qty;
+    // Long names wrap rather than being cut: the price column must stay readable.
+    const label = `${qty} x ${it.name}`;
+    const right = it.is_invitation ? 'FREE' : fmtPrice(line, cur);
+    if (label.length + right.length + 1 <= C) {
+      fill(label, right);
+    } else {
+      add(tr(label, C));
+      fill('', right);
+    }
+  }
+
+  add(sep);
+  fill('TOTAL', fmtPrice(bill.total, cur), true);
+  if (bill.payment && bill.payment !== 'unspecified' && bill.payment !== 'unpaid') {
+    add('');
+    mid(`** ${String(bill.payment).toUpperCase()} **`, true);
+  }
+  add('');
+  mid('LightMenu');
+  return rows;
+}
+
+function _billPdf(bill) {
+  const rows = _billRows(bill);
+  const top = 16, bottom = 16;
+  const pageH = top + bottom + rows.length * PDF_LH;
+  let y = pageH - top - PDF_FS;
+  const lines = rows.map(r => { const L = { text: r.text, bold: r.bold, y }; y -= PDF_LH; return L; });
+  return _pdfDoc(lines, pageH);
+}
+
 function _getTicketSettings() {
   const cfg = printersCache.find(c => c.printer_type === 'kitchen' && c.is_active);
   return (cfg?.settings) || {};
@@ -2749,14 +2892,40 @@ async function runClientAction(action, args) {
     if (r.had_order === false) throw new Error('Table ' + args.table + ' had no open order');
     return r;
   }
+  if (action === 'download_bill') {
+    // The server resolved the bill from saved_bills and handed us the whole
+    // payload (this Station's local store may not hold an older one), so all
+    // that's left is to render and save it where a download would land.
+    const bill = args.bill;
+    if (!bill) throw new Error('download_bill got no bill payload');
+    const dir = path.join(os.homedir(), 'Downloads');
+    fs.mkdirSync(dir, { recursive: true });
+    const safe = String(args.filename || 'bill.pdf').replace(/[\\/:*?"<>|]/g, '-');
+    // Never clobber an existing download — suffix like a browser does.
+    let file = path.join(dir, safe);
+    if (fs.existsSync(file)) {
+      const base = safe.replace(/\.pdf$/i, '');
+      for (let n = 2; n < 500; n++) {
+        const cand = path.join(dir, `${base} (${n}).pdf`);
+        if (!fs.existsSync(cand)) { file = cand; break; }
+      }
+    }
+    fs.writeFileSync(file, _billPdf(bill));
+    log('AI saved bill PDF: ' + file);
+    return { ok: true, path: file };
+  }
   if (action === 'reprint_bill') {
     // The cloud (saved_bills) and this Station's local store use different ids —
-    // order_id is the shared key, so resolve on that; otherwise take the latest.
+    // order_id is the shared key, so resolve on that.
+    //
+    // Never fall back to "the latest bill" when handed no id: a vague request
+    // then printed an unrelated table's bill, which is worse than printing
+    // nothing. The caller must say which bill it means.
     const bills = store.getBills() || [];
     let bill = null;
-    if (args.order_id)        bill = bills.find(b => b.order_id === args.order_id) || null;
+    if (args.order_id)         bill = bills.find(b => b.order_id === args.order_id) || null;
     else if (args.bill_number) bill = bills.find(b => String(b.id) === String(args.bill_number)) || null;
-    else                       bill = bills.length ? bills[bills.length - 1] : null;
+    else throw new Error('reprint_bill needs order_id or bill_number — refusing to guess which bill');
     if (!bill) throw new Error('No matching bill found on this Station');
     await sendToPrinter(buildCheckTicket({
       type: 'check', restaurant_id: RESTAURANT_ID, restaurant_name: RESTAURANT_NAME,
