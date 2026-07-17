@@ -1546,6 +1546,57 @@ function _stationStateForAI() {
   return { currency: _getTicketSettings().currency || 'EUR', tables };
 }
 
+// Build the table list the Station UI renders (ordering selector + floor plan)
+// from the `tables` rows plus every live signal about what's actually open.
+//
+// Pure so it can be tested without a server or Supabase.
+//
+//   rows           `tables` rows from Supabase (the floor LAYOUT)
+//   localNums      table numbers with an open order in active-orders.json (live)
+//   remoteOccupied table numbers with an open order in the cloud (live)
+//   occupiedNums   table numbers with a ticket printed today (stale-prone: a
+//                  closed table stays in here, so it only ever adds occupancy
+//                  to a known row, and never conjures a table into the list)
+//   heldTables     table numbers holding s1–s4 plates to reclaim (yellow)
+function _mergeTablesView({ rows, localNums, occupiedNums, remoteOccupied, heldTables }) {
+  const tables = (rows || []).map(t => ({
+    id:               t.id,
+    table_number:     t.table_number,
+    status:           t.status || 'available',
+    pos_x:            t.pos_x,
+    pos_y:            t.pos_y,
+    shape:            t.shape || 'square',
+    zone:             t.zone || null,
+    occupied:         localNums.has(String(t.table_number)) || occupiedNums.has(String(t.table_number)) || !!t.current_order_id || remoteOccupied.has(String(t.table_number)),
+    has_held_items:   heldTables.has(String(t.table_number)),
+    check_printed_at: t.check_printed_at || null,
+  }));
+
+  // A table with an open order but no `tables` row was invisible here — "Open
+  // table" opens whatever number is typed in, so serving table 2 without it
+  // being in the floor layout is normal, and it must still be reachable.
+  // `virtual` marks a row with no `tables` record behind it: the floor-plan
+  // editor skips these, since there is no id to move, rename or delete.
+  const known = new Set((rows || []).map(t => String(t.table_number)));
+  for (const n of new Set([...localNums, ...remoteOccupied])) {
+    if (known.has(n)) continue;
+    tables.push({
+      id: null, table_number: Number.isFinite(Number(n)) ? Number(n) : n,
+      status: 'occupied', pos_x: null, pos_y: null, shape: 'square', zone: null,
+      occupied: true, has_held_items: heldTables.has(n),
+      check_printed_at: null, virtual: true,
+    });
+  }
+
+  // Stable numeric order so the selector reads T1, T2, T12 — not insertion order.
+  tables.sort((a, b) => {
+    const an = Number(a.table_number), bn = Number(b.table_number);
+    if (Number.isFinite(an) && Number.isFinite(bn)) return an - bn;
+    return String(a.table_number).localeCompare(String(b.table_number), undefined, { numeric: true });
+  });
+  return tables;
+}
+
 function _getTicketSettings() {
   const cfg = printersCache.find(c => c.printer_type === 'kitchen' && c.is_active);
   return (cfg?.settings) || {};
@@ -3548,12 +3599,26 @@ http.createServer((req, res) => {
         const todayOrders = store.getOrders(today);
         const occupiedNums = new Set(todayOrders.map(o => String(o.table)));
 
+        // This Station's own open orders — the offline-first truth. Consulted
+        // first because a table can be opened by typing its number, which starts
+        // an order without ever creating a `tables` row, and because an order
+        // taken during an internet cut reaches Supabase only later.
+        const localActive = _loadActiveOrders();
+        const localLive = Object.entries(localActive).filter(([, o]) =>
+          o && Array.isArray(o.items) && o.items.some(i => i && i.status !== 'cancelled_by_admin'));
+        const localNums = new Set(localLive.map(([n]) => String(n)));
+
         // Live order state for the 4-colour floor map: which tables have an
         // active order, and which of those hold "secondary" plates (s1–s4)
         // still waiting to be fired/reclaimed (yellow). Best-effort: any failure
         // just leaves the map on the occupied/free colours.
         const heldTables = new Set();
         const remoteOccupied = new Set();
+        for (const [num, o] of localLive) {
+          if ((o.items || []).some(i => i.status === 'pending' && i.course && i.course !== 'direct')) {
+            heldTables.add(String(num));
+          }
+        }
         try {
           const activeOrders = await supabaseGetRaw(
             'orders?restaurant_id=eq.' + encodeURIComponent(RESTAURANT_ID) +
@@ -3578,18 +3643,7 @@ http.createServer((req, res) => {
           }
         } catch (_) { /* leave map on occupied/free colours */ }
 
-        const tables = (rows || []).map(t => ({
-          id:               t.id,
-          table_number:     t.table_number,
-          status:           t.status || 'available',
-          pos_x:            t.pos_x,
-          pos_y:            t.pos_y,
-          shape:            t.shape || 'square',
-          zone:             t.zone || null,
-          occupied:         occupiedNums.has(String(t.table_number)) || !!t.current_order_id || remoteOccupied.has(String(t.table_number)),
-          has_held_items:   heldTables.has(String(t.table_number)),
-          check_printed_at: t.check_printed_at || null,
-        }));
+        const tables = _mergeTablesView({ rows, localNums, occupiedNums, remoteOccupied, heldTables });
         res.writeHead(200, { 'Content-Type': 'application/json' });
         res.end(JSON.stringify(tables));
       } catch(e) {

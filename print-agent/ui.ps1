@@ -2842,6 +2842,12 @@ function Render-FloorTables([array]$tables) {
 
     if (-not $tables) { $tables = @() }
 
+    # Drop "virtual" tables — numbers that have an open order but no tables row
+    # (someone typed the number into Open table). They belong in the ordering
+    # selector, not the layout editor: with no id there is nothing to move,
+    # rename or delete, and a drag would PATCH an empty id.
+    $tables = @($tables | Where-Object { -not $_.virtual })
+
     # Zones = Main (always) + zones found on tables + pending (empty) floors
     $zones = @('Main')
     foreach ($t in $tables) { $z = TableZone $t; if ($zones -notcontains $z) { $zones += $z } }
@@ -3124,6 +3130,10 @@ function Update-FloorPlan {
         $script:floorBusy = $false
         if ($bad -or $null -eq $r) { return }
         $tables = if ($r -is [array]) { $r } else { @($r) }
+        # Drop virtual (order-only, no tables row) entries before the signature:
+        # they appear and vanish as tables are served, and counting them would
+        # bust the early-out below on every tick for a canvas that never changes.
+        $tables = @($tables | Where-Object { -not $_.virtual })
         $script:lastFloorData = $tables
         # Skip the (heavy) full canvas rebuild when nothing visible changed. Most
         # 5s ticks hit this early-out, so the UI no longer churns 39 closures/tick.

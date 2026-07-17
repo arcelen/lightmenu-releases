@@ -25,6 +25,8 @@ const DIST = path.join(ROOT, 'dist');
 const VPATH = path.join(ROOT, 'version.json');
 const RAW_BASE = 'https://raw.githubusercontent.com/arcelen/lightmenu-releases/main/print-agent/dist/';
 const OBF_FILES = ['main.js', 'store.js', 'qrcode.js'];
+// Tracked by the updater but published as plain source: version.json key -> file.
+const PLAIN_FILES = { '../scripts/ui.ps1': 'ui.ps1' };
 
 function sha256LF(buf) {
     const lf = buf.toString('utf8').replace(/\r\n/g, '\n');
@@ -59,5 +61,20 @@ for (const f of OBF_FILES) {
     v.files[f].url = RAW_BASE + f;
     console.log('  ' + f + '  ' + h);
 }
+
+// ui.ps1 ships as plain source (there is nothing to obfuscate in the UI), but
+// the updater tracks it just the same — so its hash has to be refreshed here
+// too. Leaving it stale fails SILENTLY and badly: version.json would still
+// carry the old hash, the installed copy would match it, and no Station would
+// ever download the new UI. This used to be a manual step; it isn't now.
+for (const [key, file] of Object.entries(PLAIN_FILES)) {
+    const src = path.join(ROOT, file);
+    if (!fs.existsSync(src)) { console.error('  MISSING source: ' + file); process.exit(1); }
+    const h = sha256LF(fs.readFileSync(src));
+    if (!v.files[key]) v.files[key] = {};
+    v.files[key].sha256 = h;
+    console.log('  ' + file + '  ' + h + '  (plain)');
+}
+
 fs.writeFileSync(VPATH, JSON.stringify(v, null, 2) + '\n');
 console.log('Done. version.json now publishes obfuscated dist/ for v' + v.version + '.');
