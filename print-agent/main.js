@@ -982,12 +982,29 @@ setTimeout(refreshPrinters, 1000);
 // instead of a static LightMenu icon. logo_url rarely changes, so this is
 // cached and refreshed on a slow interval rather than on every /status poll.
 let BRANDING_LOGO_URL = null;
+// Prefer the logo_url column; fall back to the logo uploaded in the Builder,
+// which lives in the header block's data.logoUrl inside website_blocks. That's
+// where the Instagram-import flow stores it, and logo_url is usually empty — so
+// without this fallback the Station showed the static LightMenu icon even when
+// the restaurant had a real logo. Mirrors the web/Flutter effectiveRestaurantLogo.
+function resolveBrandingLogo(row) {
+  if (!row) return null;
+  if (row.logo_url) return row.logo_url;
+  let blocks = row.website_blocks;
+  if (typeof blocks === 'string') { try { blocks = JSON.parse(blocks); } catch (_) { blocks = null; } }
+  if (Array.isArray(blocks)) {
+    for (const b of blocks) {
+      if (b && b.type === 'header' && b.data && b.data.logoUrl) return b.data.logoUrl;
+    }
+  }
+  return null;
+}
 async function refreshBranding() {
   try {
     if (!RESTAURANT_ID) return;
     const rows = await supabaseGet('restaurants', { id: RESTAURANT_ID }, 1);
     const row = Array.isArray(rows) ? rows[0] : null;
-    BRANDING_LOGO_URL = (row && row.logo_url) ? row.logo_url : null;
+    BRANDING_LOGO_URL = resolveBrandingLogo(row);
   } catch (e) { log('Branding sync failed: ' + e.message); }
 }
 setInterval(refreshBranding, 5 * 60 * 1000);
