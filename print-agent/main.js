@@ -976,6 +976,67 @@ async function refreshPrinters() {
 setInterval(refreshPrinters, 30000);
 setTimeout(refreshPrinters, 1000);
 
+// ─── Category → printer routing (multi-printer) ──────────────────────────────
+// Rows of {menu_category_id, printer_config_id, printer_number, printer_ip, ...}
+// from get_category_routing (kitchens + kitchen_categories). Empty when the
+// restaurant has no kitchen stations configured → single-printer fallback.
+let categoryRoutingCache = [];
+async function refreshCategoryRouting() {
+  try {
+    if (!RESTAURANT_ID) return;
+    const r = await supabaseRpc('get_category_routing', { p_restaurant_id: RESTAURANT_ID });
+    if (Array.isArray(r)) categoryRoutingCache = r;
+  } catch (e) { log('Category routing sync failed: ' + e.message); }
+}
+setInterval(refreshCategoryRouting, 30000);
+setTimeout(refreshCategoryRouting, 1500);
+
+// True once the owner has set up at least one station with an assigned category.
+// Only then does strict routing apply (unassigned categories don't print).
+function stationsConfigured() { return categoryRoutingCache.length > 0; }
+
+// The printer_config rows a category is assigned to (may be more than one).
+function printersForCategory(catId) {
+  if (!catId) return [];
+  const key = String(catId);
+  return categoryRoutingCache.filter(r => String(r.menu_category_id) === key);
+}
+
+// Split a kitchen ticket by category and print each group to its printer.
+//   • category assigned to printer(s) → each of those printers
+//   • item with NO category id (old client / missing metadata) → default printer
+//     (a safety net — we never silently drop for lack of a tag)
+//   • category known but assigned to no station → dropped (strict, user's choice)
+// buildIdentifierTicket/buildKitchenTicket + sendToPrinterConfig defined later.
+async function printKitchenRouted(ticket, copies) {
+  const items = Array.isArray(ticket.items) ? ticket.items : [];
+  const groups = new Map(); // key -> { pc, number, items: [] }
+  for (const it of items) {
+    const catId = it.menu_category_id || it.category_id || null;
+    const routes = printersForCategory(catId);
+    if (routes.length) {
+      for (const r of routes) {
+        const key = 'p:' + r.printer_config_id;
+        if (!groups.has(key)) groups.set(key, { pc: r, number: r.printer_number, items: [] });
+        groups.get(key).items.push(it);
+      }
+    } else if (!catId) {
+      const key = 'default';
+      if (!groups.has(key)) groups.set(key, { pc: null, number: null, items: [] });
+      groups.get(key).items.push(it);
+    }
+    // else: known category, no station → drop
+  }
+  if (groups.size === 0) { log('KITCHEN: all items unassigned — nothing printed (strict routing)'); return; }
+  for (const g of groups.values()) {
+    const sub = Object.assign({}, ticket, { items: g.items });
+    if (g.number != null) sub.kitchen_name = 'PRINTER ' + g.number;
+    const data = buildKitchenTicket(sub);
+    for (let i = 0; i < copies; i++) await sendToPrinterConfig(data, g.pc);
+    log('KITCHEN -> printer ' + (g.number != null ? '#' + g.number : 'default') + ' (' + g.items.length + ' item[s])');
+  }
+}
+
 // ─── Restaurant branding (header logo) ───────────────────────────────────────
 // The Station header shows the restaurant's own logo — the same image uploaded
 // through the web builder (e.g. pulled in via the Instagram-import flow) —
@@ -1403,6 +1464,17 @@ function sendToPrinter(data, ip, port) {
     });
   }
   return sendViaNetwork(data, ip, port);
+}
+
+// Send to ONE specific printer (multi-printer routing). A network printer with
+// its own IP is addressed directly, bypassing the USB globals — otherwise a
+// local USB printer would hijack every job. A printer with no IP (the local USB
+// one, or no config) falls through to the default USB/network path.
+function sendToPrinterConfig(data, pc) {
+  if (pc && pc.printer_ip) {
+    return sendViaNetwork(data, pc.printer_ip, Number(pc.printer_port) || 9100);
+  }
+  return sendToPrinter(data);
 }
 
 // Write ESC/POS bytes directly to \\.\USB001 etc. — no Windows printer or driver needed.
@@ -3468,6 +3540,23 @@ function buildTestTicket(printerName) {
   return Buffer.from(b, 'binary');
 }
 
+// "I'M PRINTER No. N" slip — lets staff physically identify which printer is
+// which (IP addresses mean nothing to them). Triggered by the Print Identifier
+// button in the apps' Kitchen Stations screen.
+function buildIdentifierTicket(number, name) {
+  let b = INIT;
+  b += ALIGN_CENTER + FONT_LARGE_B + 'LightMenu' + '\n' + FONT_NORMAL;
+  b += ALIGN_CENTER + '==============================' + '\n';
+  b += ALIGN_CENTER + FONT_TITLE + "I'M PRINTER" + '\n';
+  b += ALIGN_CENTER + FONT_TITLE + 'No. ' + (number != null ? number : '?') + '\n' + FONT_NORMAL;
+  b += ALIGN_CENTER + '==============================' + '\n';
+  if (name) b += ALIGN_CENTER + FONT_BOLD + name + '\n' + FONT_NORMAL;
+  if (RESTAURANT_NAME) b += ALIGN_CENTER + RESTAURANT_NAME + '\n';
+  b += ALIGN_CENTER + 'Assign what prints here in the\nKitchen Stations screen.' + '\n';
+  b += FEED(4) + CUT;
+  return Buffer.from(b, 'binary');
+}
+
 function buildKitchenTicket(t) {
   const s = t.settings || {};
   const d = new Date(t.time || Date.now());
@@ -3716,8 +3805,22 @@ http.createServer((req, res) => {
 
   if (req.method === 'GET' && req.url === '/status') {
     const configured = !!(RESTAURANT_ID && RESTAURANT_ID !== '__RESTAURANT_ID__' && API_TOKEN && API_TOKEN !== '__API_TOKEN__');
+    // Detected printers for the apps' Kitchen Stations screen: number + IP +
+    // transport (eth/usb) + health. 'scan' is the internal scanner pseudo-row.
+    const printers = (Array.isArray(printersCache) ? printersCache : [])
+      .filter(p => p.printer_type !== 'scan')
+      .map(p => ({
+        id:            p.id,
+        name:          p.name || null,
+        number:        p.printer_number != null ? p.printer_number : null,
+        ip:            p.printer_ip || null,
+        transport:     p.printer_ip ? 'eth' : 'usb',
+        type:          p.printer_type || 'kitchen',
+        status:        p.status || 'unknown',
+        last_seen_at:  p.last_seen_at || null,
+      }));
     res.writeHead(200, { 'Content-Type': 'application/json' });
-    res.end(JSON.stringify({ status: 'running', configured, version: AGENT_VERSION, restaurant_name: RESTAURANT_NAME, logo_url: BRANDING_LOGO_URL, printer: { usb: usbDirectPort || usbWinPrinter || null, ip: PRINTER_IP, port: PRINTER_PORT, mode: usbDirectPort ? 'usb-direct' : usbWinPrinter ? 'usb-spooler' : 'network' }, printed, failed, analytics_queued: _readQueue().length }));
+    res.end(JSON.stringify({ status: 'running', configured, version: AGENT_VERSION, restaurant_name: RESTAURANT_NAME, logo_url: BRANDING_LOGO_URL, printer: { usb: usbDirectPort || usbWinPrinter || null, ip: PRINTER_IP, port: PRINTER_PORT, mode: usbDirectPort ? 'usb-direct' : usbWinPrinter ? 'usb-spooler' : 'network' }, printers, stations_configured: stationsConfigured(), printed, failed, analytics_queued: _readQueue().length }));
     return;
   }
 
@@ -5107,6 +5210,32 @@ http.createServer((req, res) => {
     return;
   }
 
+  // Print an "I'M PRINTER No. N" slip on a specific printer so staff can tell
+  // which physical device is which. Body: { printer_config_id } or { printer_number }.
+  if (req.method === 'POST' && req.url === '/print-identifier') {
+    let body = '';
+    req.on('data', c => body += c);
+    req.on('end', async () => {
+      try {
+        const b = JSON.parse(body || '{}');
+        let pc = null;
+        if (b.printer_config_id) pc = printersCache.find(p => p.id === b.printer_config_id);
+        if (!pc && b.printer_number != null) pc = printersCache.find(p => Number(p.printer_number) === Number(b.printer_number));
+        const number = pc ? pc.printer_number : b.printer_number;
+        const data = buildIdentifierTicket(number, pc ? pc.name : null);
+        await sendToPrinterConfig(data, pc);
+        log('IDENTIFIER printed for printer #' + (number != null ? number : '?'));
+        res.writeHead(200, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ ok: true, printer_number: number }));
+      } catch (e) {
+        log('print-identifier FAILED: ' + e.message);
+        res.writeHead(500, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ ok: false, error: e.message }));
+      }
+    });
+    return;
+  }
+
   if (req.method === 'POST' && req.url === '/print') {
     let body = '';
     req.on('data', c => body += c);
@@ -5131,16 +5260,24 @@ http.createServer((req, res) => {
           data = buildRasterTicket(ticket.bitmap_b64, ticket.bitmap_width_dots, ticket.bitmap_height);
           if (data) log('RASTER: ' + ticket.bitmap_width_dots + 'x' + ticket.bitmap_height);
         }
-        if (!data) {
-          switch (ticket.type) {
-            case 'check':    data = buildCheckTicket(ticket);    log('CHECK: Mesa ' + ticket.table_number); break;
-            case 'cancel':   data = buildCancelTicket(ticket);   log('CANCEL: Mesa ' + ticket.table_number); break;
-            case 'transfer': data = buildTransferTicket(ticket); log('TRANSFER: Mesa ' + ticket.from_table + '->' + ticket.to_table); break;
-            default:         data = buildKitchenTicket(ticket);  log('KITCHEN: Mesa ' + ticket.table_number);
-          }
-        }
         const copies = (ticket.type === 'check' ? ticket.settings?.check_copies : ticket.settings?.order_copies) || 1;
-        for (let i = 0; i < Math.min(copies, 3); i++) await sendToPrinter(data);
+        const isKitchen = !data && !['check', 'cancel', 'transfer'].includes(ticket.type);
+        // Multi-printer: a kitchen ticket is split by category and each group is
+        // sent to its assigned printer. Everything else (checks, cancels, raster,
+        // or when no stations are configured) prints once to the default printer.
+        if (isKitchen && stationsConfigured()) {
+          await printKitchenRouted(ticket, Math.min(copies, 3));
+        } else {
+          if (!data) {
+            switch (ticket.type) {
+              case 'check':    data = buildCheckTicket(ticket);    log('CHECK: Mesa ' + ticket.table_number); break;
+              case 'cancel':   data = buildCancelTicket(ticket);   log('CANCEL: Mesa ' + ticket.table_number); break;
+              case 'transfer': data = buildTransferTicket(ticket); log('TRANSFER: Mesa ' + ticket.from_table + '->' + ticket.to_table); break;
+              default:         data = buildKitchenTicket(ticket);  log('KITCHEN: Mesa ' + ticket.table_number);
+            }
+          }
+          for (let i = 0; i < Math.min(copies, 3); i++) await sendToPrinter(data);
+        }
         printed++;
         updateDailyStats('printed');
         try {
