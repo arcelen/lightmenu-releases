@@ -1822,6 +1822,8 @@ $script:i18n = @{
         staff_title='Staff'; btn_add_staff='+ Add Staff'; lbl_staff_name='Name'; lbl_staff_role='Role'
         staff_last_used='Last used:'; staff_never_used='Never used'; staff_active='Active'; staff_inactive='Inactive'
         staff_set_pin='Set PIN'; staff_pin_invalid='PIN must be 4 to 6 digits.'
+        staff_pin_hint='4-6 digits. You choose it and tell the waiter - works with no internet.'
+        staff_pin_saved_offline='PIN saved on this Station and active right now. It will sync to the cloud automatically once the internet is back.'
         btn_remove='Remove'; btn_toggle='Toggle'; btn_copy_link='Copy link'
         confirm_remove='Remove this staff member?'; confirm_restart='Restart the Station now? Any in-flight prints will be retried.'
         rescan_info='Rescan started. Check the live log for results.'
@@ -3721,7 +3723,7 @@ function New-StaffCard($member) {
 
     # PIN — set/replace the waiter's login PIN
     $pinBtn = Make-PillButton 'PIN' '#A78BFA' $member.id ([char]0xE192)
-    $pinBtn.Add_Click({ Show-PinDialog $memberData.id $memberData.name }.GetNewClosure())
+    $pinBtn.Add_Click({ Show-PinDialog $memberData.id $memberData.name $memberData.waiter_link }.GetNewClosure())
     $btnRow.Children.Add($pinBtn) | Out-Null
 
     # DELETE
@@ -3975,17 +3977,17 @@ function Show-RoleDialog($staffId, $currentRole) {
     $dlg.ShowDialog() | Out-Null
 }
 
-function Show-PinDialog($staffId, $staffName) {
+function Show-PinDialog($staffId, $staffName, $waiterLink) {
     [xml]$pinXaml = @"
 <Window xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
-        Height="250" Width="360" ResizeMode="NoResize"
+        Height="270" Width="360" ResizeMode="NoResize"
         WindowStartupLocation="CenterOwner"
         Background="#0F1117" TextElement.Foreground="#FFFFFF">
   <Border Background="#161922" CornerRadius="12">
     <StackPanel Margin="28">
       <TextBlock x:Name="PinTitle" Text="Set PIN" FontSize="17" FontWeight="Bold" Foreground="#FFFFFF" Margin="0,0,0,6"/>
-      <TextBlock x:Name="PinHint" Text="4-digit login PIN for this waiter" Foreground="#9CA3AF" FontSize="11" Margin="0,0,0,16"/>
+      <TextBlock x:Name="PinHint" Text="4-6 digit login PIN for this waiter" Foreground="#9CA3AF" FontSize="11" Margin="0,0,0,16" TextWrapping="Wrap"/>
       <TextBox x:Name="PinBox" MaxLength="6" FontSize="22" FontWeight="Bold" Padding="10,8"
                HorizontalContentAlignment="Center" Background="#0F1117" Foreground="#FFFFFF" BorderBrush="#2A2D3A" BorderThickness="1"/>
       <StackPanel Orientation="Horizontal" HorizontalAlignment="Right" Margin="0,20,0,0">
@@ -4008,6 +4010,7 @@ function Show-PinDialog($staffId, $staffName) {
     $dlg.Owner = $window
     $dlg.Title = "Set PIN"
     if ($staffName) { $dlg.FindName('PinTitle').Text = (T 'staff_set_pin') + " - $staffName" }
+    $dlg.FindName('PinHint').Text = T 'staff_pin_hint'
 
     $pinBox = $dlg.FindName('PinBox')
     # Digits only
@@ -4022,9 +4025,16 @@ function Show-PinDialog($staffId, $staffName) {
             return
         }
         try {
-            $body = @{ pin = $pin } | ConvertTo-Json
-            Invoke-RestMethod -Uri "$base/local/staff/$([System.Uri]::EscapeDataString($staffId))/pin" -Method Post -Body $body -ContentType 'application/json' -TimeoutSec 8 -ErrorAction Stop | Out-Null
+            # Send the waiter link too: the agent keys the local PIN hash by token
+            # so it can verify this waiter over the LAN while the internet is down.
+            $body = @{ pin = $pin; token = $waiterLink } | ConvertTo-Json
+            $resp = Invoke-RestMethod -Uri "$base/local/staff/$([System.Uri]::EscapeDataString($staffId))/pin" -Method Post -Body $body -ContentType 'application/json' -TimeoutSec 20 -ErrorAction Stop
             $dlg.Close()
+            # Saving succeeds offline — say so plainly rather than implying it reached the server.
+            if ($resp -and -not $resp.synced) {
+                [System.Windows.MessageBox]::Show(
+                    (T 'staff_pin_saved_offline'), 'LightMenu', 'OK', 'Information') | Out-Null
+            }
             Update-Staff-Page
         } catch { Show-SupabaseError $_ 'PIN' }
     }.GetNewClosure())

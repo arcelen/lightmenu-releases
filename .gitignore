@@ -8,3 +8,8 @@ print-agent/node_modules/
 # Cloudflare tunnel private key — NEVER commit (public repo). Drop the real
 # cloudflared-creds.json into print-agent/tunnel/ locally before building.
 print-agent/tunnel/cloudflared-creds.json
+
+# Runtime state written next to main.js by store.js — order/bill/staff records,
+# and in pins.local.json the scrypt hashes of waiter PINs. Generated per install;
+# NEVER commit any of it to this public repo.
+print-agent/*.local.json

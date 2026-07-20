@@ -3075,6 +3075,58 @@ function stationDb(action, payload) {
   });
 }
 
+// ─── Waiter PIN (offline-capable) ────────────────────────────────────────────
+// The PIN is hashed HERE, never sent anywhere in plaintext. Format is
+// byte-identical to the server's setWaiterPin ("saltHex:hashHex", scrypt with a
+// 16-byte salt and 32-byte key), so redeemWaiterToken accepts a PIN set from
+// this Station and we can verify one set on the web — in both directions.
+function hashPin(pin) {
+  const salt = crypto.randomBytes(16);
+  return salt.toString('hex') + ':' + crypto.scryptSync(String(pin), salt, 32).toString('hex');
+}
+
+function verifyPinHash(pin, stored) {
+  if (!stored || !stored.includes(':')) return false;
+  const [saltHex, hashHex] = stored.split(':');
+  const salt = Buffer.from(saltHex, 'hex');
+  const expected = Buffer.from(hashHex, 'hex');
+  if (!expected.length) return false;
+  const actual = crypto.scryptSync(String(pin), salt, expected.length);
+  return expected.length === actual.length && crypto.timingSafeEqual(expected, actual);
+}
+
+// Accepts a raw token or a full https://…/waiter/<token> link.
+function extractWaiterToken(v) {
+  const s = String(v || '').trim();
+  if (!s) return null;
+  const m = s.match(/\/waiter\/([^/?#]+)/);
+  return m ? m[1] : s;
+}
+
+// Replay PINs that were set while the internet was down. We store the hash and
+// the backend takes a hash, so no plaintext has to be retained to make this work.
+let _pinFlushPending = false;
+async function flushPendingPins() {
+  if (_pinFlushPending) return;
+  const pending = store.getUnsyncedPins();
+  if (!pending.length) return;
+  _pinFlushPending = true;
+  try {
+    for (const p of pending) {
+      if (!p.staff_id || !p.pin_hash) continue;
+      try {
+        const r = await stationDb('staff.set_pin', { staff_id: p.staff_id, pin_hash: p.pin_hash });
+        if (r && r.error) throw new Error(r.error);
+        store.markPinSynced(p.staff_id, p.token);
+        log('PIN: synced offline-set PIN for staff ' + p.staff_id);
+      } catch { /* still offline — retry on the next interval */ }
+    }
+  } finally {
+    _pinFlushPending = false;
+  }
+}
+setInterval(() => flushPendingPins().catch(() => {}), 60000);
+
 // Station READS for Analytics/Bills go through the same backend, scoped
 // server-side to this restaurant's saved_bills rows — the exact rows the web
 // app and Flutter app read, so all three surfaces show the same numbers
@@ -5006,8 +5058,17 @@ http.createServer((req, res) => {
     return;
   }
 
-  // Set / replace a staff member's 4-digit login PIN. Mirrors the web app's PIN
-  // button — the write goes through the token-authed backend (staff.set_pin).
+  // Set / replace a staff member's login PIN (4-6 digits).
+  //
+  // Unlike the web app's PIN button — which has the server generate a 6-digit
+  // PIN and email it — the manager picks the PIN here and tells the waiter. That
+  // makes it the option that works with no internet and no waiter email address.
+  //
+  // Offline-safe: the PIN is hashed locally and saved to the local store first,
+  // so /local/waiter/verify-pin can check it over the LAN during an outage. The
+  // hash is then pushed to the backend, immediately if we're online, otherwise by
+  // flushPendingPins() when the connection returns. Saving therefore SUCCEEDS
+  // while offline — `synced:false` tells the UI it's still owed to the server.
   if (req.method === 'POST' && req.url.match(/^\/local\/staff\/[^/]+\/pin$/)) {
     const staffId = decodeURIComponent(req.url.split('/')[3]);
     let body = '';
@@ -5021,15 +5082,71 @@ http.createServer((req, res) => {
           res.end(JSON.stringify({ error: 'PIN must be 4 to 6 digits' }));
           return;
         }
-        const result = await stationDb('staff.set_pin', { staff_id: staffId, pin });
-        if (result && result.error) throw new Error(result.error);
+        const token   = extractWaiterToken(data.token || data.waiter_link);
+        const pinHash = hashPin(pin);
+        store.setPin({ staff_id: staffId, token, pin_hash: pinHash, synced: false });
+
+        let synced = false, syncError = null;
+        try {
+          const result = await stationDb('staff.set_pin', { staff_id: staffId, pin_hash: pinHash });
+          if (result && result.error) throw new Error(result.error);
+          store.markPinSynced(staffId, token);
+          synced = true;
+        } catch (e) {
+          syncError = e.message || String(e);
+        }
+
         res.writeHead(200, { 'Content-Type': 'application/json' });
-        res.end(JSON.stringify({ ok: true }));
+        res.end(JSON.stringify({ ok: true, synced, sync_error: syncError }));
       } catch (e) {
-        const msg = e.message || String(e);
-        const sqlMissing = /404|not found|does not exist|unknown action|PGRST20[12]/i.test(msg);
         res.writeHead(500, { 'Content-Type': 'application/json' });
-        res.end(JSON.stringify({ error: sqlMissing ? 'sql_not_installed' : msg, detail: msg }));
+        res.end(JSON.stringify({ error: e.message || String(e) }));
+      }
+    });
+    return;
+  }
+
+  // Verify a waiter's PIN against the locally cached hash.
+  //
+  // The app falls back to this when the backend is unreachable, so a
+  // PIN-protected waiter can still start a shift during an outage. Attempt
+  // limits mirror redeemWaiterToken (5 tries, then a 15-minute lockout) so being
+  // offline doesn't quietly turn the second factor into an unlimited guess.
+  if (req.method === 'POST' && req.url === '/local/waiter/verify-pin') {
+    let body = '';
+    req.on('data', c => body += c);
+    req.on('end', () => {
+      const send = (code, obj) => {
+        res.writeHead(code, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify(obj));
+      };
+      try {
+        const data  = JSON.parse(body || '{}');
+        const token = extractWaiterToken(data.token);
+        const pin   = String(data.pin || '').trim();
+        if (!token || !pin) return send(400, { error: 'token and pin are required' });
+
+        const rec = store.getPin(null, token);
+        // No cached hash — this waiter's PIN was never set from this Station, so
+        // we can't vouch for them. The caller must wait for the backend.
+        if (!rec || !rec.pin_hash) return send(404, { error: 'no_local_pin' });
+
+        const lockMins = store.pinLockMinutes(rec);
+        if (lockMins > 0) return send(423, { error: 'locked', minutes: lockMins });
+
+        if (!verifyPinHash(pin, rec.pin_hash)) {
+          const st = store.recordPinFailure(null, token);
+          return send(401, {
+            error: 'bad_pin',
+            attempts_left: st.attempts_left,
+            locked: st.locked,
+            minutes: st.locked ? store.PIN_LOCK_MINUTES : 0,
+          });
+        }
+        store.clearPinFailures(null, token);
+        return send(200, { ok: true, offline_verified: true });
+      } catch (e) {
+        send(500, { error: e.message || String(e) });
       }
     });
     return;

@@ -305,6 +305,103 @@ function updateStaffLink(id, link) {
   return true;
 }
 
+// ─── Waiter PIN store (offline second factor) ────────────────────────────────
+// Mirrors the waiter_tokens PIN columns locally so a manager can set a PIN and a
+// waiter can log in while the internet is down. The hash format is byte-identical
+// to the server's ("saltHex:hashHex", scrypt) — a PIN set offline keeps working
+// once it syncs up, and one set online can be cached here and verified on the LAN.
+//
+// Only the hash is ever stored, never the PIN itself. Attempt limits mirror
+// redeemWaiterToken so an offline brute-force is bounded the same way.
+const PINS_FILE = path.join(__dirname, 'pins.local.json');
+
+const PIN_MAX_ATTEMPTS = 5;
+const PIN_LOCK_MINUTES = 15;
+
+function _findPin(pins, staffId, token) {
+  if (staffId) { const s = pins.find(p => p.staff_id === staffId); if (s) return s; }
+  if (token)   { const t = pins.find(p => p.token === token);      if (t) return t; }
+  return null;
+}
+
+function getPin(staffId, token) {
+  return _findPin(_readArr(PINS_FILE), staffId, token);
+}
+
+// synced:false means "set while offline, still owed to the backend".
+function setPin(record) {
+  if (!record || !record.pin_hash) return null;
+  const pins = _readArr(PINS_FILE);
+  const existing = _findPin(pins, record.staff_id, record.token);
+  const entry = existing || {};
+  entry.staff_id        = record.staff_id || entry.staff_id || null;
+  entry.token           = record.token    || entry.token    || null;
+  entry.pin_hash        = record.pin_hash;
+  entry.pin_required    = true;
+  entry.pin_set_at      = new Date().toISOString();
+  entry.failed_attempts = 0;
+  entry.locked_until    = null;
+  entry.synced          = record.synced === true;
+  if (!existing) pins.push(entry);
+  _writeArr(PINS_FILE, pins);
+  return entry;
+}
+
+function clearPin(staffId, token) {
+  const pins = _readArr(PINS_FILE);
+  const idx = pins.findIndex(p => (staffId && p.staff_id === staffId) || (token && p.token === token));
+  if (idx < 0) return false;
+  pins.splice(idx, 1);
+  _writeArr(PINS_FILE, pins);
+  return true;
+}
+
+// Returns { locked, locked_until, attempts_left } after counting one failure.
+// Mirrors the server: on hitting the cap we set locked_until and reset the
+// counter, so the next window starts clean.
+function recordPinFailure(staffId, token) {
+  const pins = _readArr(PINS_FILE);
+  const p = _findPin(pins, staffId, token);
+  if (!p) return { locked: false, locked_until: null, attempts_left: PIN_MAX_ATTEMPTS };
+  const attempts = (p.failed_attempts || 0) + 1;
+  if (attempts >= PIN_MAX_ATTEMPTS) {
+    p.failed_attempts = 0;
+    p.locked_until = new Date(Date.now() + PIN_LOCK_MINUTES * 60000).toISOString();
+  } else {
+    p.failed_attempts = attempts;
+  }
+  _writeArr(PINS_FILE, pins);
+  return {
+    locked: !!p.locked_until,
+    locked_until: p.locked_until,
+    attempts_left: Math.max(0, PIN_MAX_ATTEMPTS - attempts),
+  };
+}
+
+function clearPinFailures(staffId, token) {
+  const pins = _readArr(PINS_FILE);
+  const p = _findPin(pins, staffId, token);
+  if (!p) return;
+  p.failed_attempts = 0;
+  p.locked_until = null;
+  _writeArr(PINS_FILE, pins);
+}
+
+// Minutes still remaining on a lockout, or 0 if not locked.
+function pinLockMinutes(pin) {
+  if (!pin || !pin.locked_until) return 0;
+  const ms = new Date(pin.locked_until).getTime() - Date.now();
+  return ms > 0 ? Math.ceil(ms / 60000) : 0;
+}
+
+function getUnsyncedPins() { return _readArr(PINS_FILE).filter(p => !p.synced); }
+
+function markPinSynced(staffId, token) {
+  const pins = _readArr(PINS_FILE);
+  const p = _findPin(pins, staffId, token);
+  if (p) { p.synced = true; _writeArr(PINS_FILE, pins); }
+}
+
 // ─── Print-twice guard ───────────────────────────────────────────────────────
 // Records job ids that have already physically printed, so a crash or network
 // blip between "printed the ticket" and "told Supabase it printed" can never
@@ -330,5 +427,8 @@ module.exports = {
   getUnsynced, markBillSynced, markOrderSynced,
   findBill, dailyReport,
   getStaff, addStaff, removeStaff, toggleStaff, updateStaffLink,
+  getPin, setPin, clearPin, recordPinFailure, clearPinFailures,
+  pinLockMinutes, getUnsyncedPins, markPinSynced,
+  PIN_MAX_ATTEMPTS, PIN_LOCK_MINUTES,
   wasPrinted, markPrinted,
 };
