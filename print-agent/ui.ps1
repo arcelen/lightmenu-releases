@@ -1892,6 +1892,27 @@ function SolidBrush($hex) { New-Object System.Windows.Media.SolidColorBrush ([Sy
 # #RRGGBBAA, so the alpha byte must be PREFIXED — e.g. Tint '#8b5cf6' '20' -> '#208b5cf6'.
 function Tint($hex, $aa) { return '#' + $aa + ($hex -replace '^#','') }
 
+# One bad click must never take the whole UI down.
+#
+# The trap at the top of this file logs and exits(1) — right for a failure while
+# starting up, wrong for an event handler: an error inside a button click has no
+# enclosing catch, reaches that trap, and closes the operator's window mid-service
+# with a misleading "failed to start". Wrap handler bodies in this instead: the
+# error is logged with its real message, line and stack, shown once, and the UI
+# keeps running.
+function Invoke-Guarded($label, $action) {
+    try {
+        & $action
+    } catch {
+        $line = $_.InvocationInfo.ScriptLineNumber
+        $text = "[$(Get-Date -Format 'yyyy-MM-dd HH:mm:ss')] HANDLER '$label' line $line : $($_.Exception.Message)`n$($_.ScriptStackTrace)`n"
+        try { Add-Content -Path $errorLog -Value $text } catch {}
+        try {
+            [System.Windows.MessageBox]::Show("$label`n`n$($_.Exception.Message)", 'LightMenu', 'OK', 'Warning') | Out-Null
+        } catch {}
+    }
+}
+
 # ─── LANGUAGE SYSTEM ────────────────────────────────────────────────────────
 $script:i18n = @{
     en = @{
@@ -4697,12 +4718,19 @@ function New-MenuCategoryCard($cat, $itemCount, $index) {
     $badge.Add_MouseLeftButtonUp({
         param($s, $e)
         $e.Handled = $true
-        Show-CategoryDialog $catData
+        Invoke-Guarded 'Reassign section' { Show-CategoryDialog $catData }
     }.GetNewClosure())
-    $card.Add_MouseLeftButtonUp({ Show-CategoryItemsDialog $catData }.GetNewClosure())
+    $card.Add_MouseLeftButtonUp({
+        Invoke-Guarded 'Open category' { Show-CategoryItemsDialog $catData }
+    }.GetNewClosure())
+
+    # $cardRef, not $this: GetNewClosure captures the variables in scope at
+    # definition time, and $this is $null then — it would shadow the sender the
+    # handler is actually given.
+    $cardRef = $card
     $accentData = $accent
-    $card.Add_MouseEnter({ $this.BorderBrush = SolidBrush (Tint $accentData.a 'CC') }.GetNewClosure())
-    $card.Add_MouseLeave({ $this.BorderBrush = SolidBrush (Tint $accentData.a '66') }.GetNewClosure())
+    $card.Add_MouseEnter({ $cardRef.BorderBrush = SolidBrush (Tint $accentData.a 'CC') }.GetNewClosure())
+    $card.Add_MouseLeave({ $cardRef.BorderBrush = SolidBrush (Tint $accentData.a '66') }.GetNewClosure())
     return $card
 }
 
@@ -4812,27 +4840,38 @@ function Show-CategoryItemsDialog($cat) {
     $dlg.FindName('CidBlock').Content      = T 'menu_block'
     $dlg.FindName('CidTicketMode').Text    = (T 'menu_ticket_mode') + ' = ' + (Get-Seg 'ticket_mode')
 
-    $dlg.FindName('CidClose').Add_Click({ $script:cidDlg.Close() })
+    $dlg.FindName('CidClose').Add_Click({
+        Invoke-Guarded 'Close' { if ($script:cidDlg) { $script:cidDlg.Close() } }
+    })
     $dlg.FindName('CidRename').Add_Click({
-        Show-CategoryDialog $script:cidCat
-        $script:cidDlg.Close()
+        Invoke-Guarded 'Rename category' {
+            Show-CategoryDialog $script:cidCat
+            if ($script:cidDlg) { $script:cidDlg.Close() }
+        }
     })
     $dlg.FindName('CidAddItem').Add_Click({
-        Show-MenuItemDialog $null
-        Render-CategoryItems
+        Invoke-Guarded 'Add item' {
+            Show-MenuItemDialog $null
+            Update-Menu-Page
+            Render-CategoryItems
+        }
     })
     $dlg.FindName('CidSelAvail').Add_Click({
-        $script:cidSelected = @{}
-        foreach ($i in (Get-CategoryItems)) { if ($i.available) { $script:cidSelected[[string]$i.id] = $true } }
-        Render-CategoryItems
+        Invoke-Guarded 'Select all available' {
+            $script:cidSelected = @{}
+            foreach ($i in (Get-CategoryItems)) { if ($i.available) { $script:cidSelected[[string]$i.id] = $true } }
+            Render-CategoryItems
+        }
     })
     $dlg.FindName('CidSelBlocked').Add_Click({
-        $script:cidSelected = @{}
-        foreach ($i in (Get-CategoryItems)) { if (-not $i.available) { $script:cidSelected[[string]$i.id] = $true } }
-        Render-CategoryItems
+        Invoke-Guarded 'Select all blocked' {
+            $script:cidSelected = @{}
+            foreach ($i in (Get-CategoryItems)) { if (-not $i.available) { $script:cidSelected[[string]$i.id] = $true } }
+            Render-CategoryItems
+        }
     })
-    $dlg.FindName('CidUnblock').Add_Click({ Invoke-CategoryBulk $true })
-    $dlg.FindName('CidBlock').Add_Click({ Invoke-CategoryBulk $false })
+    $dlg.FindName('CidUnblock').Add_Click({ Invoke-Guarded 'Unblock' { Invoke-CategoryBulk $true } })
+    $dlg.FindName('CidBlock').Add_Click({ Invoke-Guarded 'Block' { Invoke-CategoryBulk $false } })
 
     Render-CategorySectionRow
     Render-CategoryItems
@@ -4895,6 +4934,7 @@ function Render-CategorySectionRow {
         $b.Child = $t
         $target = $s
         $b.Add_MouseLeftButtonUp({
+            Invoke-Guarded 'Move to section' {
             try {
                 Invoke-RestMethod -Uri "$base/local/menu/category/$($script:cidCat.id)" -Method Patch `
                     -Body (@{ name = [string]$script:cidCat.name; section = $target } | ConvertTo-Json) `
@@ -4904,6 +4944,7 @@ function Render-CategorySectionRow {
                 Render-CategorySectionRow
             } catch {
                 [System.Windows.MessageBox]::Show((T 'menu_save_fail'), 'LightMenu', 'OK', 'Warning') | Out-Null
+            }
             }
         }.GetNewClosure())
         $row.Children.Add($b) | Out-Null
@@ -5023,9 +5064,11 @@ function New-CategoryItemCard($item) {
     $ed.Add_Click({
         param($s, $e)
         $e.Handled = $true
-        Show-MenuItemDialog $itemData
-        Update-Menu-Page
-        Render-CategoryItems
+        Invoke-Guarded 'Edit item' {
+            Show-MenuItemDialog $itemData
+            Update-Menu-Page
+            Render-CategoryItems
+        }
     }.GetNewClosure())
     $acts.Children.Add($ed) | Out-Null
 
@@ -5040,14 +5083,16 @@ function New-CategoryItemCard($item) {
     $dl.Add_Click({
         param($s, $e)
         $e.Handled = $true
-        $ok = [System.Windows.MessageBox]::Show((T 'menu_confirm_del'), 'LightMenu', 'YesNo', 'Question')
-        if ($ok -ne 'Yes') { return }
-        try {
-            Invoke-RestMethod -Uri "$base/local/menu/item/$($itemData.id)" -Method Delete -TimeoutSec 10 -ErrorAction Stop | Out-Null
-            Update-Menu-Page
-            Render-CategoryItems
-        } catch {
-            [System.Windows.MessageBox]::Show((T 'menu_save_fail'), 'LightMenu', 'OK', 'Warning') | Out-Null
+        Invoke-Guarded 'Delete item' {
+            $ok = [System.Windows.MessageBox]::Show((T 'menu_confirm_del'), 'LightMenu', 'YesNo', 'Question')
+            if ($ok -ne 'Yes') { return }
+            try {
+                Invoke-RestMethod -Uri "$base/local/menu/item/$($itemData.id)" -Method Delete -TimeoutSec 10 -ErrorAction Stop | Out-Null
+                Update-Menu-Page
+                Render-CategoryItems
+            } catch {
+                [System.Windows.MessageBox]::Show((T 'menu_save_fail'), 'LightMenu', 'OK', 'Warning') | Out-Null
+            }
         }
     }.GetNewClosure())
     $acts.Children.Add($dl) | Out-Null
@@ -5059,9 +5104,12 @@ function New-CategoryItemCard($item) {
 
     $cardId = $id
     $card.Add_MouseLeftButtonUp({
-        if ($script:cidSelected.ContainsKey($cardId)) { $script:cidSelected.Remove($cardId) }
-        else { $script:cidSelected[$cardId] = $true }
-        Render-CategoryItems
+        Invoke-Guarded 'Select item' {
+            if ($null -eq $script:cidSelected) { $script:cidSelected = @{} }
+            if ($script:cidSelected.ContainsKey($cardId)) { $script:cidSelected.Remove($cardId) }
+            else { $script:cidSelected[$cardId] = $true }
+            Render-CategoryItems
+        }
     }.GetNewClosure())
     return $card
 }
@@ -5202,14 +5250,16 @@ function Update-Menu-Page {
 
 (ctl 'MenuRefresh').Add_Click({ Update-Menu-Page })
 (ctl 'MenuSearch').Add_TextChanged({ Render-Menu })
-(ctl 'MenuBackBtn').Add_Click({ Show-MenuGrid })
+(ctl 'MenuBackBtn').Add_Click({ Invoke-Guarded 'Back to categories' { Show-MenuGrid } })
 
 # Reassign the section straight from the drill-in header, so you don't have to
 # go back to the grid just to move a category to another printer section.
 (ctl 'MenuItemsBadge').Add_MouseLeftButtonUp({
-    if ($script:menuActiveCat -and $script:menuActiveCat -ne '__all__' -and $script:menuActiveCat -ne '__uncategorized__' -and $script:menuData) {
-        $cur = @($script:menuData.categories | Where-Object { $_.id -eq $script:menuActiveCat })[0]
-        if ($cur) { Show-CategoryDialog $cur }
+    Invoke-Guarded 'Reassign section' {
+        if ($script:menuActiveCat -and $script:menuActiveCat -ne '__all__' -and $script:menuActiveCat -ne '__uncategorized__' -and $script:menuData) {
+            $cur = @($script:menuData.categories | Where-Object { $_.id -eq $script:menuActiveCat })[0]
+            if ($cur) { Show-CategoryDialog $cur }
+        }
     }
 })
 
