@@ -1927,6 +1927,12 @@ $script:i18n = @{
         staff_title='Staff'; btn_add_staff='+ Add Staff'; lbl_staff_name='Name'; lbl_staff_role='Role'
         staff_last_used='Last used:'; staff_never_used='Never used'; staff_active='Active'; staff_inactive='Inactive'
         menu_item_one='item'; menu_item_many='items'
+        menu_ticket_mode='Ticket Mode'
+        menu_sel_available='Select all available'; menu_sel_blocked='Select all blocked'
+        menu_unblock='Unblock'; menu_block='Block'
+        menu_tap_to_select='Click items to select'; menu_selected='selected'
+        menu_addon_badge='ADD-ON'; menu_confirm_del='Delete this item?'
+        menu_bulk_partial='Updated {0}, but {1} failed. Check the connection and try those again.'
         menu_search_results='Search results'
         translate_running='Translating...'
         translate_done='Translated {0} entries. Anything already translated was left alone.'
@@ -4571,53 +4577,90 @@ function Get-SectionColor($name) {
     return $palette[$hash]
 }
 
-# The Station's /local/menu payload has no per-category icon (the web reads
-# category.icon), so instead of guessing a glyph we use a coloured initial.
-# It always renders, needs no icon font, and still distinguishes categories.
-function Get-CategoryInitial($name) {
-    $n = ([string]$name).Trim()
-    if (-not $n) { return '?' }
-    return $n.Substring(0,1).ToUpper()
+# menu_categories.icon holds the same keys the web's ICON_MAP uses. WPF has no
+# lucide, so map them to emoji — the codebase already renders emoji elsewhere,
+# and unlike a Segoe MDL2 glyph they're guaranteed to exist.
+# Codepoints, not literal characters: most of these sit above U+FFFF and need a
+# surrogate pair, which ConvertFromUtf32 builds correctly. Storing them as ints
+# also keeps this file ASCII, so the ANSI/UTF-8 read never mangles them.
+$script:menuIconMap = @{
+    'coffee'=0x2615; 'pizza'=0x1F355; 'wine'=0x1F377; 'utensils'=0x1F37D
+    'ice-cream'=0x1F368; 'chef-hat'=0x1F373; 'beer'=0x1F37A; 'cake'=0x1F370
+    'sandwich'=0x1F96A; 'apple'=0x1F34E; 'leaf'=0x1F33F; 'star'=0x2B50
 }
 
-$script:menuAccents = @('#10B981','#06B6D4','#8B5CF6','#F59E0B','#F43F5E','#3B82F6','#84CC16','#A855F7')
+function Get-CategoryIcon($cat) {
+    $key = ([string]$cat.icon).ToLower()
+    if ($key -and $script:menuIconMap.ContainsKey($key)) {
+        return [char]::ConvertFromUtf32($script:menuIconMap[$key])
+    }
+    # No icon set: fall back on the section, so drinks still look like drinks.
+    $sec = $(if ($cat.section) { [string]$cat.section } else { 'menu' })
+    if (Test-SectionIsBar $sec) { return [char]::ConvertFromUtf32(0x1F377) }
+    return [char]::ConvertFromUtf32(0x1F37D)
+}
+
+# Gradient pairs mirroring the web's ACCENT_COLORS, in the same order, so a
+# category keeps the colour the owner already associates with it.
+$script:menuAccents = @(
+    @{ a='#10B981'; b='#14B8A6' },   # emerald -> teal
+    @{ a='#06B6D4'; b='#3B82F6' },   # cyan -> blue
+    @{ a='#A855F7'; b='#D946EF' },   # purple -> fuchsia
+    @{ a='#F59E0B'; b='#F97316' },   # amber -> orange
+    @{ a='#F43F5E'; b='#EC4899' },   # rose -> pink
+    @{ a='#0EA5E9'; b='#6366F1' },   # sky -> indigo
+    @{ a='#84CC16'; b='#22C55E' },   # lime -> green
+    @{ a='#8B5CF6'; b='#A855F7' }    # violet -> purple
+)
+
+# Diagonal two-stop gradient at ~20% opacity, matching the web's from/to classes.
+function New-AccentGradient($accent) {
+    $g = New-Object System.Windows.Media.LinearGradientBrush
+    $g.StartPoint = New-Object System.Windows.Point(0,0)
+    $g.EndPoint   = New-Object System.Windows.Point(1,1)
+    $g.GradientStops.Add((New-Object System.Windows.Media.GradientStop ([System.Windows.Media.ColorConverter]::ConvertFromString((Tint $accent.a '33')), 0)))
+    $g.GradientStops.Add((New-Object System.Windows.Media.GradientStop ([System.Windows.Media.ColorConverter]::ConvertFromString((Tint $accent.b '33')), 1)))
+    return $g
+}
 
 function New-MenuCategoryCard($cat, $itemCount, $index) {
     $accent = $script:menuAccents[$index % $script:menuAccents.Count]
     $section = $(if ($cat.section) { [string]$cat.section } else { 'menu' })
 
     $card = New-Object System.Windows.Controls.Border
-    $card.Background      = SolidBrush '#1A1D29'
-    $card.BorderBrush     = SolidBrush (Tint $accent '55')
+    $card.Background      = New-AccentGradient $accent
+    $card.BorderBrush     = SolidBrush (Tint $accent.a '66')
     $card.BorderThickness = New-Object System.Windows.Thickness(1)
     $card.CornerRadius    = New-Object System.Windows.CornerRadius(12)
-    $card.Padding         = New-Object System.Windows.Thickness(14)
-    $card.Margin          = New-Object System.Windows.Thickness(0,0,12,12)
-    $card.Width           = 190
+    $card.Padding         = New-Object System.Windows.Thickness(16)
+    $card.Margin          = New-Object System.Windows.Thickness(0,0,14,14)
+    $card.Width           = 230
     $card.Cursor          = 'Hand'
 
     $sp = New-Object System.Windows.Controls.StackPanel
 
+    # Rounded icon tile, like the web card's centred lucide icon.
     $avatar = New-Object System.Windows.Controls.Border
-    $avatar.Background = SolidBrush (Tint $accent '26')
-    $avatar.CornerRadius = New-Object System.Windows.CornerRadius(10)
-    $avatar.Width = 46; $avatar.Height = 46
+    $avatar.Background = SolidBrush '#26FFFFFF'
+    $avatar.CornerRadius = New-Object System.Windows.CornerRadius(14)
+    $avatar.Width = 58; $avatar.Height = 58
     $avatar.HorizontalAlignment = 'Center'
-    $initial = New-Object System.Windows.Controls.TextBlock
-    $initial.Text = Get-CategoryInitial $cat.name
-    $initial.Foreground = SolidBrush $accent
-    $initial.FontSize = 20; $initial.FontWeight = 'Bold'
-    $initial.HorizontalAlignment = 'Center'; $initial.VerticalAlignment = 'Center'
-    $avatar.Child = $initial
+    $glyph = New-Object System.Windows.Controls.TextBlock
+    $glyph.Text = Get-CategoryIcon $cat
+    $glyph.FontSize = 26
+    $glyph.Foreground = [System.Windows.Media.Brushes]::White
+    $glyph.HorizontalAlignment = 'Center'; $glyph.VerticalAlignment = 'Center'
+    $avatar.Child = $glyph
     $sp.Children.Add($avatar) | Out-Null
 
     $nm = New-Object System.Windows.Controls.TextBlock
     $nm.Text = ([string]$cat.name).ToUpper()
     $nm.Foreground = [System.Windows.Media.Brushes]::White
-    $nm.FontSize = 12.5; $nm.FontWeight = 'Bold'
+    $nm.FontSize = 14; $nm.FontWeight = 'Bold'
     $nm.TextTrimming = 'CharacterEllipsis'
+    $nm.TextAlignment = 'Center'
     $nm.HorizontalAlignment = 'Center'
-    $nm.Margin = New-Object System.Windows.Thickness(0,10,0,0)
+    $nm.Margin = New-Object System.Windows.Thickness(0,12,0,0)
     $sp.Children.Add($nm) | Out-Null
 
     $cnt = New-Object System.Windows.Controls.TextBlock
@@ -4636,8 +4679,8 @@ function New-MenuCategoryCard($cat, $itemCount, $index) {
     $badge.BorderThickness = New-Object System.Windows.Thickness(1)
     $badge.CornerRadius = New-Object System.Windows.CornerRadius(5)
     $badge.Padding = New-Object System.Windows.Thickness(8,2,8,2)
-    $badge.HorizontalAlignment = 'Center'
-    $badge.Margin = New-Object System.Windows.Thickness(0,10,0,0)
+    $badge.HorizontalAlignment = 'Left'
+    $badge.Margin = New-Object System.Windows.Thickness(0,14,0,0)
     $badge.Cursor = 'Hand'
     $bt = New-Object System.Windows.Controls.TextBlock
     $bt.Text = $section.ToUpper()
@@ -4656,10 +4699,392 @@ function New-MenuCategoryCard($cat, $itemCount, $index) {
         $e.Handled = $true
         Show-CategoryDialog $catData
     }.GetNewClosure())
-    $card.Add_MouseLeftButtonUp({ Show-MenuCategory $catData }.GetNewClosure())
-    $card.Add_MouseEnter({ $this.Background = SolidBrush '#20242F' })
-    $card.Add_MouseLeave({ $this.Background = SolidBrush '#1A1D29' })
+    $card.Add_MouseLeftButtonUp({ Show-CategoryItemsDialog $catData }.GetNewClosure())
+    $accentData = $accent
+    $card.Add_MouseEnter({ $this.BorderBrush = SolidBrush (Tint $accentData.a 'CC') }.GetNewClosure())
+    $card.Add_MouseLeave({ $this.BorderBrush = SolidBrush (Tint $accentData.a '66') }.GetNewClosure())
     return $card
+}
+
+# ─── Category items modal (clone of the web CategoryItemsModal) ──────────────
+# Cards rather than rows, because the point of this screen is 86-ing dishes
+# mid-service: you multi-select and Block/Unblock in one action.
+$script:cidCat      = $null
+$script:cidSelected = @{}
+$script:cidDlg      = $null
+
+function Show-CategoryItemsDialog($cat) {
+    $script:cidCat = $cat
+    $script:cidSelected = @{}
+
+    [xml]$cx = @"
+<Window xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Height="700" Width="940" WindowStartupLocation="CenterOwner"
+        Background="#0F1117" TextElement.Foreground="#FFFFFF">
+  <Border Background="#12141C" CornerRadius="14" BorderBrush="#2A2D3A" BorderThickness="1">
+    <Grid Margin="22">
+      <Grid.RowDefinitions>
+        <RowDefinition Height="Auto"/>
+        <RowDefinition Height="Auto"/>
+        <RowDefinition Height="Auto"/>
+        <RowDefinition Height="*"/>
+        <RowDefinition Height="Auto"/>
+      </Grid.RowDefinitions>
+
+      <Grid Grid.Row="0">
+        <StackPanel Orientation="Horizontal">
+          <Border x:Name="CidIconTile" Width="46" Height="46" CornerRadius="11" Background="#26FFFFFF">
+            <TextBlock x:Name="CidIcon" FontSize="22" HorizontalAlignment="Center" VerticalAlignment="Center"/>
+          </Border>
+          <StackPanel Margin="12,0,0,0" VerticalAlignment="Center">
+            <StackPanel Orientation="Horizontal">
+              <TextBlock x:Name="CidTitle" FontSize="18" FontWeight="Bold" Foreground="#FFFFFF"/>
+              <Button x:Name="CidRename" Content="&#x270E;" Background="Transparent" BorderThickness="0"
+                      Foreground="#9CA3AF" FontSize="14" Cursor="Hand" Margin="8,0,0,0" Padding="4,0"/>
+            </StackPanel>
+            <TextBlock x:Name="CidCount" Foreground="#9CA3AF" FontSize="11" Margin="0,2,0,0"/>
+          </StackPanel>
+        </StackPanel>
+        <Button x:Name="CidClose" Content="&#x2715;" HorizontalAlignment="Right" VerticalAlignment="Top"
+                Background="#1C1F27" Foreground="#FFFFFF" BorderThickness="0" Cursor="Hand"
+                Padding="9,4" FontSize="13"/>
+      </Grid>
+
+      <Border Grid.Row="1" Background="#0F1117" CornerRadius="9" Padding="12,9" Margin="0,16,0,0">
+        <Grid>
+          <StackPanel x:Name="CidSectionRow" Orientation="Horizontal"/>
+          <TextBlock x:Name="CidTicketMode" HorizontalAlignment="Right" VerticalAlignment="Center"
+                     Foreground="#6B7280" FontSize="10"/>
+        </Grid>
+      </Border>
+
+      <Grid Grid.Row="2" Margin="0,14,0,0">
+        <!-- Styled inline, not via StaticResource: a dialog Window has its own
+             resource tree and can't see the main window's PeriodBtn style, so a
+             reference here throws XamlParseException the moment it opens. -->
+        <StackPanel Orientation="Horizontal">
+          <Button x:Name="CidSelAvail" Content="Select all available" Margin="0,0,8,0" Cursor="Hand" FontSize="12"
+                  Padding="12,6" Background="#1A2E28" Foreground="#34D399" BorderBrush="#4D34D399" BorderThickness="1"/>
+          <Button x:Name="CidSelBlocked" Content="Select all blocked" Cursor="Hand" FontSize="12"
+                  Padding="12,6" Background="#2E1C1F" Foreground="#F87171" BorderBrush="#4DF87171" BorderThickness="1"/>
+        </StackPanel>
+        <Button x:Name="CidAddItem" HorizontalAlignment="Right" Cursor="Hand" FontSize="12" FontWeight="SemiBold"
+                Padding="14,6" BorderThickness="0" Content="+  Add Item" Foreground="#FFFFFF">
+          <Button.Background>
+            <LinearGradientBrush StartPoint="0,0" EndPoint="1,0">
+              <GradientStop Color="#14B8A6" Offset="0"/>
+              <GradientStop Color="#06B6D4" Offset="1"/>
+            </LinearGradientBrush>
+          </Button.Background>
+        </Button>
+      </Grid>
+
+      <ScrollViewer Grid.Row="3" VerticalScrollBarVisibility="Auto" Margin="0,14,0,0">
+        <WrapPanel x:Name="CidItems" Orientation="Horizontal"/>
+      </ScrollViewer>
+
+      <Grid Grid.Row="4" Margin="0,14,0,0">
+        <TextBlock x:Name="CidHint" Foreground="#6B7280" FontSize="12" VerticalAlignment="Center"/>
+        <StackPanel Orientation="Horizontal" HorizontalAlignment="Right">
+          <Button x:Name="CidUnblock" Content="Unblock" Margin="0,0,8,0" Cursor="Hand" FontSize="12" FontWeight="SemiBold"
+                  Padding="16,7" Background="#1A2E28" Foreground="#34D399" BorderBrush="#4D34D399" BorderThickness="1"/>
+          <Button x:Name="CidBlock" Content="Block" Cursor="Hand" FontSize="12" FontWeight="SemiBold"
+                  Padding="16,7" Background="#2E1C1F" Foreground="#F87171" BorderBrush="#4DF87171" BorderThickness="1"/>
+        </StackPanel>
+      </Grid>
+    </Grid>
+  </Border>
+</Window>
+"@
+
+    $dlg = [System.Windows.Markup.XamlReader]::Load((New-Object System.Xml.XmlNodeReader $cx))
+    $script:cidDlg = $dlg
+    $dlg.Title = [string]$cat.name
+    if ($window) { $dlg.Owner = $window }
+
+    $dlg.FindName('CidIcon').Text     = Get-CategoryIcon $cat
+    $dlg.FindName('CidTitle').Text    = ([string]$cat.name).ToUpper()
+    $dlg.FindName('CidSelAvail').Content   = T 'menu_sel_available'
+    $dlg.FindName('CidSelBlocked').Content = T 'menu_sel_blocked'
+    $dlg.FindName('CidAddItem').Content    = '+  ' + (T 'menu_add_item')
+    $dlg.FindName('CidUnblock').Content    = T 'menu_unblock'
+    $dlg.FindName('CidBlock').Content      = T 'menu_block'
+    $dlg.FindName('CidTicketMode').Text    = (T 'menu_ticket_mode') + ' = ' + (Get-Seg 'ticket_mode')
+
+    $dlg.FindName('CidClose').Add_Click({ $script:cidDlg.Close() })
+    $dlg.FindName('CidRename').Add_Click({
+        Show-CategoryDialog $script:cidCat
+        $script:cidDlg.Close()
+    })
+    $dlg.FindName('CidAddItem').Add_Click({
+        Show-MenuItemDialog $null
+        Render-CategoryItems
+    })
+    $dlg.FindName('CidSelAvail').Add_Click({
+        $script:cidSelected = @{}
+        foreach ($i in (Get-CategoryItems)) { if ($i.available) { $script:cidSelected[[string]$i.id] = $true } }
+        Render-CategoryItems
+    })
+    $dlg.FindName('CidSelBlocked').Add_Click({
+        $script:cidSelected = @{}
+        foreach ($i in (Get-CategoryItems)) { if (-not $i.available) { $script:cidSelected[[string]$i.id] = $true } }
+        Render-CategoryItems
+    })
+    $dlg.FindName('CidUnblock').Add_Click({ Invoke-CategoryBulk $true })
+    $dlg.FindName('CidBlock').Add_Click({ Invoke-CategoryBulk $false })
+
+    Render-CategorySectionRow
+    Render-CategoryItems
+    $dlg.ShowDialog() | Out-Null
+    $script:cidDlg = $null
+}
+
+# Items in the open category. Uses all_items so add-ons show here (badged) the
+# way they do on the web, while the POS keeps ordering from the add-on-free list.
+function Get-CategoryItems {
+    if (-not $script:menuData -or -not $script:cidCat) { return @() }
+    $all = @()
+    if ($script:menuData.all_items) { $all = @($script:menuData.all_items) }
+    else { $all = @($script:menuData.items) }
+    if ($script:cidCat.id -eq '__uncategorized__') {
+        return @($all | Where-Object { -not $_.category_id })
+    }
+    return @($all | Where-Object { $_.category_id -eq $script:cidCat.id })
+}
+
+# "MOVE TO SECTION" — one button per known section, current one highlighted.
+function Render-CategorySectionRow {
+    if (-not $script:cidDlg) { return }
+    $row = $script:cidDlg.FindName('CidSectionRow')
+    $row.Children.Clear()
+
+    $lbl = New-Object System.Windows.Controls.TextBlock
+    $lbl.Text = T 'menu_move_to_section'
+    $lbl.Foreground = SolidBrush '#9CA3AF'; $lbl.FontSize = 11; $lbl.FontWeight = 'Bold'
+    $lbl.VerticalAlignment = 'Center'; $lbl.Margin = New-Object System.Windows.Thickness(0,0,12,0)
+    $row.Children.Add($lbl) | Out-Null
+
+    if ($script:cidCat.id -eq '__uncategorized__') { return }
+
+    $sections = @('menu','drinks')
+    if ($script:menuData) {
+        foreach ($c in @($script:menuData.categories)) {
+            $s = $(if ($c.section) { [string]$c.section } else { 'menu' })
+            if ($sections -notcontains $s) { $sections += $s }
+        }
+    }
+    $current = $(if ($script:cidCat.section) { [string]$script:cidCat.section } else { 'menu' })
+
+    foreach ($s in $sections) {
+        $col = Get-SectionColor $s
+        $b = New-Object System.Windows.Controls.Border
+        $b.CornerRadius = New-Object System.Windows.CornerRadius(7)
+        $b.Padding = New-Object System.Windows.Thickness(12,5,12,5)
+        $b.Margin = New-Object System.Windows.Thickness(0,0,8,0)
+        $b.Cursor = 'Hand'
+        $b.BorderThickness = New-Object System.Windows.Thickness(1)
+        if ($s -eq $current) {
+            $b.Background = SolidBrush (Tint $col '33'); $b.BorderBrush = SolidBrush $col
+        } else {
+            $b.Background = SolidBrush '#1C1F27'; $b.BorderBrush = SolidBrush '#2A2D3A'
+        }
+        $t = New-Object System.Windows.Controls.TextBlock
+        $t.Text = $s.ToUpper(); $t.FontSize = 10; $t.FontWeight = 'Bold'
+        $t.Foreground = $(if ($s -eq $current) { SolidBrush $col } else { SolidBrush '#9CA3AF' })
+        $b.Child = $t
+        $target = $s
+        $b.Add_MouseLeftButtonUp({
+            try {
+                Invoke-RestMethod -Uri "$base/local/menu/category/$($script:cidCat.id)" -Method Patch `
+                    -Body (@{ name = [string]$script:cidCat.name; section = $target } | ConvertTo-Json) `
+                    -ContentType 'application/json' -TimeoutSec 10 -ErrorAction Stop | Out-Null
+                $script:cidCat = [pscustomobject]@{ id=$script:cidCat.id; name=$script:cidCat.name; section=$target; icon=$script:cidCat.icon }
+                Update-Menu-Page
+                Render-CategorySectionRow
+            } catch {
+                [System.Windows.MessageBox]::Show((T 'menu_save_fail'), 'LightMenu', 'OK', 'Warning') | Out-Null
+            }
+        }.GetNewClosure())
+        $row.Children.Add($b) | Out-Null
+    }
+}
+
+function Render-CategoryItems {
+    if (-not $script:cidDlg) { return }
+    $panel = $script:cidDlg.FindName('CidItems')
+    $panel.Children.Clear()
+    $items = Get-CategoryItems
+
+    $script:cidDlg.FindName('CidCount').Text =
+        "$(@($items).Count) " + $(if (@($items).Count -eq 1) { T 'menu_item_one' } else { T 'menu_item_many' })
+
+    foreach ($it in $items) { $panel.Children.Add((New-CategoryItemCard $it)) | Out-Null }
+
+    $n = $script:cidSelected.Keys.Count
+    $script:cidDlg.FindName('CidHint').Text =
+        $(if ($n -gt 0) { "$n " + (T 'menu_selected') } else { T 'menu_tap_to_select' })
+}
+
+function New-CategoryItemCard($item) {
+    $id = [string]$item.id
+    $isSel = $script:cidSelected.ContainsKey($id)
+    $blocked = -not $item.available
+
+    $card = New-Object System.Windows.Controls.Border
+    $card.Width = 205
+    $card.CornerRadius = New-Object System.Windows.CornerRadius(10)
+    $card.BorderThickness = New-Object System.Windows.Thickness(2)
+    $card.Margin = New-Object System.Windows.Thickness(0,0,12,12)
+    $card.Cursor = 'Hand'
+    $card.Background = SolidBrush '#16181F'
+    if ($isSel)      { $card.BorderBrush = SolidBrush '#14B8A6' }
+    elseif ($blocked){ $card.BorderBrush = SolidBrush '#7F1D1D' }
+    else             { $card.BorderBrush = SolidBrush '#2A2D3A' }
+
+    $sp = New-Object System.Windows.Controls.StackPanel
+
+    # Image placeholder + availability dot, mirroring the web card's thumbnail.
+    $thumbWrap = New-Object System.Windows.Controls.Grid
+    $thumbWrap.Height = 84
+    $thumb = New-Object System.Windows.Controls.Border
+    $thumb.Background = SolidBrush '#1C1F27'
+    $thumb.CornerRadius = New-Object System.Windows.CornerRadius(8,8,0,0)
+    $ph = New-Object System.Windows.Controls.TextBlock
+    $ph.Text = [string][char]0xE91B      # picture glyph
+    $ph.FontFamily = New-Object System.Windows.Media.FontFamily('Segoe MDL2 Assets')
+    $ph.FontSize = 20; $ph.Foreground = SolidBrush '#3A3F4C'
+    $ph.HorizontalAlignment = 'Center'; $ph.VerticalAlignment = 'Center'
+    $thumb.Child = $ph
+    $thumbWrap.Children.Add($thumb) | Out-Null
+
+    $dot = New-Object System.Windows.Shapes.Ellipse
+    $dot.Width = 10; $dot.Height = 10
+    $dot.Fill = $(if ($blocked) { SolidBrush '#F87171' } else { SolidBrush '#34D399' })
+    $dot.HorizontalAlignment = 'Right'; $dot.VerticalAlignment = 'Top'
+    $dot.Margin = New-Object System.Windows.Thickness(0,8,8,0)
+    $thumbWrap.Children.Add($dot) | Out-Null
+    $sp.Children.Add($thumbWrap) | Out-Null
+
+    $body = New-Object System.Windows.Controls.StackPanel
+    $body.Margin = New-Object System.Windows.Thickness(10,8,10,10)
+
+    if ($item.is_addon) {
+        $ab = New-Object System.Windows.Controls.Border
+        $ab.Background = SolidBrush '#2610B981'
+        $ab.BorderBrush = SolidBrush '#8010B981'
+        $ab.BorderThickness = New-Object System.Windows.Thickness(1)
+        $ab.CornerRadius = New-Object System.Windows.CornerRadius(4)
+        $ab.Padding = New-Object System.Windows.Thickness(6,1,6,1)
+        $ab.HorizontalAlignment = 'Left'
+        $ab.Margin = New-Object System.Windows.Thickness(0,0,0,5)
+        $at = New-Object System.Windows.Controls.TextBlock
+        $at.Text = T 'menu_addon_badge'; $at.FontSize = 8.5; $at.FontWeight = 'Bold'
+        $at.Foreground = SolidBrush '#34D399'
+        $ab.Child = $at
+        $body.Children.Add($ab) | Out-Null
+    }
+
+    $nm = New-Object System.Windows.Controls.TextBlock
+    $nm.Text = ([string]$item.name).ToUpper()
+    $nm.Foreground = $(if ($blocked) { SolidBrush '#9CA3AF' } else { [System.Windows.Media.Brushes]::White })
+    $nm.FontSize = 11.5; $nm.FontWeight = 'Bold'
+    $nm.TextTrimming = 'CharacterEllipsis'
+    $body.Children.Add($nm) | Out-Null
+
+    if ($item.description) {
+        $ds = New-Object System.Windows.Controls.TextBlock
+        $ds.Text = [string]$item.description
+        $ds.Foreground = SolidBrush '#6B7280'; $ds.FontSize = 9.5
+        $ds.TextTrimming = 'CharacterEllipsis'
+        $ds.Margin = New-Object System.Windows.Thickness(0,3,0,0)
+        $body.Children.Add($ds) | Out-Null
+    }
+
+    $foot = New-Object System.Windows.Controls.Grid
+    $foot.Margin = New-Object System.Windows.Thickness(0,8,0,0)
+    $pr = New-Object System.Windows.Controls.TextBlock
+    $pr.Text = [string]::Format('{0:N2}', [double]$item.price)
+    $pr.Foreground = SolidBrush '#2DD4BF'; $pr.FontSize = 12; $pr.FontWeight = 'Bold'
+    $pr.VerticalAlignment = 'Center'
+    $foot.Children.Add($pr) | Out-Null
+
+    $acts = New-Object System.Windows.Controls.StackPanel
+    $acts.Orientation = 'Horizontal'; $acts.HorizontalAlignment = 'Right'
+    $itemData = $item
+
+    $ed = New-Object System.Windows.Controls.Button
+    $ed.Content = [string][char]0xE70F
+    $ed.FontFamily = New-Object System.Windows.Media.FontFamily('Segoe MDL2 Assets')
+    $ed.FontSize = 10; $ed.Padding = New-Object System.Windows.Thickness(7,3,7,3)
+    $ed.Background = SolidBrush '#1C1F27'; $ed.Foreground = SolidBrush '#9CA3AF'
+    $ed.BorderBrush = SolidBrush '#2A2D3A'; $ed.BorderThickness = New-Object System.Windows.Thickness(1)
+    $ed.Cursor = 'Hand'
+    $ed.Add_Click({
+        param($s, $e)
+        $e.Handled = $true
+        Show-MenuItemDialog $itemData
+        Update-Menu-Page
+        Render-CategoryItems
+    }.GetNewClosure())
+    $acts.Children.Add($ed) | Out-Null
+
+    $dl = New-Object System.Windows.Controls.Button
+    $dl.Content = [string][char]0xE74D
+    $dl.FontFamily = New-Object System.Windows.Media.FontFamily('Segoe MDL2 Assets')
+    $dl.FontSize = 10; $dl.Padding = New-Object System.Windows.Thickness(7,3,7,3)
+    $dl.Margin = New-Object System.Windows.Thickness(6,0,0,0)
+    $dl.Background = SolidBrush '#261F2937'; $dl.Foreground = SolidBrush '#F87171'
+    $dl.BorderBrush = SolidBrush '#4DF87171'; $dl.BorderThickness = New-Object System.Windows.Thickness(1)
+    $dl.Cursor = 'Hand'
+    $dl.Add_Click({
+        param($s, $e)
+        $e.Handled = $true
+        $ok = [System.Windows.MessageBox]::Show((T 'menu_confirm_del'), 'LightMenu', 'YesNo', 'Question')
+        if ($ok -ne 'Yes') { return }
+        try {
+            Invoke-RestMethod -Uri "$base/local/menu/item/$($itemData.id)" -Method Delete -TimeoutSec 10 -ErrorAction Stop | Out-Null
+            Update-Menu-Page
+            Render-CategoryItems
+        } catch {
+            [System.Windows.MessageBox]::Show((T 'menu_save_fail'), 'LightMenu', 'OK', 'Warning') | Out-Null
+        }
+    }.GetNewClosure())
+    $acts.Children.Add($dl) | Out-Null
+
+    $foot.Children.Add($acts) | Out-Null
+    $body.Children.Add($foot) | Out-Null
+    $sp.Children.Add($body) | Out-Null
+    $card.Child = $sp
+
+    $cardId = $id
+    $card.Add_MouseLeftButtonUp({
+        if ($script:cidSelected.ContainsKey($cardId)) { $script:cidSelected.Remove($cardId) }
+        else { $script:cidSelected[$cardId] = $true }
+        Render-CategoryItems
+    }.GetNewClosure())
+    return $card
+}
+
+function Invoke-CategoryBulk($makeAvailable) {
+    $ids = @($script:cidSelected.Keys)
+    if ($ids.Count -eq 0) { return }
+    $verb = $(if ($makeAvailable) { T 'menu_unblock' } else { T 'menu_block' })
+    $msg  = "$verb $($ids.Count) " + $(if ($ids.Count -eq 1) { T 'menu_item_one' } else { T 'menu_item_many' }) + '?'
+    if ([System.Windows.MessageBox]::Show($msg, 'LightMenu', 'YesNo', 'Question') -ne 'Yes') { return }
+    try {
+        $body = ConvertTo-Json -InputObject ([ordered]@{ ids = @($ids); is_available = [bool]$makeAvailable }) -Depth 4
+        $r = Invoke-RestMethod -Uri "$base/local/menu/items/availability" -Method Post -Body $body `
+             -ContentType 'application/json' -TimeoutSec 60 -ErrorAction Stop
+        if ($r -and $r.failed -gt 0) {
+            [System.Windows.MessageBox]::Show(((T 'menu_bulk_partial') -f $r.changed, $r.failed), 'LightMenu', 'OK', 'Warning') | Out-Null
+        }
+        $script:cidSelected = @{}
+        Update-Menu-Page
+        Render-CategoryItems
+    } catch {
+        [System.Windows.MessageBox]::Show((T 'menu_save_fail'), 'LightMenu', 'OK', 'Warning') | Out-Null
+    }
 }
 
 # Switch to the drill-in list for one category.

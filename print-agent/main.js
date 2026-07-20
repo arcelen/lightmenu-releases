@@ -4264,7 +4264,8 @@ http.createServer((req, res) => {
         if (!Array.isArray(cats) || !Array.isArray(items)) throw new Error('bad payload');
 
         const categories = cats
-          .map(c => ({ id: c.id, name: c.name || 'Category', section: c.section || '', order_index: c.order_index ?? 0 }))
+          .map(c => ({ id: c.id, name: c.name || 'Category', section: c.section || '', order_index: c.order_index ?? 0,
+                       icon: c.icon || c.category_icon || null }))
           .sort((a, b) => a.order_index - b.order_index);
 
         const normItems = items
@@ -4290,7 +4291,22 @@ http.createServer((req, res) => {
           .filter(i => i.is_addon)
           .map(i => ({ id: i.id, name: i.name || 'Add-on', price: Number(i.price) || 0, available: i.is_available !== false }));
 
-        const payload = { categories, items: normItems, addons, synced_at: new Date().toISOString(), source: 'supabase' };
+        // `items` stays add-on-free because the POS orders from it. The menu
+        // MANAGER needs everything, add-ons included (the web shows them with an
+        // ADD-ON badge inside their category), so it gets its own list rather
+        // than us changing what the POS sees.
+        const allItems = items.map(i => ({
+          id:          i.id,
+          name:        i.name || 'Item',
+          price:       Number(i.price) || 0,
+          description: i.description || '',
+          category_id: i.menu_category_id || null,
+          available:   i.is_available !== false,
+          is_addon:    i.is_addon === true,
+          order_index: i.order_index ?? 0,
+        })).sort((a, b) => a.order_index - b.order_index);
+
+        const payload = { categories, items: normItems, addons, all_items: allItems, synced_at: new Date().toISOString(), source: 'supabase' };
         try { fs.writeFileSync(MENU_CACHE_FILE, JSON.stringify(payload)); } catch {}
         res.writeHead(200, { 'Content-Type': 'application/json' });
         res.end(JSON.stringify(payload));
@@ -4307,6 +4323,41 @@ http.createServer((req, res) => {
         }
       }
     })();
+    return;
+  }
+
+  // ─── MENU — block / unblock several items at once ───────────────────────
+  // Backs the Block / Unblock buttons: 86-ing a whole category at the start of
+  // service is one action, not one request per dish. Reports how many actually
+  // changed so the UI can't claim success for rows the server rejected.
+  if (req.method === 'POST' && req.url === '/local/menu/items/availability') {
+    let body = '';
+    req.on('data', c => body += c);
+    req.on('end', async () => {
+      try {
+        const d = JSON.parse(body || '{}');
+        const ids = Array.isArray(d.ids) ? d.ids.filter(Boolean) : [];
+        if (!ids.length) throw new Error('ids required');
+        const isAvailable = d.is_available !== false;
+
+        let changed = 0;
+        const failures = [];
+        for (const id of ids) {
+          try {
+            const r = await stationDb('menu_item.update', { id, patch: { is_available: isAvailable } });
+            if (r && r.error) throw new Error(r.error);
+            changed++;
+          } catch (e) {
+            failures.push(id);
+          }
+        }
+        res.writeHead(200, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ ok: failures.length === 0, changed, failed: failures.length }));
+      } catch (e) {
+        res.writeHead(500, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ error: e.message || String(e) }));
+      }
+    });
     return;
   }
 
