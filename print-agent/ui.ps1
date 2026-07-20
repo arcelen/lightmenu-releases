@@ -940,9 +940,16 @@ function Format-Money($amount) {
                 <TextBox  x:Name="NewPrinterName" Grid.Column="0" Background="#0F1117" Foreground="#FFFFFF" BorderBrush="#2A2D3A" BorderThickness="1" Padding="8,6" VerticalContentAlignment="Center"/>
                 <TextBox  x:Name="NewPrinterIp"   Grid.Column="2" Width="130" Background="#0F1117" Foreground="#FFFFFF" BorderBrush="#2A2D3A" BorderThickness="1" Padding="8,6" VerticalContentAlignment="Center"/>
                 <ComboBox x:Name="NewPrinterType" Grid.Column="4" Width="110" SelectedIndex="0">
+                  <!-- Same set as the web app's printer list, plus "check"
+                       which the agent genuinely routes on (printer_type is
+                       matched against the job's ticket type). Keeping the lists
+                       aligned means a printer edited on either side keeps its
+                       meaning instead of being coerced to another type. -->
                   <ComboBoxItem Content="kitchen"/>
                   <ComboBoxItem Content="bar"/>
                   <ComboBoxItem Content="check"/>
+                  <ComboBoxItem Content="pizza"/>
+                  <ComboBoxItem Content="other"/>
                 </ComboBox>
                 <Button x:Name="SavePrinterBtn"   Grid.Column="6" Style="{StaticResource PeriodBtn}" Content="Save" Foreground="#FFFFFF">
                   <Button.Background>
@@ -1851,6 +1858,8 @@ $script:i18n = @{
         report_empty='Generate a report to see the breakdown.'
         staff_title='Staff'; btn_add_staff='+ Add Staff'; lbl_staff_name='Name'; lbl_staff_role='Role'
         staff_last_used='Last used:'; staff_never_used='Never used'; staff_active='Active'; staff_inactive='Inactive'
+        printer_active='Active'
+        printer_active_fail='Could not change this printer. It stays as it was.'
         pk_tab_setup='Printer Setup'; pk_tab_stations='Kitchen Stations'
         pk_detected='Detected printers'; pk_categories_routed='categories routed here'
         pk_not_routed='Nothing routed here yet'; pk_routing_title='Printer routing'
@@ -4811,6 +4820,32 @@ function New-PrinterCard($p) {
         }
     })
 
+    # Active toggle — not cosmetic: the agent skips inactive printers when it
+    # picks a destination (printersCache.find(... && p.is_active)), so this is
+    # how you park a printer that's unplugged without deleting its config.
+    $activeChk = New-Object System.Windows.Controls.CheckBox
+    $activeChk.Content = T 'printer_active'
+    $activeChk.Foreground = SolidBrush '#D1D5DB'
+    $activeChk.FontSize = 11
+    $activeChk.VerticalAlignment = 'Center'
+    $activeChk.Margin = New-Object System.Windows.Thickness(0,0,12,0)
+    $activeChk.IsChecked = ($p.active -ne $false)
+    $activeChk.Tag = $p
+    $activeChk.Add_Click({
+        $pp = $this.Tag
+        $want = [bool]$this.IsChecked
+        try {
+            $body = @{ is_active = $want } | ConvertTo-Json
+            Invoke-RestMethod -Uri "$base/local/printers/$($pp.id)" -Method Patch -Body $body -ContentType 'application/json' -TimeoutSec 15 -ErrorAction Stop | Out-Null
+            Update-Kitchen-Page
+        } catch {
+            # Put the box back rather than showing a state the server never took.
+            $this.IsChecked = -not $want
+            [System.Windows.MessageBox]::Show((T 'printer_active_fail'), 'LightMenu', 'OK', 'Warning') | Out-Null
+        }
+    })
+
+    $actions.Children.Add($activeChk) | Out-Null
     $actions.Children.Add($editP) | Out-Null; $actions.Children.Add($test) | Out-Null; $actions.Children.Add($del) | Out-Null
     $g.Children.Add($info) | Out-Null; $g.Children.Add($actions) | Out-Null
     $card.Child = $g
@@ -4842,7 +4877,7 @@ function Show-PrinterDialog($p) {
         <StackPanel Grid.Column="2">
           <TextBlock x:Name="LType" Foreground="#9CA3AF" FontSize="11" FontWeight="Bold" Margin="0,0,0,6"/>
           <ComboBox x:Name="FType" Width="110" Height="34" FontSize="13">
-            <ComboBoxItem Content="kitchen"/><ComboBoxItem Content="bar"/><ComboBoxItem Content="check"/>
+            <ComboBoxItem Content="kitchen"/><ComboBoxItem Content="bar"/><ComboBoxItem Content="check"/><ComboBoxItem Content="pizza"/><ComboBoxItem Content="other"/>
           </ComboBox>
         </StackPanel>
       </Grid>
@@ -6334,8 +6369,10 @@ function Load-TicketSettings {
         $script:tsZoneState.check.info  = @{ size=[string]$s.check_info_font_size;  bold=[string]$s.check_info_font_bold;  align=[string]$s.check_info_font_align }
         $script:tsZoneState.check.items = @{ size=[string]$s.check_items_font_size; bold=[string]$s.check_items_font_bold; align=[string]$s.check_items_font_align }
         foreach ($z in @('info','items')) { Refresh-Zone 'check' $z }
-        Set-Seg 'separator_style' (if ($s.separator_style) { [string]$s.separator_style } else { 'lines' })
-        Set-Seg 'ticket_mode'     (if ($s.ticket_mode)     { [string]$s.ticket_mode }     else { 'per_item' })
+        # $(...) is required: a bare (if …) parses as invoking a command named
+        # "if" and throws at runtime, which silently skipped both of these.
+        Set-Seg 'separator_style' $(if ($s.separator_style) { [string]$s.separator_style } else { 'lines' })
+        Set-Seg 'ticket_mode'     $(if ($s.ticket_mode)     { [string]$s.ticket_mode }     else { 'per_item' })
         (ctl 'TsOrderBold').IsChecked       = [bool]$s.order_item_bold
         (ctl 'TsOrderRestHeader').IsChecked = [bool]$s.show_restaurant_header
         (ctl 'TsOrderWaiter').IsChecked     = [bool]$s.show_waiter_name
@@ -6590,7 +6627,7 @@ function Update-StationsPage {
             }
             $label = if ($p.printer_number -ne $null) { "$($p.name) (#$($p.printer_number))" } else { $p.name }
             $text  = if ($names.Count) { "$label : " + ($names -join ', ') } else { "$label : " + (T 'pk_nothing_routed') }
-            $summary.Children.Add((New-StationsLine $text (if ($names.Count) { '#D1D5DB' } else { '#6B7280' }))) | Out-Null
+            $summary.Children.Add((New-StationsLine $text $(if ($names.Count) { '#D1D5DB' } else { '#6B7280' }))) | Out-Null
         }
 
         $unrouted = @()
