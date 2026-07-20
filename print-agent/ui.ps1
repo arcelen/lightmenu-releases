@@ -907,7 +907,8 @@ function Format-Money($amount) {
              Stations split. Same look as the ticket-type sub-tabs below. -->
         <StackPanel Grid.Row="1" Orientation="Horizontal" Margin="0,0,0,12">
           <Button x:Name="PkTabSetup"    Style="{StaticResource PeriodBtn}" Content="Printer Setup"    Padding="18,8" Margin="0,0,8,0"/>
-          <Button x:Name="PkTabStations" Style="{StaticResource PeriodBtn}" Content="Kitchen Stations" Padding="18,8"/>
+          <Button x:Name="PkTabStations" Style="{StaticResource PeriodBtn}" Content="Kitchen Stations" Padding="18,8" Margin="0,0,8,0"/>
+          <Button x:Name="PkTabTickets"  Style="{StaticResource PeriodBtn}" Content="Ticket Settings"  Padding="18,8"/>
         </StackPanel>
 
         <ScrollViewer Grid.Row="2" VerticalScrollBarVisibility="Auto">
@@ -963,8 +964,56 @@ function Format-Money($amount) {
               </Grid>
             </Border>
 
-            <!-- ── TICKET SETTINGS ──────────────────────────────────────── -->
+            <!-- Ticket basics: the two things you actually change while setting
+                 a printer up (language + ticket mode) with a small preview, kept
+                 next to the printers. Everything else moved to its own tab so
+                 this page stays about printers. Same x:Names, so the existing
+                 load/save/preview code is untouched. -->
             <Border Style="{StaticResource CardStyle}" Margin="0,14,0,0">
+              <StackPanel>
+                <Grid Margin="0,0,0,14">
+                  <TextBlock x:Name="PkBasicsLbl" Text="TICKET BASICS" Style="{StaticResource CardLabel}" VerticalAlignment="Center"/>
+                  <StackPanel Orientation="Horizontal" HorizontalAlignment="Right">
+                    <Button x:Name="TsTestMini" Style="{StaticResource PeriodBtn}" Content="Test Print" Margin="0,0,8,0"/>
+                    <Button x:Name="TsSaveMini" Style="{StaticResource PeriodBtn}" Content="Save" Foreground="#FFFFFF">
+                      <Button.Background>
+                        <LinearGradientBrush StartPoint="0,0" EndPoint="1,0">
+                          <GradientStop Color="#14B8A6" Offset="0"/>
+                          <GradientStop Color="#06B6D4" Offset="1"/>
+                        </LinearGradientBrush>
+                      </Button.Background>
+                    </Button>
+                  </StackPanel>
+                </Grid>
+                <Grid>
+                  <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="*"/>
+                    <ColumnDefinition Width="16"/>
+                    <ColumnDefinition Width="250"/>
+                  </Grid.ColumnDefinitions>
+                  <StackPanel Grid.Column="0">
+                    <TextBlock x:Name="PkLangLbl" Text="Language" Foreground="#9CA3AF" FontSize="11" Margin="0,0,0,6"/>
+                    <TextBlock x:Name="PkLangHint" Text="Sets the printed labels (Table, Waiter, TOTAL) for every ticket." Foreground="#6B7280" FontSize="10" Margin="0,0,0,8"/>
+                    <WrapPanel x:Name="TsLangGrid" Margin="0,0,0,16"/>
+                    <TextBlock x:Name="PkModeLbl" Text="TICKET MODE" Foreground="#7A8295" FontSize="10" FontWeight="Bold" Margin="0,0,0,6"/>
+                    <UniformGrid x:Name="TsModeSeg" Columns="3"/>
+                  </StackPanel>
+                  <Border Grid.Column="2" Background="#0F1117" BorderBrush="#2A2D3A" BorderThickness="1" CornerRadius="9" Padding="12" VerticalAlignment="Top">
+                    <StackPanel>
+                      <TextBlock x:Name="PkPreviewLbl" Text="PREVIEW" Foreground="#7A8295" FontSize="10" FontWeight="Bold" Margin="0,0,0,8" HorizontalAlignment="Center"/>
+                      <Border Background="#F5F0E8" CornerRadius="4" Padding="10">
+                        <TextBlock x:Name="TsPreviewMini" FontFamily="Consolas" FontSize="10" Foreground="#1A1A1A" TextWrapping="NoWrap"/>
+                      </Border>
+                    </StackPanel>
+                  </Border>
+                </Grid>
+              </StackPanel>
+            </Border>
+          </StackPanel>
+
+          <!-- ── TICKET SETTINGS (own tab) ───────────────────────────────── -->
+          <StackPanel x:Name="PkTicketsPanel" Visibility="Collapsed">
+            <Border Style="{StaticResource CardStyle}">
               <StackPanel>
                 <!-- Dark-themed ComboBox + CheckBox, scoped to this panel only -->
                 <StackPanel.Resources>
@@ -1094,10 +1143,8 @@ function Format-Money($amount) {
                 <!-- Global -->
                 <Border Background="#13161F" BorderBrush="#2A2D3A" BorderThickness="1" CornerRadius="9" Padding="14" Margin="0,0,0,16">
                   <StackPanel>
+                    <!-- Language moved to the Printer Setup tab's Ticket Basics card. -->
                     <TextBlock x:Name="TsGlobalLbl" Text="GLOBAL SETTINGS  (apply to all tickets)" Foreground="#7A8295" FontSize="10" FontWeight="Bold" Margin="0,0,0,10"/>
-                    <TextBlock Text="Language" Foreground="#9CA3AF" FontSize="11" Margin="0,0,0,6"/>
-                    <TextBlock Text="Sets the printed labels (Table, Waiter, TOTAL, …) for every ticket." Foreground="#6B7280" FontSize="10" Margin="0,0,0,8"/>
-                    <WrapPanel x:Name="TsLangGrid" Margin="0,0,0,14"/>
                     <Grid>
                       <Grid.ColumnDefinitions>
                         <ColumnDefinition Width="Auto"/><ColumnDefinition Width="Auto"/>
@@ -1174,8 +1221,7 @@ function Format-Money($amount) {
                     <TextBlock Grid.Column="3" Text="Font" Foreground="#9CA3AF" FontSize="12" VerticalAlignment="Center" Margin="0,0,8,0"/>
                     <ComboBox x:Name="TsOrderFont" Grid.Column="4" Width="100"><ComboBoxItem Content="small"/><ComboBoxItem Content="normal"/><ComboBoxItem Content="large"/></ComboBox>
                   </Grid>
-                  <TextBlock Text="TICKET MODE" Foreground="#7A8295" FontSize="10" FontWeight="Bold" Margin="0,4,0,6"/>
-                  <UniformGrid x:Name="TsModeSeg" Columns="3" Margin="0,0,0,12"/>
+                  <!-- Ticket mode moved to the Printer Setup tab's Ticket Basics card. -->
                   <TextBlock Text="SEPARATOR STYLE" Foreground="#7A8295" FontSize="10" FontWeight="Bold" Margin="0,0,0,6"/>
                   <StackPanel x:Name="TsSepSeg" Orientation="Horizontal" Margin="0,0,0,12"/>
                   <TextBlock Text="CONTENT" Foreground="#7A8295" FontSize="10" FontWeight="Bold" Margin="0,0,0,8"/>
@@ -6556,7 +6602,12 @@ function Update-TsPreview {
         $ft = ((ctl 'TsTransferFooter').Text).Trim()
         if ($ft) { $lines += ''; $lines += (Ts-Align $ft 'center') }
     }
-    $tb.Text = ($lines -join "`n")
+    $rendered = ($lines -join "`n")
+    $tb.Text = $rendered
+    # The Printer Setup tab carries its own smaller copy of the preview, so both
+    # stay in step no matter which tab you're editing from.
+    $mini = ctl 'TsPreviewMini'
+    if ($mini) { $mini.Text = $rendered }
     } catch { }
 }
 
@@ -6573,17 +6624,26 @@ function Set-PkTab($tab) {
     $script:pkActiveTab = $tab
     (ctl 'PkSetupPanel').Visibility    = if ($tab -eq 'setup')    { 'Visible' } else { 'Collapsed' }
     (ctl 'PkStationsPanel').Visibility = if ($tab -eq 'stations') { 'Visible' } else { 'Collapsed' }
+    (ctl 'PkTicketsPanel').Visibility  = if ($tab -eq 'tickets')  { 'Visible' } else { 'Collapsed' }
 
-    # Refresh / Rescan / Add Printer act on the printer list, not on routing.
+    # Refresh / Rescan / Add Printer act on the printer list, not on routing or
+    # ticket layout, so they only belong on the setup tab.
     foreach ($n in 'KitchenRefresh','TestBtn','AddPrinterBtn') {
         (ctl $n).Visibility = if ($tab -eq 'setup') { 'Visible' } else { 'Collapsed' }
     }
 
-    $bSetup = ctl 'PkTabSetup'; $bStations = ctl 'PkTabStations'
     $on  = { param($b) $b.Background = SolidBrush '#14B8A6'; $b.Foreground = [System.Windows.Media.Brushes]::White }
     $off = { param($b) $b.Background = SolidBrush '#1A1D29'; $b.Foreground = SolidBrush '#9CA3AF' }
-    if ($tab -eq 'setup') { & $on $bSetup; & $off $bStations }
-    else                  { & $on $bStations; & $off $bSetup; Update-StationsPage }
+    $map = @{ setup='PkTabSetup'; stations='PkTabStations'; tickets='PkTabTickets' }
+    foreach ($k in $map.Keys) {
+        $btn = ctl $map[$k]
+        if ($k -eq $tab) { & $on $btn } else { & $off $btn }
+    }
+
+    if ($tab -eq 'stations') { Update-StationsPage }
+    # Ticket controls live in both panels now, so keep the preview honest
+    # whichever tab you land on.
+    if ($tab -eq 'setup' -or $tab -eq 'tickets') { Update-TsPreview }
 }
 
 function Update-StationsPage {
@@ -6907,8 +6967,13 @@ function Set-TsTab($tab) {
 
 (ctl 'PkTabSetup').Add_Click({ Set-PkTab 'setup' })
 (ctl 'PkTabStations').Add_Click({ Set-PkTab 'stations' })
+(ctl 'PkTabTickets').Add_Click({ Set-PkTab 'tickets' })
 Set-PkTab 'setup'   # paint the initial tab state
-(ctl 'TsSave').Add_Click({
+# Save/Test live on BOTH the Ticket Basics card and the Ticket Settings tab.
+# Get-TicketSettingsFromUI reads every control by name and a collapsed panel
+# still has its controls, so one save persists the whole set no matter which
+# button you press or which tab is showing.
+function Save-TicketSettings {
     try {
         $body = (Get-TicketSettingsFromUI) | ConvertTo-Json
         Invoke-RestMethod -Uri "$base/local/ticket-settings" -Method Patch -Body $body -ContentType 'application/json' -TimeoutSec 10 -ErrorAction Stop | Out-Null
@@ -6916,8 +6981,8 @@ Set-PkTab 'setup'   # paint the initial tab state
     } catch {
         [System.Windows.MessageBox]::Show((T 'menu_save_fail'), 'LightMenu', 'OK', 'Warning') | Out-Null
     }
-})
-(ctl 'TsTest').Add_Click({
+}
+function Test-TicketSettings {
     try {
         $type = switch ($script:tsActiveTab) { 'check' { 'check' } 'cancel' { 'cancel' } 'transfer' { 'transfer' } default { 'kitchen' } }
         $body = @{ type = $type; settings = (Get-TicketSettingsFromUI) } | ConvertTo-Json
@@ -6926,7 +6991,11 @@ Set-PkTab 'setup'   # paint the initial tab state
     } catch {
         [System.Windows.MessageBox]::Show((T 'test_print_fail'), 'LightMenu', 'OK', 'Warning') | Out-Null
     }
-})
+}
+(ctl 'TsSave').Add_Click({ Save-TicketSettings })
+(ctl 'TsTest').Add_Click({ Test-TicketSettings })
+(ctl 'TsSaveMini').Add_Click({ Save-TicketSettings })
+(ctl 'TsTestMini').Add_Click({ Test-TicketSettings })
 # Live preview reacts to the controls that affect it.
 foreach ($n in @('TsOrderBold','TsOrderRestHeader','TsOrderWaiter','TsOrderPrice','TsCancelRestName','TsCancelBy','TsTransferRestName')) {
     (ctl $n).Add_Click({ Update-TsPreview }) | Out-Null
