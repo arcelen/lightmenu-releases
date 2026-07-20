@@ -4310,6 +4310,26 @@ http.createServer((req, res) => {
     return;
   }
 
+  // ─── MENU — translate everything ────────────────────────────────────────
+  // Fills in every missing translation for this restaurant's categories and
+  // items. All the work happens server-side (autoTranslateMenu); we just
+  // trigger it and report how many rows it touched. Needs a connection, and
+  // says so plainly when there isn't one.
+  if (req.method === 'POST' && req.url === '/local/menu/translate') {
+    (async () => {
+      try {
+        const r = await stationDb('menu.translate', {});
+        if (r && r.error) throw new Error(r.error);
+        res.writeHead(200, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ ok: true, translated: (r && r.translated) || 0, languages: (r && r.target_languages) || [] }));
+      } catch (e) {
+        res.writeHead(500, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ error: e.message || String(e) }));
+      }
+    })();
+    return;
+  }
+
   // ─── KITCHEN STATIONS (multi-printer routing) ───────────────────────────
   // Everything the Kitchen Stations tab needs in one round trip: the detected
   // printers, the kitchen station bound to each, and the menu categories routed

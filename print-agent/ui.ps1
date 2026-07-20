@@ -805,14 +805,16 @@ function Format-Money($amount) {
             <ColumnDefinition Width="Auto"/>
             <ColumnDefinition Width="Auto"/>
             <ColumnDefinition Width="Auto"/>
+            <ColumnDefinition Width="Auto"/>
           </Grid.ColumnDefinitions>
           <TextBox x:Name="MenuSearch" Grid.Column="0" Background="#0F1117" Foreground="#FFFFFF"
                    BorderBrush="#2A2D3A" BorderThickness="1" Padding="10,8" VerticalContentAlignment="Center"
                    FontSize="13"/>
           <TextBlock x:Name="MenuSyncBadge" Grid.Column="1" Text="--" Foreground="#7A8295" FontSize="11"
                      VerticalAlignment="Center" Margin="14,0,12,0"/>
-          <Button x:Name="AddCategoryBtn" Grid.Column="2" Style="{StaticResource PeriodBtn}" Content="+ Category" Margin="0,0,8,0"/>
-          <Button x:Name="AddItemBtn" Grid.Column="3" Style="{StaticResource PeriodBtn}" Content="+ Item" Foreground="#FFFFFF" Margin="0,0,8,0">
+          <Button x:Name="TranslateAllBtn" Grid.Column="2" Style="{StaticResource PeriodBtn}" Content="Translate All" Margin="0,0,8,0"/>
+          <Button x:Name="AddCategoryBtn" Grid.Column="3" Style="{StaticResource PeriodBtn}" Content="+ Category" Margin="0,0,8,0"/>
+          <Button x:Name="AddItemBtn" Grid.Column="4" Style="{StaticResource PeriodBtn}" Content="+ Item" Foreground="#FFFFFF" Margin="0,0,8,0">
             <Button.Background>
               <LinearGradientBrush StartPoint="0,0" EndPoint="1,0">
                 <GradientStop Color="#14B8A6" Offset="0"/>
@@ -820,45 +822,65 @@ function Format-Money($amount) {
               </LinearGradientBrush>
             </Button.Background>
           </Button>
-          <Button x:Name="MenuRefresh" Grid.Column="4" Style="{StaticResource PeriodBtn}" Content="Refresh"/>
+          <Button x:Name="MenuRefresh" Grid.Column="5" Style="{StaticResource PeriodBtn}" Content="Refresh"/>
         </Grid>
 
+        <!-- Two views, mirroring the web: a category card grid, and a drill-in
+             item list for one category. The web opens the items in a modal; an
+             in-page view works better on a counter PC where the window is
+             already small and a modal would cover the header. -->
         <Grid Grid.Row="1">
-          <Grid.ColumnDefinitions>
-            <ColumnDefinition Width="200"/>
-            <ColumnDefinition Width="12"/>
-            <ColumnDefinition Width="*"/>
-          </Grid.ColumnDefinitions>
 
-          <!-- Category sidebar -->
-          <Border Grid.Column="0" Style="{StaticResource CardStyle}" Padding="6">
-            <ScrollViewer VerticalScrollBarVisibility="Auto">
-              <StackPanel x:Name="MenuCategoryList"/>
-            </ScrollViewer>
-          </Border>
+          <!-- ── CATEGORY GRID ── -->
+          <ScrollViewer x:Name="MenuGridView" VerticalScrollBarVisibility="Auto">
+            <StackPanel>
+              <TextBlock x:Name="MenuCatsTitle" Text="Categories" Foreground="#FFFFFF" FontSize="15" FontWeight="Bold"/>
+              <TextBlock x:Name="MenuCatsHint" Foreground="#6B7280" FontSize="11" TextWrapping="Wrap" Margin="0,4,0,14"
+                         Text="Click a category to manage item availability. Click the section badge to reassign."/>
+              <WrapPanel x:Name="MenuCategoryGrid" Orientation="Horizontal"/>
+              <TextBlock x:Name="MenuCatsEmpty" Foreground="#6B7280" FontSize="12" Margin="0,20,0,0" Visibility="Collapsed"
+                         Text="No categories yet. Use + Category to create one."/>
+            </StackPanel>
+          </ScrollViewer>
 
-          <!-- Item list -->
-          <Border Grid.Column="2" Style="{StaticResource CardStyle}">
-            <Grid>
-              <Grid.RowDefinitions>
-                <RowDefinition Height="Auto"/>
-                <RowDefinition Height="*"/>
-              </Grid.RowDefinitions>
-              <Grid Grid.Row="0" Margin="4,2,4,8">
-                <Grid.ColumnDefinitions>
-                  <ColumnDefinition Width="*"/>
-                  <ColumnDefinition Width="Auto"/>
-                  <ColumnDefinition Width="Auto"/>
-                </Grid.ColumnDefinitions>
-                <TextBlock x:Name="MenuColName"  Grid.Column="0" Text="ITEM"   Style="{StaticResource CardLabel}"/>
-                <TextBlock x:Name="MenuColAvail" Grid.Column="1" Text="STATUS" Style="{StaticResource CardLabel}" Margin="0,0,24,0"/>
-                <TextBlock x:Name="MenuColPrice" Grid.Column="2" Text="PRICE"  Style="{StaticResource CardLabel}"/>
+          <!-- ── ITEMS FOR ONE CATEGORY ── -->
+          <Grid x:Name="MenuItemsView" Visibility="Collapsed">
+            <Grid.RowDefinitions>
+              <RowDefinition Height="Auto"/>
+              <RowDefinition Height="*"/>
+            </Grid.RowDefinitions>
+
+            <StackPanel Grid.Row="0" Orientation="Horizontal" Margin="0,0,0,12">
+              <Button x:Name="MenuBackBtn" Style="{StaticResource PeriodBtn}" Content="&#x2190;  Categories" Padding="12,6" Margin="0,0,12,0"/>
+              <TextBlock x:Name="MenuItemsTitle" Foreground="#FFFFFF" FontSize="15" FontWeight="Bold" VerticalAlignment="Center"/>
+              <Border x:Name="MenuItemsBadge" CornerRadius="5" Padding="8,2" Margin="10,0,0,0" VerticalAlignment="Center" Cursor="Hand">
+                <TextBlock x:Name="MenuItemsBadgeText" FontSize="10" FontWeight="Bold"/>
+              </Border>
+              <TextBlock x:Name="MenuItemsCount" Foreground="#6B7280" FontSize="11" VerticalAlignment="Center" Margin="10,0,0,0"/>
+            </StackPanel>
+
+            <Border Grid.Row="1" Style="{StaticResource CardStyle}">
+              <Grid>
+                <Grid.RowDefinitions>
+                  <RowDefinition Height="Auto"/>
+                  <RowDefinition Height="*"/>
+                </Grid.RowDefinitions>
+                <Grid Grid.Row="0" Margin="4,2,4,8">
+                  <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="*"/>
+                    <ColumnDefinition Width="Auto"/>
+                    <ColumnDefinition Width="Auto"/>
+                  </Grid.ColumnDefinitions>
+                  <TextBlock x:Name="MenuColName"  Grid.Column="0" Text="ITEM"   Style="{StaticResource CardLabel}"/>
+                  <TextBlock x:Name="MenuColAvail" Grid.Column="1" Text="STATUS" Style="{StaticResource CardLabel}" Margin="0,0,24,0"/>
+                  <TextBlock x:Name="MenuColPrice" Grid.Column="2" Text="PRICE"  Style="{StaticResource CardLabel}"/>
+                </Grid>
+                <ScrollViewer Grid.Row="1" VerticalScrollBarVisibility="Auto">
+                  <StackPanel x:Name="MenuItemList"/>
+                </ScrollViewer>
               </Grid>
-              <ScrollViewer Grid.Row="1" VerticalScrollBarVisibility="Auto">
-                <StackPanel x:Name="MenuItemList"/>
-              </ScrollViewer>
-            </Grid>
-          </Border>
+            </Border>
+          </Grid>
         </Grid>
       </Grid>
 
@@ -1904,6 +1926,11 @@ $script:i18n = @{
         report_empty='Generate a report to see the breakdown.'
         staff_title='Staff'; btn_add_staff='+ Add Staff'; lbl_staff_name='Name'; lbl_staff_role='Role'
         staff_last_used='Last used:'; staff_never_used='Never used'; staff_active='Active'; staff_inactive='Inactive'
+        menu_item_one='item'; menu_item_many='items'
+        menu_search_results='Search results'
+        translate_running='Translating...'
+        translate_done='Translated {0} entries. Anything already translated was left alone.'
+        translate_fail='Could not translate. This needs an internet connection.'
         printer_active='Active'
         printer_active_fail='Could not change this printer. It stays as it was.'
         pk_tab_setup='Printer Setup'; pk_tab_stations='Kitchen Stations'
@@ -4313,6 +4340,7 @@ function Show-AddStaffDialog {
 # ─── MENU PAGE ──────────────────────────────────────────────────────────────
 $script:menuData      = $null
 $script:menuActiveCat = '__all__'
+$script:menuView      = 'grid'   # 'grid' (category cards) | 'items' (drill-in)
 
 # A small uppercase divider above the categories that belong to a section
 # (e.g. MENU, DRINKS). Mirrors the web SectionsPanel grouping.
@@ -4526,45 +4554,196 @@ function New-MenuItemRow($item) {
     return $bd
 }
 
+# ─── Section styling ─────────────────────────────────────────────────────────
+# Mirrors the web SectionsPanel so a section looks the same in both places:
+# drink-ish names are the "bar" section, everything else gets a colour derived
+# from its name (same hash approach, so the same section keeps the same colour).
+$script:barSections = @('drinks','bar','cocktails','wine','wines','beverages','beers','spirits')
+
+function Test-SectionIsBar($name) { return $script:barSections -contains ([string]$name).ToLower() }
+
+function Get-SectionColor($name) {
+    $n = ([string]$name).ToLower()
+    if (Test-SectionIsBar $n) { return '#3B82F6' }
+    $palette = @('#F59E0B','#10B981','#8B5CF6','#F43F5E','#06B6D4','#F97316')
+    $hash = 0
+    foreach ($ch in $n.ToCharArray()) { $hash = ($hash * 31 + [int][char]$ch) % $palette.Count }
+    return $palette[$hash]
+}
+
+# The Station's /local/menu payload has no per-category icon (the web reads
+# category.icon), so instead of guessing a glyph we use a coloured initial.
+# It always renders, needs no icon font, and still distinguishes categories.
+function Get-CategoryInitial($name) {
+    $n = ([string]$name).Trim()
+    if (-not $n) { return '?' }
+    return $n.Substring(0,1).ToUpper()
+}
+
+$script:menuAccents = @('#10B981','#06B6D4','#8B5CF6','#F59E0B','#F43F5E','#3B82F6','#84CC16','#A855F7')
+
+function New-MenuCategoryCard($cat, $itemCount, $index) {
+    $accent = $script:menuAccents[$index % $script:menuAccents.Count]
+    $section = $(if ($cat.section) { [string]$cat.section } else { 'menu' })
+
+    $card = New-Object System.Windows.Controls.Border
+    $card.Background      = SolidBrush '#1A1D29'
+    $card.BorderBrush     = SolidBrush (Tint $accent '55')
+    $card.BorderThickness = New-Object System.Windows.Thickness(1)
+    $card.CornerRadius    = New-Object System.Windows.CornerRadius(12)
+    $card.Padding         = New-Object System.Windows.Thickness(14)
+    $card.Margin          = New-Object System.Windows.Thickness(0,0,12,12)
+    $card.Width           = 190
+    $card.Cursor          = 'Hand'
+
+    $sp = New-Object System.Windows.Controls.StackPanel
+
+    $avatar = New-Object System.Windows.Controls.Border
+    $avatar.Background = SolidBrush (Tint $accent '26')
+    $avatar.CornerRadius = New-Object System.Windows.CornerRadius(10)
+    $avatar.Width = 46; $avatar.Height = 46
+    $avatar.HorizontalAlignment = 'Center'
+    $initial = New-Object System.Windows.Controls.TextBlock
+    $initial.Text = Get-CategoryInitial $cat.name
+    $initial.Foreground = SolidBrush $accent
+    $initial.FontSize = 20; $initial.FontWeight = 'Bold'
+    $initial.HorizontalAlignment = 'Center'; $initial.VerticalAlignment = 'Center'
+    $avatar.Child = $initial
+    $sp.Children.Add($avatar) | Out-Null
+
+    $nm = New-Object System.Windows.Controls.TextBlock
+    $nm.Text = ([string]$cat.name).ToUpper()
+    $nm.Foreground = [System.Windows.Media.Brushes]::White
+    $nm.FontSize = 12.5; $nm.FontWeight = 'Bold'
+    $nm.TextTrimming = 'CharacterEllipsis'
+    $nm.HorizontalAlignment = 'Center'
+    $nm.Margin = New-Object System.Windows.Thickness(0,10,0,0)
+    $sp.Children.Add($nm) | Out-Null
+
+    $cnt = New-Object System.Windows.Controls.TextBlock
+    $cnt.Text = "$itemCount " + $(if ($itemCount -eq 1) { T 'menu_item_one' } else { T 'menu_item_many' })
+    $cnt.Foreground = SolidBrush '#6B7280'
+    $cnt.FontSize = 11
+    $cnt.HorizontalAlignment = 'Center'
+    $cnt.Margin = New-Object System.Windows.Thickness(0,3,0,0)
+    $sp.Children.Add($cnt) | Out-Null
+
+    # Section badge — click to reassign, exactly like the web card.
+    $secColor = Get-SectionColor $section
+    $badge = New-Object System.Windows.Controls.Border
+    $badge.Background = SolidBrush (Tint $secColor '26')
+    $badge.BorderBrush = SolidBrush (Tint $secColor '80')
+    $badge.BorderThickness = New-Object System.Windows.Thickness(1)
+    $badge.CornerRadius = New-Object System.Windows.CornerRadius(5)
+    $badge.Padding = New-Object System.Windows.Thickness(8,2,8,2)
+    $badge.HorizontalAlignment = 'Center'
+    $badge.Margin = New-Object System.Windows.Thickness(0,10,0,0)
+    $badge.Cursor = 'Hand'
+    $bt = New-Object System.Windows.Controls.TextBlock
+    $bt.Text = $section.ToUpper()
+    $bt.Foreground = SolidBrush $secColor
+    $bt.FontSize = 9.5; $bt.FontWeight = 'Bold'
+    $badge.Child = $bt
+    $sp.Children.Add($badge) | Out-Null
+
+    $card.Child = $sp
+
+    $catData = $cat
+    # Badge handled first and marked handled, so reassigning a section doesn't
+    # also drill into the category underneath it.
+    $badge.Add_MouseLeftButtonUp({
+        param($s, $e)
+        $e.Handled = $true
+        Show-CategoryDialog $catData
+    }.GetNewClosure())
+    $card.Add_MouseLeftButtonUp({ Show-MenuCategory $catData }.GetNewClosure())
+    $card.Add_MouseEnter({ $this.Background = SolidBrush '#20242F' })
+    $card.Add_MouseLeave({ $this.Background = SolidBrush '#1A1D29' })
+    return $card
+}
+
+# Switch to the drill-in list for one category.
+function Show-MenuCategory($cat) {
+    $script:menuActiveCat = $cat.id
+    $script:menuView = 'items'
+    Render-Menu
+}
+
+function Show-MenuGrid {
+    $script:menuActiveCat = '__all__'
+    $script:menuView = 'grid'
+    (ctl 'MenuSearch').Text = ''
+    Render-Menu
+}
+
 function Render-Menu {
     if (-not $script:menuData) { return }
     $cats  = @($script:menuData.categories)
     $items = @($script:menuData.items)
     $search = ((ctl 'MenuSearch').Text).Trim().ToLower()
 
-    # Category sidebar — grouped by section (mirrors the web SectionsPanel).
-    # Each category carries a `section` ('menu' by default). We list a header
-    # per section, then the categories that belong to it.
-    $catPanel = ctl 'MenuCategoryList'
-    $catPanel.Children.Clear()
-    $catPanel.Children.Add((New-MenuCatButton '__all__' (T 'menu_all_items') $items.Count)) | Out-Null
+    # Searching always shows results across every category — hunting for one
+    # item shouldn't require remembering which category it lives in.
+    $showItems = $search -or ($script:menuView -eq 'items')
 
-    # Unique section names — 'menu' always first, the rest alphabetical.
-    $sections = @($cats | ForEach-Object { if ($_.section) { $_.section } else { 'menu' } } | Select-Object -Unique)
-    $sections = @($sections | Sort-Object @{ Expression = { if ($_ -eq 'menu') { 0 } else { 1 } } }, @{ Expression = { $_ } })
+    (ctl 'MenuGridView').Visibility  = $(if ($showItems) { 'Collapsed' } else { 'Visible' })
+    (ctl 'MenuItemsView').Visibility = $(if ($showItems) { 'Visible' } else { 'Collapsed' })
 
-    foreach ($sec in $sections) {
-        $secCats = @($cats | Where-Object { $cs = $(if ($_.section) { $_.section } else { 'menu' }); $cs -eq $sec })
-        if ($secCats.Count -eq 0) { continue }
-        # Only show a section header when there's more than one section, so a
-        # simple single-section menu stays clean.
-        if ($sections.Count -gt 1) {
-            $catPanel.Children.Add((New-SectionHeader $sec)) | Out-Null
-        }
-        foreach ($c in $secCats) {
+    if (-not $showItems) {
+        $grid = ctl 'MenuCategoryGrid'
+        $grid.Children.Clear()
+        $i = 0
+        foreach ($c in $cats) {
             $cnt = (@($items | Where-Object { $_.category_id -eq $c.id })).Count
-            $catPanel.Children.Add((New-MenuCatButton $c.id $c.name $cnt)) | Out-Null
+            $grid.Children.Add((New-MenuCategoryCard $c $cnt $i)) | Out-Null
+            $i++
         }
+        # Items with no category would otherwise be invisible in a grid that only
+        # lists categories, so give them a card of their own.
+        $orphans = @($items | Where-Object { -not $_.category_id })
+        if ($orphans.Count -gt 0) {
+            $grid.Children.Add((New-MenuCategoryCard ([pscustomobject]@{ id='__uncategorized__'; name=(T 'menu_uncategorized'); section='menu' }) $orphans.Count $i)) | Out-Null
+        }
+        (ctl 'MenuCatsEmpty').Visibility = $(if ($cats.Count -eq 0 -and $orphans.Count -eq 0) { 'Visible' } else { 'Collapsed' })
+        return
     }
 
-    # Item list (filter by active category + search)
+    # ── drill-in / search results ──
     $list = $items
-    if ($script:menuActiveCat -ne '__all__') {
-        $list = @($list | Where-Object { $_.category_id -eq $script:menuActiveCat })
-    }
-    if ($search) {
+    $title = T 'menu_search_results'
+    $section = $null
+    if (-not $search) {
+        if ($script:menuActiveCat -eq '__uncategorized__') {
+            $list = @($list | Where-Object { -not $_.category_id })
+            $title = T 'menu_uncategorized'
+        } else {
+            $list = @($list | Where-Object { $_.category_id -eq $script:menuActiveCat })
+            $cur = @($cats | Where-Object { $_.id -eq $script:menuActiveCat })[0]
+            if ($cur) {
+                $title = ([string]$cur.name).ToUpper()
+                $section = $(if ($cur.section) { [string]$cur.section } else { 'menu' })
+            }
+        }
+    } else {
         $list = @($list | Where-Object { $_.name.ToLower().Contains($search) })
     }
+
+    (ctl 'MenuItemsTitle').Text = $title
+    (ctl 'MenuItemsCount').Text = "$(@($list).Count) " + $(if (@($list).Count -eq 1) { T 'menu_item_one' } else { T 'menu_item_many' })
+
+    $badge = ctl 'MenuItemsBadge'
+    if ($section) {
+        $sc = Get-SectionColor $section
+        $badge.Background = SolidBrush (Tint $sc '26')
+        $badge.BorderBrush = SolidBrush (Tint $sc '80')
+        $badge.BorderThickness = New-Object System.Windows.Thickness(1)
+        (ctl 'MenuItemsBadgeText').Text = $section.ToUpper()
+        (ctl 'MenuItemsBadgeText').Foreground = SolidBrush $sc
+        $badge.Visibility = 'Visible'
+    } else {
+        $badge.Visibility = 'Collapsed'
+    }
+
     $itemPanel = ctl 'MenuItemList'
     $itemPanel.Children.Clear()
     if (@($list).Count -eq 0) {
@@ -4598,6 +4777,37 @@ function Update-Menu-Page {
 
 (ctl 'MenuRefresh').Add_Click({ Update-Menu-Page })
 (ctl 'MenuSearch').Add_TextChanged({ Render-Menu })
+(ctl 'MenuBackBtn').Add_Click({ Show-MenuGrid })
+
+# Reassign the section straight from the drill-in header, so you don't have to
+# go back to the grid just to move a category to another printer section.
+(ctl 'MenuItemsBadge').Add_MouseLeftButtonUp({
+    if ($script:menuActiveCat -and $script:menuActiveCat -ne '__all__' -and $script:menuActiveCat -ne '__uncategorized__' -and $script:menuData) {
+        $cur = @($script:menuData.categories | Where-Object { $_.id -eq $script:menuActiveCat })[0]
+        if ($cur) { Show-CategoryDialog $cur }
+    }
+})
+
+# Translate All — the work happens server-side (autoTranslateMenu), so this just
+# triggers it and reports the count. Needs a connection; says so when there
+# isn't one rather than looking like it worked.
+(ctl 'TranslateAllBtn').Add_Click({
+    $btn = $this
+    $btn.IsEnabled = $false
+    $old = $btn.Content
+    $btn.Content = T 'translate_running'
+    try {
+        $r = Invoke-RestMethod -Uri "$base/local/menu/translate" -Method Post -ContentType 'application/json' -Body '{}' -TimeoutSec 300 -ErrorAction Stop
+        $n = 0; if ($r -and $r.translated) { $n = [int]$r.translated }
+        [System.Windows.MessageBox]::Show(((T 'translate_done') -f $n), 'LightMenu', 'OK', 'Information') | Out-Null
+        Update-Menu-Page
+    } catch {
+        [System.Windows.MessageBox]::Show((T 'translate_fail'), 'LightMenu', 'OK', 'Warning') | Out-Null
+    } finally {
+        $btn.Content = $old
+        $btn.IsEnabled = $true
+    }
+})
 
 # Add/Edit item dialog. Pass $null to add a new item, or an item object to edit.
 function Show-MenuItemDialog($item) {
