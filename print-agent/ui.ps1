@@ -866,6 +866,7 @@ function Format-Money($amount) {
       <Grid x:Name="PageKitchen" Visibility="Collapsed">
         <Grid.RowDefinitions>
           <RowDefinition Height="Auto"/>
+          <RowDefinition Height="Auto"/>
           <RowDefinition Height="*"/>
         </Grid.RowDefinitions>
 
@@ -902,8 +903,16 @@ function Format-Money($amount) {
           </StackPanel>
         </Grid>
 
-        <ScrollViewer Grid.Row="1" VerticalScrollBarVisibility="Auto">
-          <StackPanel>
+        <!-- Top-level tabs, mirroring the web app's Printer Setup / Kitchen
+             Stations split. Same look as the ticket-type sub-tabs below. -->
+        <StackPanel Grid.Row="1" Orientation="Horizontal" Margin="0,0,0,12">
+          <Button x:Name="PkTabSetup"    Style="{StaticResource PeriodBtn}" Content="Printer Setup"    Padding="18,8" Margin="0,0,8,0"/>
+          <Button x:Name="PkTabStations" Style="{StaticResource PeriodBtn}" Content="Kitchen Stations" Padding="18,8"/>
+        </StackPanel>
+
+        <ScrollViewer Grid.Row="2" VerticalScrollBarVisibility="Auto">
+          <Grid>
+          <StackPanel x:Name="PkSetupPanel">
             <!-- Live USB / transport status -->
             <Border Style="{StaticResource CardStyle}" Margin="0,0,0,12">
               <StackPanel>
@@ -1271,6 +1280,27 @@ function Format-Money($amount) {
               </StackPanel>
             </Border>
           </StackPanel>
+
+          <!-- ── KITCHEN STATIONS (multi-printer routing) ────────────────── -->
+          <StackPanel x:Name="PkStationsPanel" Visibility="Collapsed">
+            <TextBlock x:Name="PkStationsTitle" Text="Detected printers" Foreground="#FFFFFF" FontSize="14" FontWeight="Bold"/>
+            <TextBlock x:Name="PkStationsHint" Foreground="#6B7280" FontSize="11" TextWrapping="Wrap" Margin="0,4,0,12"
+                       Text="Click a printer to print its identifier and choose which menu categories print on it."/>
+
+            <!-- Cards are built in code (New-StationPrinterCard) -->
+            <WrapPanel x:Name="PkPrinterGrid" Orientation="Horizontal"/>
+
+            <TextBlock x:Name="PkStationsEmpty" Foreground="#6B7280" FontSize="12" Margin="0,8,0,0"
+                       Visibility="Collapsed"
+                       Text="No printers detected yet. Add one on the Printer Setup tab, then come back here to route categories to it."/>
+
+            <!-- Routing summary: which categories currently print where. -->
+            <TextBlock x:Name="PkRoutingLbl" Text="ROUTING" Style="{StaticResource CardLabel}" Margin="0,20,0,6"/>
+            <Border Style="{StaticResource CardStyle}">
+              <StackPanel x:Name="PkRoutingSummary"/>
+            </Border>
+          </StackPanel>
+          </Grid>
         </ScrollViewer>
       </Grid>
 
@@ -1821,6 +1851,19 @@ $script:i18n = @{
         report_empty='Generate a report to see the breakdown.'
         staff_title='Staff'; btn_add_staff='+ Add Staff'; lbl_staff_name='Name'; lbl_staff_role='Role'
         staff_last_used='Last used:'; staff_never_used='Never used'; staff_active='Active'; staff_inactive='Inactive'
+        pk_tab_setup='Printer Setup'; pk_tab_stations='Kitchen Stations'
+        pk_detected='Detected printers'; pk_categories_routed='categories routed here'
+        pk_not_routed='Nothing routed here yet'; pk_routing_title='Printer routing'
+        pk_print_identifier='Print Identifier'; pk_what_prints='What should print here?'
+        pk_what_prints_hint='Selected categories send their items to this printer. Unselected ones do not print here.'
+        pk_save_routing='Save routing'; pk_no_categories='No menu categories yet.'
+        pk_identifier_sent='Sent - check which printer produced the ticket.'
+        pk_identifier_fail='Could not reach that printer. Is it powered on and connected?'
+        pk_save_fail='Could not save routing. This needs an internet connection.'
+        pk_no_routing='No printers or menu categories to route yet.'
+        pk_nothing_routed='nothing routed'
+        pk_unrouted_warn='These categories are not routed anywhere, so their items will NOT print:'
+        pk_offline_cache='Offline - showing the last known routing. Changes need a connection.'
         staff_set_pin='Set PIN'; staff_pin_invalid='PIN must be 4 to 6 digits.'
         staff_pin_hint='4-6 digits. You choose it and tell the waiter - works with no internet.'
         staff_pin_saved_offline='PIN saved on this Station and active right now. It will sync to the cloud automatically once the internet is back.'
@@ -6480,6 +6523,332 @@ function Update-TsPreview {
     } catch { }
 }
 
+# ─── KITCHEN STATIONS (multi-printer routing) ────────────────────────────────
+# Clone of the web app's Kitchen Stations tab. Printer-first: each printer IS a
+# kitchen station, and the station row is created implicitly the first time you
+# route a category to it. There is deliberately no "Add Kitchen" button here —
+# free-floating kitchens with no printer can't print anything, and duplicates
+# bound to the same printer cause double-printing.
+$script:pkActiveTab  = 'setup'
+$script:stationsData = $null
+
+function Set-PkTab($tab) {
+    $script:pkActiveTab = $tab
+    (ctl 'PkSetupPanel').Visibility    = if ($tab -eq 'setup')    { 'Visible' } else { 'Collapsed' }
+    (ctl 'PkStationsPanel').Visibility = if ($tab -eq 'stations') { 'Visible' } else { 'Collapsed' }
+
+    # Refresh / Rescan / Add Printer act on the printer list, not on routing.
+    foreach ($n in 'KitchenRefresh','TestBtn','AddPrinterBtn') {
+        (ctl $n).Visibility = if ($tab -eq 'setup') { 'Visible' } else { 'Collapsed' }
+    }
+
+    $bSetup = ctl 'PkTabSetup'; $bStations = ctl 'PkTabStations'
+    $on  = { param($b) $b.Background = SolidBrush '#14B8A6'; $b.Foreground = [System.Windows.Media.Brushes]::White }
+    $off = { param($b) $b.Background = SolidBrush '#1A1D29'; $b.Foreground = SolidBrush '#9CA3AF' }
+    if ($tab -eq 'setup') { & $on $bSetup; & $off $bStations }
+    else                  { & $on $bStations; & $off $bSetup; Update-StationsPage }
+}
+
+function Update-StationsPage {
+    try {
+        $script:stationsData = Invoke-RestMethod -Uri "$base/local/kitchen-stations" -TimeoutSec 10 -ErrorAction Stop
+    } catch {
+        $script:stationsData = $null
+    }
+
+    $grid = ctl 'PkPrinterGrid'
+    $grid.Children.Clear()
+    $summary = ctl 'PkRoutingSummary'
+    $summary.Children.Clear()
+
+    $printers = @()
+    if ($script:stationsData -and $script:stationsData.printers) { $printers = @($script:stationsData.printers) }
+    (ctl 'PkStationsEmpty').Visibility = if ($printers.Count -eq 0) { 'Visible' } else { 'Collapsed' }
+
+    foreach ($p in $printers) { $grid.Children.Add((New-StationPrinterCard $p)) | Out-Null }
+
+    # ── Routing summary + the warning that actually matters ──────────────────
+    # Once ANY station has a category assigned, routing turns strict: items in
+    # categories nobody claimed are DROPPED, not sent to a default printer. So
+    # name them explicitly rather than letting tickets vanish silently.
+    $cats = @()
+    if ($script:stationsData -and $script:stationsData.categories) { $cats = @($script:stationsData.categories) }
+
+    $routed = @{}
+    foreach ($p in $printers) {
+        foreach ($cid in @($p.category_ids)) { $routed[[string]$cid] = $true }
+    }
+
+    if ($printers.Count -eq 0 -or $cats.Count -eq 0) {
+        $summary.Children.Add((New-StationsLine (T 'pk_no_routing') '#6B7280')) | Out-Null
+    } else {
+        foreach ($p in $printers) {
+            $names = @()
+            foreach ($cid in @($p.category_ids)) {
+                $c = $cats | Where-Object { [string]$_.id -eq [string]$cid } | Select-Object -First 1
+                if ($c) { $names += $c.name }
+            }
+            $label = if ($p.printer_number -ne $null) { "$($p.name) (#$($p.printer_number))" } else { $p.name }
+            $text  = if ($names.Count) { "$label : " + ($names -join ', ') } else { "$label : " + (T 'pk_nothing_routed') }
+            $summary.Children.Add((New-StationsLine $text (if ($names.Count) { '#D1D5DB' } else { '#6B7280' }))) | Out-Null
+        }
+
+        $unrouted = @()
+        foreach ($c in $cats) { if (-not $routed.ContainsKey([string]$c.id)) { $unrouted += $c.name } }
+        $anyRouted = $routed.Keys.Count -gt 0
+        if ($anyRouted -and $unrouted.Count) {
+            $warn = New-Object System.Windows.Controls.TextBlock
+            $warn.Text = (T 'pk_unrouted_warn') + ' ' + ($unrouted -join ', ')
+            $warn.Foreground = SolidBrush '#FCD34D'
+            $warn.FontSize = 11; $warn.TextWrapping = 'Wrap'
+            $warn.Margin = New-Object System.Windows.Thickness(0,10,0,0)
+            $summary.Children.Add($warn) | Out-Null
+        }
+    }
+
+    if ($script:stationsData -and $script:stationsData.source -eq 'cache') {
+        $summary.Children.Add((New-StationsLine (T 'pk_offline_cache') '#FCD34D')) | Out-Null
+    }
+}
+
+function New-StationsLine($text, $color) {
+    $t = New-Object System.Windows.Controls.TextBlock
+    $t.Text = [string]$text
+    $t.Foreground = SolidBrush $color
+    $t.FontSize = 11.5
+    $t.TextWrapping = 'Wrap'
+    $t.Margin = New-Object System.Windows.Thickness(0,2,0,2)
+    return $t
+}
+
+function New-StationPrinterCard($p) {
+    $card = New-Object System.Windows.Controls.Border
+    $card.Background      = SolidBrush '#1A1D29'
+    $card.BorderBrush     = SolidBrush '#2A2D3A'
+    $card.BorderThickness = New-Object System.Windows.Thickness(1)
+    $card.CornerRadius    = New-Object System.Windows.CornerRadius(10)
+    $card.Padding         = New-Object System.Windows.Thickness(14)
+    $card.Margin          = New-Object System.Windows.Thickness(0,0,12,12)
+    $card.Width           = 250
+    $card.Cursor          = 'Hand'
+
+    $sp = New-Object System.Windows.Controls.StackPanel
+
+    # Icon + number badge, then name / transport.
+    $top = New-Object System.Windows.Controls.StackPanel
+    $top.Orientation = 'Horizontal'
+
+    $iconWrap = New-Object System.Windows.Controls.Grid
+    $iconWrap.Width = 40; $iconWrap.Height = 40
+    $iconWrap.VerticalAlignment = 'Top'
+
+    $iconBg = New-Object System.Windows.Controls.Border
+    $iconBg.Background = SolidBrush (Tint '#14B8A6' '26')
+    $iconBg.CornerRadius = New-Object System.Windows.CornerRadius(10)
+    $ico = New-Object System.Windows.Controls.TextBlock
+    $ico.Text = [string][char]0xE749          # printer glyph
+    $ico.FontFamily = New-Object System.Windows.Media.FontFamily('Segoe MDL2 Assets')
+    $ico.FontSize = 17; $ico.Foreground = SolidBrush '#2DD4BF'
+    $ico.HorizontalAlignment = 'Center'; $ico.VerticalAlignment = 'Center'
+    $iconBg.Child = $ico
+    $iconWrap.Children.Add($iconBg) | Out-Null
+
+    if ($p.printer_number -ne $null) {
+        $badge = New-Object System.Windows.Controls.Border
+        $badge.Background = SolidBrush '#14B8A6'
+        $badge.CornerRadius = New-Object System.Windows.CornerRadius(9)
+        $badge.MinWidth = 18; $badge.Height = 18
+        $badge.HorizontalAlignment = 'Right'; $badge.VerticalAlignment = 'Bottom'
+        $badge.Margin = New-Object System.Windows.Thickness(0,0,-4,-4)
+        $badge.Padding = New-Object System.Windows.Thickness(4,0,4,0)
+        $bt = New-Object System.Windows.Controls.TextBlock
+        $bt.Text = [string]$p.printer_number
+        $bt.Foreground = [System.Windows.Media.Brushes]::White
+        $bt.FontSize = 10; $bt.FontWeight = 'Bold'
+        $bt.HorizontalAlignment = 'Center'; $bt.VerticalAlignment = 'Center'
+        $badge.Child = $bt
+        $iconWrap.Children.Add($badge) | Out-Null
+    }
+    $top.Children.Add($iconWrap) | Out-Null
+
+    $info = New-Object System.Windows.Controls.StackPanel
+    $info.Margin = New-Object System.Windows.Thickness(10,0,0,0)
+    $info.Width = 172
+
+    $name = New-Object System.Windows.Controls.TextBlock
+    $name.Text = [string]$p.name
+    $name.Foreground = [System.Windows.Media.Brushes]::White
+    $name.FontSize = 13; $name.FontWeight = 'Bold'
+    $name.TextTrimming = 'CharacterEllipsis'
+    $info.Children.Add($name) | Out-Null
+
+    $where = New-Object System.Windows.Controls.TextBlock
+    $where.Text = if ($p.printer_ip) { "$($p.mode) - $($p.printer_ip)" } else { [string]$p.mode }
+    $where.Foreground = SolidBrush '#6B7280'
+    $where.FontSize = 10.5
+    $where.Margin = New-Object System.Windows.Thickness(0,2,0,0)
+    $info.Children.Add($where) | Out-Null
+    $top.Children.Add($info) | Out-Null
+    $sp.Children.Add($top) | Out-Null
+
+    $count = @($p.category_ids).Count
+    $routedText = New-Object System.Windows.Controls.TextBlock
+    if ($count -gt 0) {
+        $routedText.Text = "$count " + (T 'pk_categories_routed')
+        $routedText.Foreground = SolidBrush '#2DD4BF'
+    } else {
+        $routedText.Text = T 'pk_not_routed'
+        $routedText.Foreground = SolidBrush '#6B7280'
+    }
+    $routedText.FontSize = 11
+    $routedText.Margin = New-Object System.Windows.Thickness(0,10,0,0)
+    $sp.Children.Add($routedText) | Out-Null
+
+    $card.Child = $sp
+
+    $pData = $p
+    $card.Add_MouseLeftButtonUp({ Show-RoutingDialog $pData }.GetNewClosure())
+    $card.Add_MouseEnter({ $this.BorderBrush = SolidBrush '#14B8A6' })
+    $card.Add_MouseLeave({ $this.BorderBrush = SolidBrush '#2A2D3A' })
+    return $card
+}
+
+# Printer-first routing popup — the WPF twin of the web PrinterRoutingDialog.
+# Identity on top (so you can confirm WHICH physical device you're configuring
+# via Print Identifier), then the category checklist that decides what prints.
+function Show-RoutingDialog($printer) {
+    [xml]$rtXaml = @"
+<Window xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Height="580" Width="430" ResizeMode="NoResize"
+        WindowStartupLocation="CenterOwner"
+        Background="#0F1117" TextElement.Foreground="#FFFFFF">
+  <Border Background="#161922" CornerRadius="12">
+    <Grid Margin="24">
+      <Grid.RowDefinitions>
+        <RowDefinition Height="Auto"/>
+        <RowDefinition Height="Auto"/>
+        <RowDefinition Height="Auto"/>
+        <RowDefinition Height="*"/>
+        <RowDefinition Height="Auto"/>
+      </Grid.RowDefinitions>
+
+      <StackPanel Grid.Row="0">
+        <TextBlock x:Name="RtTitle" FontSize="17" FontWeight="Bold" Foreground="#FFFFFF" TextTrimming="CharacterEllipsis"/>
+        <TextBlock x:Name="RtSub" Foreground="#9CA3AF" FontSize="11" Margin="0,3,0,0"/>
+      </StackPanel>
+
+      <StackPanel Grid.Row="1" Margin="0,14,0,0">
+        <Button x:Name="RtIdentify" Content="Print Identifier" Padding="12,8" Cursor="Hand"
+                Background="#1F2430" Foreground="#FFFFFF" BorderBrush="#2A2D3A" BorderThickness="1" FontSize="12"/>
+        <TextBlock x:Name="RtMsg" FontSize="11" TextWrapping="Wrap" Margin="0,8,0,0" Visibility="Collapsed"/>
+      </StackPanel>
+
+      <StackPanel Grid.Row="2" Margin="0,18,0,0">
+        <TextBlock x:Name="RtWhatLbl" FontSize="13" FontWeight="SemiBold" Foreground="#E5E7EB"/>
+        <TextBlock x:Name="RtWhatHint" Foreground="#6B7280" FontSize="10.5" TextWrapping="Wrap" Margin="0,3,0,0"/>
+      </StackPanel>
+
+      <ScrollViewer Grid.Row="3" VerticalScrollBarVisibility="Auto" Margin="0,10,0,0">
+        <StackPanel x:Name="RtCatList"/>
+      </ScrollViewer>
+
+      <StackPanel Grid.Row="4" Orientation="Horizontal" HorizontalAlignment="Right" Margin="0,16,0,0">
+        <Button x:Name="RtCancel" Padding="14,7" Margin="0,0,8,0" Background="#2A2D3A" Foreground="#FFFFFF" BorderThickness="0" Cursor="Hand" Content="Cancel" FontSize="12"/>
+        <Button x:Name="RtSave" Padding="18,7" BorderThickness="0" Cursor="Hand" Foreground="#FFFFFF" FontSize="12" FontWeight="SemiBold" Background="#14B8A6" Content="Save routing"/>
+      </StackPanel>
+    </Grid>
+  </Border>
+</Window>
+"@
+
+    $reader = New-Object System.Xml.XmlNodeReader $rtXaml
+    $dlg = [System.Windows.Markup.XamlReader]::Load($reader)
+    $dlg.Title = T 'pk_routing_title'
+    if ($window) { $dlg.Owner = $window }
+
+    $numTxt = if ($printer.printer_number -ne $null) { " (#$($printer.printer_number))" } else { '' }
+    $dlg.FindName('RtTitle').Text = [string]$printer.name + $numTxt
+    $dlg.FindName('RtSub').Text = if ($printer.printer_ip) { "$($printer.mode) - $($printer.printer_ip)" } else { [string]$printer.mode }
+    $dlg.FindName('RtIdentify').Content = T 'pk_print_identifier'
+    $dlg.FindName('RtWhatLbl').Text  = T 'pk_what_prints'
+    $dlg.FindName('RtWhatHint').Text = T 'pk_what_prints_hint'
+    $dlg.FindName('RtCancel').Content = T 'dlg_cancel'
+    $dlg.FindName('RtSave').Content   = T 'pk_save_routing'
+
+    # ── Category checklist ──
+    $list = $dlg.FindName('RtCatList')
+    $selected = @{}
+    foreach ($cid in @($printer.category_ids)) { $selected[[string]$cid] = $true }
+
+    $cats = @()
+    if ($script:stationsData -and $script:stationsData.categories) { $cats = @($script:stationsData.categories) }
+
+    $boxes = New-Object System.Collections.ArrayList
+    if ($cats.Count -eq 0) {
+        $empty = New-Object System.Windows.Controls.TextBlock
+        $empty.Text = T 'pk_no_categories'
+        $empty.Foreground = SolidBrush '#6B7280'; $empty.FontSize = 12
+        $list.Children.Add($empty) | Out-Null
+    }
+    foreach ($c in $cats) {
+        $cb = New-Object System.Windows.Controls.CheckBox
+        $cb.Content = [string]$c.name
+        $cb.Tag = [string]$c.id
+        $cb.Foreground = SolidBrush '#D1D5DB'
+        $cb.FontSize = 12
+        $cb.Margin = New-Object System.Windows.Thickness(0,6,0,6)
+        $cb.IsChecked = $selected.ContainsKey([string]$c.id)
+        $list.Children.Add($cb) | Out-Null
+        [void]$boxes.Add($cb)
+    }
+
+    # ── Print Identifier ──
+    $dlg.FindName('RtIdentify').Add_Click({
+        $msg = $dlg.FindName('RtMsg')
+        $msg.Visibility = 'Visible'
+        try {
+            $b = @{ printer_config_id = $printer.id; printer_number = $printer.printer_number } | ConvertTo-Json
+            Invoke-RestMethod -Uri "$base/print-identifier" -Method Post -Body $b -ContentType 'application/json' -TimeoutSec 15 -ErrorAction Stop | Out-Null
+            $msg.Text = T 'pk_identifier_sent'
+            $msg.Foreground = SolidBrush '#34D399'
+        } catch {
+            $msg.Text = T 'pk_identifier_fail'
+            $msg.Foreground = SolidBrush '#F87171'
+        }
+    }.GetNewClosure())
+
+    $dlg.FindName('RtCancel').Add_Click({ $dlg.Close() }.GetNewClosure())
+
+    # ── Save ──
+    $dlg.FindName('RtSave').Add_Click({
+        $ids = New-Object System.Collections.ArrayList
+        foreach ($cb in $boxes) { if ($cb.IsChecked) { [void]$ids.Add([string]$cb.Tag) } }
+        $msg = $dlg.FindName('RtMsg')
+        try {
+            # category_ids must serialise as a JSON ARRAY even when it holds one
+            # entry (or none) — the agent treats a non-array as "no categories"
+            # and would wipe this printer's routing.
+            $payload = [ordered]@{
+                printer_config_id = [string]$printer.id
+                kitchen_id        = if ($printer.kitchen_id) { [string]$printer.kitchen_id } else { $null }
+                name              = [string]$printer.name
+                category_ids      = @($ids.ToArray())
+            }
+            $body = ConvertTo-Json -InputObject $payload -Depth 5
+            Invoke-RestMethod -Uri "$base/local/kitchen-stations/routing" -Method Post -Body $body -ContentType 'application/json' -TimeoutSec 25 -ErrorAction Stop | Out-Null
+            $dlg.Close()
+            Update-StationsPage
+        } catch {
+            $msg.Visibility = 'Visible'
+            $msg.Text = (T 'pk_save_fail')
+            $msg.Foreground = SolidBrush '#F87171'
+        }
+    }.GetNewClosure())
+
+    $dlg.ShowDialog() | Out-Null
+}
+
 $script:tsActiveTab = 'order'
 function Set-TsTab($tab) {
     $script:tsActiveTab = $tab
@@ -6498,6 +6867,10 @@ function Set-TsTab($tab) {
 (ctl 'TsTabCheck').Add_Click({ Set-TsTab 'check' })
 (ctl 'TsTabCancel').Add_Click({ Set-TsTab 'cancel' })
 (ctl 'TsTabTransfer').Add_Click({ Set-TsTab 'transfer' })
+
+(ctl 'PkTabSetup').Add_Click({ Set-PkTab 'setup' })
+(ctl 'PkTabStations').Add_Click({ Set-PkTab 'stations' })
+Set-PkTab 'setup'   # paint the initial tab state
 (ctl 'TsSave').Add_Click({
     try {
         $body = (Get-TicketSettingsFromUI) | ConvertTo-Json

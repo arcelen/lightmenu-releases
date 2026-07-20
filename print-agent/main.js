@@ -1381,6 +1381,7 @@ const STATS_FILE     = path.join(__dirname, 'stats.daily.json');
 // Menu snapshot — fetched from Supabase when online, served from disk when
 // offline so the Station's Menu tab keeps working during an internet outage.
 const MENU_CACHE_FILE = path.join(__dirname, 'menu.cache.json');
+const STATIONS_CACHE_FILE = path.join(__dirname, 'stations.cache.json');
 
 // Read/write today's cumulative stats — survives agent restarts.
 // ui.ps1 reads this file directly so it shows accurate totals even when
@@ -4304,6 +4305,136 @@ http.createServer((req, res) => {
           res.writeHead(200, { 'Content-Type': 'application/json' });
           res.end(JSON.stringify({ categories: [], items: [], addons: [], synced_at: null, source: 'empty' }));
         }
+      }
+    })();
+    return;
+  }
+
+  // ─── KITCHEN STATIONS (multi-printer routing) ───────────────────────────
+  // Everything the Kitchen Stations tab needs in one round trip: the detected
+  // printers, the kitchen station bound to each, and the menu categories routed
+  // to it. kitchens/kitchen_categories are anon-readable so these are direct
+  // reads; only the writes below need the token-authed backend.
+  //
+  // Cached to disk so the tab still renders during an outage — you can see how
+  // routing is currently configured even when you can't change it.
+  if (req.method === 'GET' && req.url === '/local/kitchen-stations') {
+    (async () => {
+      try {
+        const [kitchens, kitchenCats, cats] = await Promise.all([
+          supabaseGet('kitchens',           { restaurant_id: RESTAURANT_ID }, 200),
+          supabaseGet('kitchen_categories', { restaurant_id: RESTAURANT_ID }, 500),
+          supabaseGet('menu_categories',    { restaurant_id: RESTAURANT_ID }, 500),
+        ]);
+        if (!Array.isArray(kitchens) || !Array.isArray(kitchenCats) || !Array.isArray(cats)) {
+          throw new Error('bad payload');
+        }
+
+        const categories = cats
+          .map(c => ({ id: c.id, name: c.name || 'Category', order_index: c.order_index ?? 0 }))
+          .sort((a, b) => a.order_index - b.order_index);
+
+        // One entry per printer, with its station and current category set.
+        const printers = (printersCache || []).map(p => {
+          const k = kitchens.find(x => x.printer_config_id === p.id) || null;
+          const assigned = k ? kitchenCats.filter(kc => kc.kitchen_id === k.id).map(kc => kc.menu_category_id) : [];
+          return {
+            id:            p.id,
+            name:          p.name || (p.printer_number != null ? 'Printer ' + p.printer_number : 'Printer'),
+            printer_number: p.printer_number ?? null,
+            printer_ip:    p.printer_ip || null,
+            // No IP means it's reached over USB rather than the network.
+            mode:          p.printer_ip ? 'ETH' : 'USB',
+            printer_type:  p.printer_type || 'kitchen',
+            kitchen_id:    k ? k.id : null,
+            kitchen_name:  k ? k.name : null,
+            category_ids:  assigned,
+          };
+        });
+
+        const payload = {
+          printers, categories,
+          kitchens: kitchens.map(k => ({
+            id: k.id, name: k.name || 'Kitchen', printer_config_id: k.printer_config_id || null,
+            is_active: k.is_active !== false,
+            category_count: kitchenCats.filter(kc => kc.kitchen_id === k.id).length,
+          })),
+          stations_configured: stationsConfigured(),
+          synced_at: new Date().toISOString(), source: 'supabase',
+        };
+        try { fs.writeFileSync(STATIONS_CACHE_FILE, JSON.stringify(payload)); } catch {}
+        res.writeHead(200, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify(payload));
+      } catch (e) {
+        try {
+          const cached = JSON.parse(fs.readFileSync(STATIONS_CACHE_FILE, 'utf8'));
+          cached.source = 'cache';
+          res.writeHead(200, { 'Content-Type': 'application/json' });
+          res.end(JSON.stringify(cached));
+        } catch {
+          res.writeHead(200, { 'Content-Type': 'application/json' });
+          res.end(JSON.stringify({ printers: [], categories: [], kitchens: [], stations_configured: false, synced_at: null, source: 'empty' }));
+        }
+      }
+    })();
+    return;
+  }
+
+  // Save one printer's routing: ensure a kitchen station exists for it, then
+  // replace its category set. Mirrors the web PrinterRoutingDialog's save.
+  // Needs the backend (writes aren't anon-permitted), so it fails cleanly while
+  // offline rather than pretending to have saved.
+  if (req.method === 'POST' && req.url === '/local/kitchen-stations/routing') {
+    let body = '';
+    req.on('data', c => body += c);
+    req.on('end', async () => {
+      try {
+        const data = JSON.parse(body || '{}');
+        const printerId = data.printer_config_id;
+        if (!printerId) throw new Error('printer_config_id required');
+        const categoryIds = Array.isArray(data.category_ids) ? data.category_ids : [];
+
+        let kitchenId = data.kitchen_id || null;
+        if (!kitchenId) {
+          const created = await stationDb('kitchen.create', {
+            name: data.name || 'Printer',
+            printer_config_id: printerId,
+          });
+          if (created && created.error) throw new Error(created.error);
+          kitchenId = created && created.kitchen ? created.kitchen.id : null;
+          if (!kitchenId) throw new Error('could not create the kitchen station');
+        }
+
+        const r = await stationDb('kitchen_categories.set', { kitchen_id: kitchenId, category_ids: categoryIds });
+        if (r && r.error) throw new Error(r.error);
+
+        // Routing changed — refresh the cache that printKitchenRouted consults
+        // so the very next ticket honours it instead of waiting up to 30s.
+        await refreshCategoryRouting();
+
+        res.writeHead(200, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ ok: true, kitchen_id: kitchenId, count: categoryIds.length }));
+      } catch (e) {
+        res.writeHead(500, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ error: e.message || String(e) }));
+      }
+    });
+    return;
+  }
+
+  // Remove a kitchen station (its category assignments go with it).
+  if (req.method === 'DELETE' && req.url.startsWith('/local/kitchen-stations/')) {
+    const kitchenId = decodeURIComponent(req.url.slice('/local/kitchen-stations/'.length));
+    (async () => {
+      try {
+        const r = await stationDb('kitchen.delete', { kitchen_id: kitchenId });
+        if (r && r.error) throw new Error(r.error);
+        await refreshCategoryRouting();
+        res.writeHead(200, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ ok: true }));
+      } catch (e) {
+        res.writeHead(500, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ error: e.message || String(e) }));
       }
     })();
     return;

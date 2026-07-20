@@ -13,3 +13,4 @@ print-agent/tunnel/cloudflared-creds.json
 # and in pins.local.json the scrypt hashes of waiter PINs. Generated per install;
 # NEVER commit any of it to this public repo.
 print-agent/*.local.json
+print-agent/*.cache.json
