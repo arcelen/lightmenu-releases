@@ -3672,8 +3672,12 @@ function New-StaffCard($member) {
     }
     $sp.Children.Add($lastUsedText) | Out-Null
 
-    # Action buttons (Share, On/Off, New Link, Role, Delete)
-    $btnRow = New-Object System.Windows.Controls.StackPanel
+    # Action buttons (Share, On/Off, New Link, Role, PIN, Delete).
+    # WrapPanel, not StackPanel: the six pills are ~465px wide but the card is fixed
+    # at 350px, and a horizontal StackPanel hands its children infinite width, so it
+    # laid them out in one un-wrappable row and clipped the tail (PIN was half cut
+    # off and Delete was unreachable). WrapPanel flows the overflow onto a second row.
+    $btnRow = New-Object System.Windows.Controls.WrapPanel
     $btnRow.Orientation = 'Horizontal'
     $btnRow.Margin = New-Object System.Windows.Thickness(0,14,0,0)
 
@@ -3733,6 +3737,12 @@ function New-StaffCard($member) {
         }
     })
     $btnRow.Children.Add($removeBtn) | Out-Null
+
+    # Give the pills a bottom margin so the wrapped second row clears the first.
+    # Make-PillButton only sets a right margin, which is all a single row needs.
+    foreach ($pill in $btnRow.Children) {
+        $pill.Margin = New-Object System.Windows.Thickness(0,0,6,6)
+    }
 
     $sp.Children.Add($btnRow) | Out-Null
     $card.Child = $sp
