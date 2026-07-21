@@ -1948,6 +1948,7 @@ $script:i18n = @{
         staff_title='Staff'; btn_add_staff='+ Add Staff'; lbl_staff_name='Name'; lbl_staff_role='Role'
         staff_last_used='Last used:'; staff_never_used='Never used'; staff_active='Active'; staff_inactive='Inactive'
         menu_item_one='item'; menu_item_many='items'
+        menu_new_section_short='New'
         menu_ticket_mode='Ticket Mode'
         menu_sel_available='Select all available'; menu_sel_blocked='Select all blocked'
         menu_unblock='Unblock'; menu_block='Block'
@@ -4941,20 +4942,53 @@ function Render-CategorySectionRow {
         $b.Child = $t
         $target = $s
         $b.Add_MouseLeftButtonUp({
-            Invoke-Guarded 'Move to section' {
-            try {
-                Invoke-RestMethod -Uri "$base/local/menu/category/$($script:cidCat.id)" -Method Patch `
-                    -Body (@{ name = [string]$script:cidCat.name; section = $target } | ConvertTo-Json) `
-                    -ContentType 'application/json' -TimeoutSec 10 -ErrorAction Stop | Out-Null
-                $script:cidCat = [pscustomobject]@{ id=$script:cidCat.id; name=$script:cidCat.name; section=$target; icon=$script:cidCat.icon }
-                Update-Menu-Page
-                Render-CategorySectionRow
-            } catch {
-                [System.Windows.MessageBox]::Show((T 'menu_save_fail'), 'LightMenu', 'OK', 'Warning') | Out-Null
-            }
-            }
+            Invoke-Guarded 'Move to section' { Set-CidCategorySection $target }
         }.GetNewClosure())
         $row.Children.Add($b) | Out-Null
+    }
+
+    # "+ New section" — the only way to create a section on the Station. A section
+    # exists precisely when a category is in it (there's no empty-section concept
+    # here — no sections-to-printer panel to hold one), so creating one just means
+    # moving this category into a brand-new name.
+    $add = New-Object System.Windows.Controls.Border
+    $add.CornerRadius = New-Object System.Windows.CornerRadius(7)
+    $add.Padding = New-Object System.Windows.Thickness(12,5,12,5)
+    $add.Cursor = 'Hand'
+    $add.Background = SolidBrush '#141821'
+    $add.BorderThickness = New-Object System.Windows.Thickness(1)
+    $add.BorderBrush = SolidBrush '#3A4150'
+    $addT = New-Object System.Windows.Controls.TextBlock
+    $addT.Text = '+ ' + (T 'menu_new_section_short'); $addT.FontSize = 10; $addT.FontWeight = 'Bold'
+    $addT.Foreground = SolidBrush '#2DD4BF'
+    $add.Child = $addT
+    $add.Add_MouseLeftButtonUp({
+        Invoke-Guarded 'New section' {
+            $ns = [Microsoft.VisualBasic.Interaction]::InputBox((T 'menu_new_section_prompt'), 'LightMenu', '')
+            if (-not $ns) { return }
+            # Sections are matched case-insensitively and stored lower-case, so a
+            # new name that only differs in case is really the existing section.
+            $ns = $ns.Trim().ToLower()
+            if (-not $ns) { return }
+            Set-CidCategorySection $ns
+        }
+    })
+    $row.Children.Add($add) | Out-Null
+}
+
+# Move the open category to a section (existing or brand-new) and refresh both the
+# modal header row and the grid behind it. Shared by the badges and "+ New".
+function Set-CidCategorySection($target) {
+    if (-not $script:cidCat -or -not $target) { return }
+    try {
+        Invoke-RestMethod -Uri "$base/local/menu/category/$($script:cidCat.id)" -Method Patch `
+            -Body (@{ section = $target } | ConvertTo-Json) `
+            -ContentType 'application/json' -TimeoutSec 10 -ErrorAction Stop | Out-Null
+        $script:cidCat = [pscustomobject]@{ id=$script:cidCat.id; name=$script:cidCat.name; section=$target; icon=$script:cidCat.icon }
+        Update-Menu-Page
+        Render-CategorySectionRow
+    } catch {
+        [System.Windows.MessageBox]::Show((T 'menu_save_fail'), 'LightMenu', 'OK', 'Warning') | Out-Null
     }
 }
 
