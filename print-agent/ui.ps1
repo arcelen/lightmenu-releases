@@ -4906,14 +4906,21 @@ function Render-CategorySectionRow {
 
     if ($script:cidCat.id -eq '__uncategorized__') { return }
 
-    $sections = @('menu','drinks')
+    $current = $(if ($script:cidCat.section) { [string]$script:cidCat.section } else { 'menu' })
+
+    # Derive the section list from the sections that actually exist, exactly like
+    # the web (distinct category.section values, sorted) — nothing hard-coded.
+    # The current section is always included so this category's own badge shows
+    # even if it's the only category using that section.
+    $seen = @{}
     if ($script:menuData) {
         foreach ($c in @($script:menuData.categories)) {
             $s = $(if ($c.section) { [string]$c.section } else { 'menu' })
-            if ($sections -notcontains $s) { $sections += $s }
+            $seen[$s] = $true
         }
     }
-    $current = $(if ($script:cidCat.section) { [string]$script:cidCat.section } else { 'menu' })
+    $seen[$current] = $true
+    $sections = @($seen.Keys | Sort-Object)
 
     foreach ($s in $sections) {
         $col = Get-SectionColor $s
